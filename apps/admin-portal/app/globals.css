@@ -56,3 +56,27 @@ h1 { font-size: 22px; margin: 0 0 4px; }
 .card p { margin: 0; color: var(--muted); font-size: 13px; }
 .badge { display: inline-block; font-size: 10px; color: var(--warn); border: 1px solid var(--warn); border-radius: 6px; padding: 1px 6px; margin-top: 10px; }
 .footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; background: var(--panel); }
+td { color: var(--text); }
+tr:last-child td { border-bottom: none; }
+td.wrap, th.wrap { white-space: normal; }
+
+/* Status pills */
+.pill { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 10px; }
+.pill.PASSED, .pill.WAIVED { background: rgba(52,211,153,0.15); color: var(--ok); }
+.pill.IN_PROGRESS, .pill.PENDING { background: rgba(251,191,36,0.15); color: var(--warn); }
+.pill.FAILED, .pill.BLOCKED { background: rgba(248,113,113,0.15); color: var(--err); }
+
+.banner { border-radius: 12px; padding: 16px 18px; margin-bottom: 24px; border: 1px solid var(--border); }
+.banner.blocked { background: rgba(248,113,113,0.08); border-color: var(--err); }
+.banner.ready { background: rgba(52,211,153,0.08); border-color: var(--ok); }
+.banner .big { font-size: 18px; font-weight: 700; }
+.notice { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; color: var(--muted); font-size: 14px; }
+.notice code { color: var(--text); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; }
+ul.clean { margin: 8px 0 0; padding-left: 18px; }
+ul.clean li { margin: 4px 0; }
