@@ -1,8 +1,18 @@
-import { IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsPositive,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 // M0 supports loyalty points only. The enum is the single canonical asset-type set
 // (§0.3, §13); other values are rejected until later milestones enable them.
 const M0_ASSET_TYPES = ['LOYALTY_POINT'] as const;
+const EXPIRY_POLICIES = ['NONE', 'FIXED', 'ROLLING'] as const;
 
 export class CreateAssetDto {
   @IsString()
@@ -17,6 +27,15 @@ export class CreateAssetDto {
   @IsOptional()
   @IsIn(M0_ASSET_TYPES)
   assetType?: (typeof M0_ASSET_TYPES)[number];
+
+  @IsOptional()
+  @IsIn(EXPIRY_POLICIES)
+  expiryPolicy?: (typeof EXPIRY_POLICIES)[number];
+
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  expiryDays?: number;
 }
 
 export class IssueDto {

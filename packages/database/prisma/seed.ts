@@ -19,6 +19,9 @@ const SCOPES = [
   'asset.issue',
   'asset.transfer',
   'asset.burn',
+  'transaction.read',
+  'transaction.compensate',
+  'transaction.approve',
   'webhook.manage',
 ];
 

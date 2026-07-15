@@ -69,6 +69,8 @@ export class AssetsService {
           status: 'DRAFT',
           issuerPublicKey: issuer.publicKey,
           issuerSecretEnc: issuer.secretKey ? this.crypto.encrypt(issuer.secretKey) : null,
+          expiryPolicy: dto.expiryPolicy ?? 'NONE',
+          expiryDays: dto.expiryDays ?? null,
           createdBy: auth.clientId,
         },
       });
@@ -152,12 +154,31 @@ export class AssetsService {
       correlationId,
       destinationWalletId: dest.wallet.id,
     });
+    await this.createPointsLot(auth.tenantId, dest.wallet.id, asset, amount);
     await this.balances.refreshFromChain({
       tenantId: auth.tenantId,
       walletId: dest.wallet.id,
       stellarAccountId: dest.wallet.stellarAccountId,
     });
     return tx;
+  }
+
+  /** Records an expiry lot for freshly issued/earned points (§21). */
+  private async createPointsLot(
+    tenantId: string,
+    walletId: string,
+    asset: Asset,
+    amount: string,
+  ): Promise<void> {
+    let expiresAt: Date | null = null;
+    if (asset.expiryPolicy !== 'NONE' && asset.expiryDays && asset.expiryDays > 0) {
+      // FIXED and ROLLING both start from earn time in this foundation; true rolling
+      // extension on activity is a later refinement.
+      expiresAt = new Date(Date.now() + asset.expiryDays * 24 * 60 * 60 * 1000);
+    }
+    await this.prisma.pointsLot.create({
+      data: { tenantId, walletId, assetId: asset.id, amount, remaining: amount, expiresAt },
+    });
   }
 
   async transfer(

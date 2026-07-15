@@ -9,6 +9,8 @@ import { AuthModule } from './auth/auth.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
 import { WalletsModule } from './wallets/wallets.module';
 import { AssetsModule } from './assets/assets.module';
+import { LoyaltyModule } from './loyalty/loyalty.module';
+import { TransactionsModule } from './transactions/transactions.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { HealthModule } from './health/health.module';
 import { CorrelationInterceptor } from './common/correlation.interceptor';
@@ -24,6 +26,8 @@ import { CorrelationInterceptor } from './common/correlation.interceptor';
     IdempotencyModule,
     WalletsModule,
     AssetsModule,
+    LoyaltyModule,
+    TransactionsModule,
     WebhooksModule,
     HealthModule,
   ],

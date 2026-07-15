@@ -7,6 +7,7 @@ import { createChainProvider } from './chain';
 import { ConfirmationService } from './services/confirmation.service';
 import { ReconciliationService } from './services/reconciliation.service';
 import { WebhookDeliveryService, type HttpPost } from './services/webhook-delivery.service';
+import { ExpiryService } from './services/expiry.service';
 
 const QUEUE = 'paychain-jobs';
 
@@ -29,12 +30,14 @@ async function main(): Promise<void> {
     return { status: res.status };
   };
   const delivery = new WebhookDeliveryService(prisma as never, crypto, httpPost);
+  const expiry = new ExpiryService(prisma as never, chain, crypto);
 
-  // Schedule the background jobs (§17 confirmation, §35 delivery, §31 reconciliation).
+  // Schedule the background jobs (§17 confirmation, §35 delivery, §31 reconciliation, §21 expiry).
   const queue = new Queue(QUEUE, { connection });
   await queue.add('confirm', {}, { repeat: { every: 10_000 }, jobId: 'confirm' });
   await queue.add('deliver-webhooks', {}, { repeat: { every: 10_000 }, jobId: 'deliver-webhooks' });
   await queue.add('reconcile', {}, { repeat: { every: 60_000 }, jobId: 'reconcile' });
+  await queue.add('expire', {}, { repeat: { every: 900_000 }, jobId: 'expire' });
 
   const worker = new Worker(
     QUEUE,
@@ -46,6 +49,8 @@ async function main(): Promise<void> {
           return delivery.processPending();
         case 'reconcile':
           return reconciliation.run();
+        case 'expire':
+          return expiry.processExpired(new Date());
         default:
           return undefined;
       }

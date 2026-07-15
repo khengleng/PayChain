@@ -80,12 +80,13 @@ d('PayChain M0 vertical slice (testnet)', () => {
       .expect(201);
     expect(webhook.body.secret).toMatch(/^whsec_/);
 
-    await http
+    const issueRes = await http
       .post(`/api/v1/assets/${assetId}/issue`)
       .set(auth)
       .set(idem())
       .send({ destinationWalletId: alice.body.id, amount: '100' })
       .expect(201);
+    const issueTxId = issueRes.body.id;
 
     // Missing Idempotency-Key on a financial write must be rejected (§18).
     await http
@@ -114,5 +115,26 @@ d('PayChain M0 vertical slice (testnet)', () => {
     const bobPts = bobBalances.body.find((b: { assetCode: string }) => b.assetCode === 'PTS');
     expect(Number(alicePts.balance)).toBeCloseTo(60);
     expect(Number(bobPts.balance)).toBeCloseTo(40);
-  }, 120_000);
+
+    // M2: earn points via the rules engine (§20).
+    const earn = await http
+      .post(`/api/v1/assets/${assetId}/earn`)
+      .set(auth)
+      .set(idem())
+      .send({ walletId: alice.body.id, spendAmount: '5', currency: 'USD' })
+      .expect(201);
+    expect(Number(earn.body.points)).toBeGreaterThan(0);
+    expect(earn.body.transaction).toBeTruthy();
+    expect(earn.body.appliedRules).toContain('base');
+
+    // M2: compensate part of the original issuance below the approval threshold → auto-executed (§19).
+    const comp = await http
+      .post(`/api/v1/transactions/${issueTxId}/compensate`)
+      .set(auth)
+      .set(idem())
+      .send({ amount: '10', reason: 'REFUND' })
+      .expect(201);
+    expect(comp.body.status).toBe('CONFIRMED');
+    expect(comp.body.compensatesTransactionId).toBe(issueTxId);
+  }, 180_000);
 });

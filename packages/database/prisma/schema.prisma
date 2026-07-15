@@ -84,6 +84,8 @@ enum TransactionType {
   ASSET_TRANSFERRED
   ASSET_REDEEMED
   ASSET_BURNED
+  ASSET_EXPIRED
+  COMPENSATING_TRANSACTION
   WALLET_FROZEN
   WALLET_UNFROZEN
   TRANSACTION_FAILED
@@ -101,7 +103,24 @@ enum TransactionStatus {
   CONFIRMED
   FAILED
   EXPIRED
+  APPROVAL_REQUIRED
+  APPROVED
+  REVERSED_BY_COMPENSATION
   RECONCILIATION_REQUIRED
+}
+
+// Loyalty expiry policy on an asset (§21). Stellar assets never expire on-chain, so PayChain
+// runs an off-chain scheduler that burns expired holdings.
+enum ExpiryPolicy {
+  NONE
+  FIXED
+  ROLLING
+}
+
+enum PointsLotStatus {
+  ACTIVE
+  EXPIRED
+  CONSUMED
 }
 
 enum OutboxStatus {
@@ -217,12 +236,16 @@ model Asset {
   decimals           Int         @default(7)
   transferability    Boolean     @default(true)
   redeemability      Boolean     @default(true)
+  expiryPolicy       ExpiryPolicy @default(NONE)
+  // Days until expiry for FIXED/ROLLING policies; null for NONE.
+  expiryDays         Int?
   createdBy          String?
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
 
   tenant       Tenant        @relation(fields: [tenantId], references: [id])
   transactions Transaction[]
+  pointsLots   PointsLot[]
 
   @@unique([tenantId, assetCode, issuerPublicKey])
   @@index([tenantId])
@@ -243,7 +266,13 @@ model Transaction {
   amount              String?
   fee                 String?
   businessReason      String?
+  // For COMPENSATING_TRANSACTION: the original transaction being economically reversed (§19).
+  compensatesTransactionId String?
   correlationId       String
+  // The maker (api client) that created this transaction — used for maker-checker on
+  // approval-gated compensations (§19): the approver must differ from the maker.
+  createdBy           String?
+  approvedBy          String?
   failureCode         String?
   failureReason       String?
   createdAt           DateTime          @default(now())
@@ -334,6 +363,29 @@ model AuditLog {
   @@index([tenantId])
   @@index([resourceType, resourceId])
   @@map("audit_logs")
+}
+
+// A lot of loyalty points earned/issued at a point in time, used by the off-chain expiry
+// engine (§21). expiresAt is computed from the asset's expiry policy when the lot is
+// created. The expiry job burns the still-held remaining amount once expiresAt passes.
+model PointsLot {
+  id        String          @id @default(uuid())
+  tenantId  String
+  walletId  String
+  assetId   String
+  amount    String
+  remaining String
+  status    PointsLotStatus @default(ACTIVE)
+  earnedAt  DateTime        @default(now())
+  expiresAt DateTime?
+  createdAt DateTime        @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@index([tenantId])
+  @@index([status, expiresAt])
+  @@index([walletId, assetId])
+  @@map("points_lots")
 }
 
 // Outbound webhook subscription (§35). The signing secret is stored encrypted (§41).

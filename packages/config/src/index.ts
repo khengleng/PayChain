@@ -22,6 +22,9 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
 
+  // Compensating transactions at/above this amount require maker-checker approval (§19).
+  COMPENSATION_APPROVAL_THRESHOLD: z.coerce.number().nonnegative().default(100000),
+
   // M0 supports testnet + futurenet only. Mainnet is deliberately excluded here.
   STELLAR_NETWORK: z.enum(['testnet', 'futurenet']).default('testnet'),
   STELLAR_RPC_PRIMARY_URL: z.string().url(),
