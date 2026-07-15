@@ -12,6 +12,9 @@ import { AssetsModule } from './assets/assets.module';
 import { LoyaltyModule } from './loyalty/loyalty.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
+import { ComplianceModule } from './compliance/compliance.module';
+import { StablecoinModule } from './stablecoin/stablecoin.module';
 import { HealthModule } from './health/health.module';
 import { CorrelationInterceptor } from './common/correlation.interceptor';
 
@@ -29,6 +32,9 @@ import { CorrelationInterceptor } from './common/correlation.interceptor';
     LoyaltyModule,
     TransactionsModule,
     WebhooksModule,
+    FeatureFlagsModule,
+    ComplianceModule,
+    StablecoinModule,
     HealthModule,
   ],
   providers: [{ provide: APP_INTERCEPTOR, useClass: CorrelationInterceptor }],

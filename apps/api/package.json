@@ -17,6 +17,7 @@
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/platform-express": "^10.3.9",
     "@paychain/blockchain": "workspace:*",
+    "@paychain/compliance": "workspace:*",
     "@paychain/config": "workspace:*",
     "@paychain/database": "workspace:*",
     "@paychain/security": "workspace:*",

@@ -23,6 +23,9 @@ const SCOPES = [
   'transaction.compensate',
   'transaction.approve',
   'webhook.manage',
+  'stablecoin.read',
+  'stablecoin.manage',
+  'stablecoin.approve',
 ];
 
 async function main(): Promise<void> {

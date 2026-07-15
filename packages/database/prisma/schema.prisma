@@ -152,6 +152,57 @@ enum ReconciliationCategory {
   ORPHAN_BLOCKCHAIN_TRANSACTION
   BALANCE_DRIFT
   UNAUTHORIZED_MOVEMENT
+  // Stablecoin-specific categories (§31), added with the stablecoin control plane (M3).
+  RESERVE_SHORTFALL
+  MISSING_MINT
+  UNMATCHED_BURN
+  UNMATCHED_FIAT_PAYOUT
+  DUPLICATE_PAYOUT
+  STALE_RESERVE_DATA
+  UNAUTHORIZED_MINT
+  LIMIT_BREACH
+}
+
+// Asset classification for the stablecoin control plane (§1, §0.3). Distinct from the
+// on-chain asset TYPE; used to apply the right policies/gates. ALGORITHMIC_STABLECOIN and
+// ASSET_BACKED_TOKEN are classification labels only — not implemented as products (§1).
+enum AssetClassification {
+  LOYALTY_POINT
+  PROMOTIONAL_CREDIT
+  MERCHANT_CREDIT
+  STABLE_VALUE_CREDIT
+  TOKENIZED_DEPOSIT
+  FIAT_BACKED_STABLECOIN
+  ALGORITHMIC_STABLECOIN
+  ASSET_BACKED_TOKEN
+}
+
+// Stablecoin lifecycle (§15). A stablecoin cannot reach ACTIVE until all required approval
+// gates pass (enforced by the lifecycle service, not the DB).
+enum StablecoinLifecycle {
+  DRAFT
+  LEGAL_REVIEW
+  COMPLIANCE_REVIEW
+  TREASURY_REVIEW
+  RESERVE_PENDING
+  TECHNICAL_TESTING
+  PILOT_APPROVED
+  ACTIVE
+  MINTING_SUSPENDED
+  REDEMPTION_SUSPENDED
+  FULLY_SUSPENDED
+  WIND_DOWN
+  CLOSED
+}
+
+// Maker-checker approval gates required before activation (§15, §19).
+enum StablecoinApprovalGate {
+  LEGAL
+  COMPLIANCE
+  TREASURY
+  RESERVE
+  TECHNICAL
+  PILOT
 }
 
 enum ReconciliationStatus {
@@ -246,6 +297,7 @@ model Asset {
   tenant       Tenant        @relation(fields: [tenantId], references: [id])
   transactions Transaction[]
   pointsLots   PointsLot[]
+  stablecoinConfig StablecoinConfig?
 
   @@unique([tenantId, assetCode, issuerPublicKey])
   @@index([tenantId])
@@ -386,6 +438,153 @@ model PointsLot {
   @@index([status, expiresAt])
   @@index([walletId, assetId])
   @@map("points_lots")
+}
+
+// Stablecoin control-plane configuration (§14), 1:1 with an Asset. Populated only for
+// stable-value/stablecoin assets. Kept separate from the loyalty Asset so the base asset
+// stays lean and the migration is additive (§0.4). No live minting happens in M3.
+model StablecoinConfig {
+  id                          String              @id @default(uuid())
+  tenantId                    String
+  assetId                     String              @unique
+  classification              AssetClassification
+  referenceCurrency           String
+  lifecycleState              StablecoinLifecycle @default(DRAFT)
+  reserveModel                String?
+  reserveAccountReference     String?
+  reserveRatioTarget          String              @default("1.0")
+  redemptionEnabled           Boolean             @default(false)
+  mintingModel                String?
+  burningModel                String?
+  issuerLegalEntity           String?
+  regulatedStatus             String?
+  jurisdiction                String?
+  licenseReference            String?
+  attestationRequired         Boolean             @default(true)
+  attestationFrequency        String?
+  proofOfReserveEnabled       Boolean             @default(false)
+  minimumRedemptionAmount     String?
+  maximumRedemptionAmount     String?
+  redemptionFee               String?
+  mintFee                     String?
+  transferFee                 String?
+  dailyMintLimit              String?
+  dailyRedeemLimit            String?
+  perWalletHoldingLimit       String?
+  travelRuleRequired          Boolean             @default(false)
+  kycLevelRequired            String              @default("NONE")
+  amlScreeningRequired        Boolean             @default(true)
+  sanctionsScreeningRequired  Boolean             @default(true)
+  featureFlag                 String?
+  activationStatus            String              @default("INACTIVE")
+  createdBy                   String?
+  createdAt                   DateTime            @default(now())
+  updatedAt                   DateTime            @updatedAt
+
+  asset     Asset                @relation(fields: [assetId], references: [id])
+  approvals StablecoinApproval[]
+
+  @@index([tenantId])
+  @@map("stablecoin_configs")
+}
+
+// Records a maker-checker approval for a lifecycle gate (§15, §19). Unique per (config, gate).
+model StablecoinApproval {
+  id                 String                 @id @default(uuid())
+  stablecoinConfigId String
+  gate               StablecoinApprovalGate
+  approvedBy         String
+  note               String?
+  approvedAt         DateTime               @default(now())
+
+  config StablecoinConfig @relation(fields: [stablecoinConfigId], references: [id])
+
+  @@unique([stablecoinConfigId, gate])
+  @@map("stablecoin_approvals")
+}
+
+// Feature flags (§36). tenantId "GLOBAL" holds platform defaults; a real tenant id holds an
+// override. All stablecoin.* production flags default to OFF.
+model FeatureFlag {
+  id        String   @id @default(uuid())
+  tenantId  String   @default("GLOBAL")
+  key       String
+  enabled   Boolean  @default(false)
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, key])
+  @@map("feature_flags")
+}
+
+// Wallet-level stablecoin controls (§27). A wallet is NOT stablecoin-eligible just because
+// it can hold loyalty points. assetId "ALL" applies wallet-wide; a specific id scopes to one.
+model WalletStablecoinPolicy {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  walletId           String
+  assetId            String   @default("ALL")
+  maxBalance         String?
+  maxDailyReceive    String?
+  maxDailySend       String?
+  maxMonthlyVolume   String?
+  maxTxPerDay        Int?
+  allowedCountries   String[] @default([])
+  kycLevel           String   @default("NONE")
+  riskRating         String   @default("LOW")
+  sanctionsStatus    String   @default("CLEAR")
+  eddRequired        Boolean  @default(false)
+  transferRestricted Boolean  @default(false)
+  frozen             Boolean  @default(false)
+  redemptionEligible Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([walletId, assetId])
+  @@index([tenantId])
+  @@map("wallet_stablecoin_policies")
+}
+
+// Point-in-time reserve figures for proof-of-reserve (§5, §24). Data model only in M3.
+model ReserveSnapshot {
+  id                         String   @id @default(uuid())
+  tenantId                   String
+  assetId                    String
+  reserveBalance             String
+  outstandingSupply          String
+  reserveRatio               String
+  unredeemedLiability        String?
+  pendingMintLiability       String?
+  pendingRedemptionLiability String?
+  source                     String   @default("manual")
+  snapshotHash               String?
+  takenAt                    DateTime @default(now())
+
+  @@index([tenantId, assetId])
+  @@map("reserve_snapshots")
+}
+
+// Proof-of-reserve attestation metadata (§24). Only public metadata + a document hash are
+// stored; confidential banking documents are never put on-chain, and the on-chain anchor
+// (if any) references only the hash — it proves existence, not solvency (§0.6).
+model Attestation {
+  id               String    @id @default(uuid())
+  tenantId         String
+  assetId          String
+  identifier       String
+  version          Int       @default(1)
+  reserveRatio     String?
+  auditorReference String?
+  documentHash     String?
+  status           String    @default("DRAFT")
+  effectiveAt      DateTime?
+  expiresAt        DateTime?
+  onChainAnchorTx  String?
+  createdAt        DateTime  @default(now())
+
+  @@index([tenantId, assetId])
+  @@map("attestations")
 }
 
 // Outbound webhook subscription (§35). The signing secret is stored encrypted (§41).
