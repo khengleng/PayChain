@@ -10,7 +10,30 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 a { color: var(--accent); text-decoration: none; }
-.wrap { max-width: 860px; margin: 0 auto; padding: 56px 24px; }
+.wrap { max-width: 860px; margin: 0 auto; padding: 40px 24px 56px; }
+
+/* Top nav */
+.topnav { position: sticky; top: 0; z-index: 10; background: rgba(11,14,20,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+.topnav-inner { max-width: 860px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 20px; }
+.topnav .logo { font-weight: 700; font-size: 16px; }
+.topnav .logo span { color: var(--accent); }
+.topnav .links { display: flex; gap: 16px; margin-left: auto; flex-wrap: wrap; }
+.topnav .links a { color: var(--muted); font-size: 14px; }
+.topnav .links a:hover { color: var(--text); }
+
+/* Tables + pills reused on API/status pages */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; margin: 12px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+tr:last-child td { border-bottom: none; }
+td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.dot.ok { background: #34d399; } .dot.err { background: #f87171; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px; margin: 16px 0; }
+.tile { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.tile .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .value { font-size: 18px; font-weight: 600; margin-top: 8px; }
 .brand { font-weight: 700; font-size: 22px; }
 .brand span { color: var(--accent); }
 .tag { color: var(--muted); font-size: 13px; margin-top: 4px; }
