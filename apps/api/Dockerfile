@@ -10,14 +10,15 @@ RUN apt-get update \
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-ENV NODE_ENV=production
 RUN corepack enable
 
 WORKDIR /app
 
 # Copy the whole workspace (node_modules/dist excluded via .dockerignore) and install.
+# --prod=false forces devDependencies (prisma, nest CLI, tsc) even when the platform sets
+# NODE_ENV=production at build time; they are required to generate the client and build.
 COPY . .
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --prod=false
 
 # Generate the Prisma client, then build packages (topo order) and the API.
 RUN pnpm --filter @paychain/database exec prisma generate \
