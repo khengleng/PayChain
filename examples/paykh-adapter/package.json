@@ -1,0 +1,26 @@
+{
+  "name": "@paychain/example-paykh-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sample adapter showing how PayKH integrates PayChain for LOYALTY ONLY (§44). Not the real PayKH app; reference code only.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
+    "test": "jest --passWithNoTests",
+    "example": "ts-node src/example.ts"
+  },
+  "dependencies": {
+    "@paychain/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.11.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
