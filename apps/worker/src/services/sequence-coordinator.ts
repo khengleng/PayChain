@@ -45,7 +45,7 @@ export class RedisLock implements Lock {
     const lockKey = `lock:source:${key}`;
     const token = randomUUID();
     // Spin until acquired. TTL guarantees release even if a holder dies.
-    // eslint-disable-next-line no-constant-condition
+     
     while (true) {
       const ok = await this.redis.set(lockKey, token, 'PX', this.ttlMs, 'NX');
       if (ok) break;

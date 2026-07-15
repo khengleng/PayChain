@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @paychain/database exec prisma generate
+
+      - name: Build packages
+        run: pnpm -r --filter "./packages/**" build
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm -r test
+
+      - name: Build apps
+        run: pnpm -r --filter "./apps/**" build
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Dependency vulnerability scan (§41), best-effort (the pnpm audit endpoint can be
+      # flaky/retired across versions). The ENFORCING dependency gate is Railway's deploy
+      # scanner, which blocks vulnerable packages at deploy time (it caught next@14.2.5).
+      - name: Dependency audit (advisory)
+        continue-on-error: true
+        run: pnpm audit --audit-level high
+
+      # Secret scan (§41): reject committed private keys / obvious credentials.
+      - name: Secret scan
+        run: bash scripts/secret-scan.sh

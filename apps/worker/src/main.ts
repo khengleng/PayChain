@@ -12,7 +12,7 @@ import { ExpiryService } from './services/expiry.service';
 const QUEUE = 'paychain-jobs';
 
 function log(msg: string, extra: Record<string, unknown> = {}): void {
-  // eslint-disable-next-line no-console
+   
   console.log(JSON.stringify({ level: 'info', component: 'worker', msg, ...extra }));
 }
 
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
     }
   });
   worker.on('failed', (job, err) => {
-    // eslint-disable-next-line no-console
+     
     console.error(JSON.stringify({ level: 'error', component: 'worker', job: job?.name, error: err.message }));
   });
 
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
 }
 
 void main().catch((err) => {
-  // eslint-disable-next-line no-console
+   
   console.error(JSON.stringify({ level: 'fatal', component: 'worker', error: err instanceof Error ? err.message : String(err) }));
   process.exit(1);
 });

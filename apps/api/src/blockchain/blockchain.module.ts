@@ -1,5 +1,9 @@
 import { Global, Module } from '@nestjs/common';
-import type { BlockchainProvider } from '@paychain/blockchain';
+import {
+  FailoverBlockchainProvider,
+  type BlockchainProvider,
+  type NamedProvider,
+} from '@paychain/blockchain';
 import type { PayChainConfig } from '@paychain/config';
 import { StellarProvider } from '@paychain/stellar';
 import { CONFIG } from '../config/config.module';
@@ -7,9 +11,10 @@ import { CONFIG } from '../config/config.module';
 export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
 
 /**
- * Binds the concrete Stellar provider to the provider-agnostic token (§9).
- * Business modules inject BLOCKCHAIN_PROVIDER and never see the Stellar SDK.
- * Swapping providers or adding failover happens here only.
+ * Binds the blockchain provider to the provider-agnostic token (§9). The concrete Stellar
+ * provider is wrapped in a FailoverBlockchainProvider with circuit breakers + timeouts (§40):
+ * the primary RPC/Horizon endpoint is tried first, then the optional secondary. Business
+ * modules inject BLOCKCHAIN_PROVIDER and never see the Stellar SDK or the failover logic.
  */
 @Global()
 @Module({
@@ -17,13 +22,26 @@ export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
     {
       provide: BLOCKCHAIN_PROVIDER,
       inject: [CONFIG],
-      useFactory: (cfg: PayChainConfig): BlockchainProvider =>
-        new StellarProvider({
-          network: cfg.STELLAR_NETWORK,
-          horizonUrl: cfg.STELLAR_HORIZON_URL,
-          networkPassphrase: cfg.STELLAR_NETWORK_PASSPHRASE,
-          friendbotUrl: cfg.STELLAR_FRIENDBOT_URL || undefined,
-        }),
+      useFactory: (cfg: PayChainConfig): BlockchainProvider => {
+        const makeStellar = (horizonUrl: string) =>
+          new StellarProvider({
+            network: cfg.STELLAR_NETWORK,
+            horizonUrl,
+            networkPassphrase: cfg.STELLAR_NETWORK_PASSPHRASE,
+            friendbotUrl: cfg.STELLAR_FRIENDBOT_URL || undefined,
+          });
+
+        const providers: NamedProvider[] = [
+          { name: 'stellar-primary', provider: makeStellar(cfg.STELLAR_HORIZON_URL) },
+        ];
+        if (cfg.STELLAR_RPC_SECONDARY_URL) {
+          providers.push({ name: 'stellar-secondary', provider: makeStellar(cfg.STELLAR_RPC_SECONDARY_URL) });
+        }
+        return new FailoverBlockchainProvider(providers, {
+          timeoutMs: 20_000,
+          circuit: { failureThreshold: 5, resetTimeoutMs: 30_000 },
+        });
+      },
     },
   ],
   exports: [BLOCKCHAIN_PROVIDER],
