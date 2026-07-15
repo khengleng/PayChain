@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ScopesGuard } from '../auth/scopes.guard';
 import { RequireScopes } from '../auth/scopes.decorator';
 import { IdempotencyService } from '../idempotency/idempotency.service';
+import { requireIdempotencyKey } from '../common/idempotency-key';
 import { CreateWalletDto } from './dto';
 import { WalletsService } from './wallets.service';
 
@@ -31,7 +32,8 @@ export class WalletsController {
     @Body() dto: CreateWalletDto,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.idempotency.run(auth.tenantId, idempotencyKey, dto, () =>
+    const key = requireIdempotencyKey(idempotencyKey);
+    return this.idempotency.run(auth.tenantId, key, dto, () =>
       this.wallets.create(auth, dto, correlationId),
     );
   }

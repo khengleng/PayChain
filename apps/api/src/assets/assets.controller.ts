@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ScopesGuard } from '../auth/scopes.guard';
 import { RequireScopes } from '../auth/scopes.decorator';
 import { IdempotencyService } from '../idempotency/idempotency.service';
+import { requireIdempotencyKey } from '../common/idempotency-key';
 import { AssetsService } from './assets.service';
 import { BurnDto, CreateAssetDto, IssueDto, RedeemDto, TransferDto } from './dto';
 
@@ -31,7 +32,7 @@ export class AssetsController {
     @Body() dto: CreateAssetDto,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.idempotency.run(auth.tenantId, key, dto, () =>
+    return this.idempotency.run(auth.tenantId, requireIdempotencyKey(key), dto, () =>
       this.assets.create(auth, dto, correlationId),
     );
   }
@@ -67,7 +68,7 @@ export class AssetsController {
     @Body() dto: IssueDto,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.idempotency.run(auth.tenantId, key, { assetId, ...dto }, () =>
+    return this.idempotency.run(auth.tenantId, requireIdempotencyKey(key), { assetId, ...dto }, () =>
       this.assets.issue(auth, assetId, dto.destinationWalletId, dto.amount, correlationId),
     );
   }
@@ -81,7 +82,7 @@ export class AssetsController {
     @Body() dto: TransferDto,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.idempotency.run(auth.tenantId, key, { assetId, ...dto }, () =>
+    return this.idempotency.run(auth.tenantId, requireIdempotencyKey(key), { assetId, ...dto }, () =>
       this.assets.transfer(
         auth,
         assetId,
@@ -102,7 +103,7 @@ export class AssetsController {
     @Body() dto: RedeemDto,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.idempotency.run(auth.tenantId, key, { assetId, ...dto }, () =>
+    return this.idempotency.run(auth.tenantId, requireIdempotencyKey(key), { assetId, ...dto }, () =>
       this.assets.redeem(auth, assetId, dto.sourceWalletId, dto.amount, correlationId),
     );
   }
@@ -116,7 +117,7 @@ export class AssetsController {
     @Body() dto: BurnDto,
     @Headers('idempotency-key') key?: string,
   ) {
-    return this.idempotency.run(auth.tenantId, key, { assetId, ...dto }, () =>
+    return this.idempotency.run(auth.tenantId, requireIdempotencyKey(key), { assetId, ...dto }, () =>
       this.assets.burn(auth, assetId, dto.walletId, dto.amount, correlationId),
     );
   }

@@ -40,6 +40,11 @@ d('PayChain M0 vertical slice (testnet)', () => {
     await app?.close();
   });
 
+  // Every write now requires an Idempotency-Key (M1, §18).
+  const idem = (): { 'Idempotency-Key': string } => ({
+    'Idempotency-Key': `e2e-${Math.random().toString(36).slice(2)}-${process.hrtime.bigint()}`,
+  });
+
   it('runs the full loyalty flow and reflects balances', async () => {
     const http = request(app.getHttpServer());
     const auth = { Authorization: `Bearer ${token}` };
@@ -47,6 +52,7 @@ d('PayChain M0 vertical slice (testnet)', () => {
     const asset = await http
       .post('/api/v1/assets')
       .set(auth)
+      .set(idem())
       .send({ assetCode: 'PTS', assetName: 'Loyalty Points' })
       .expect(201);
     const assetId = asset.body.id;
@@ -56,23 +62,42 @@ d('PayChain M0 vertical slice (testnet)', () => {
     const alice = await http
       .post('/api/v1/wallets')
       .set(auth)
+      .set(idem())
       .send({ ownerType: 'CUSTOMER', ownerReference: 'alice' })
       .expect(201);
     const bob = await http
       .post('/api/v1/wallets')
       .set(auth)
+      .set(idem())
       .send({ ownerType: 'CUSTOMER', ownerReference: 'bob' })
       .expect(201);
+
+    // Register a webhook endpoint (§35) and confirm the signing secret is returned once.
+    const webhook = await http
+      .post('/api/v1/webhooks')
+      .set(auth)
+      .send({ url: 'https://example.test/paychain-hook', events: ['asset.issued', 'asset.transferred'] })
+      .expect(201);
+    expect(webhook.body.secret).toMatch(/^whsec_/);
 
     await http
       .post(`/api/v1/assets/${assetId}/issue`)
       .set(auth)
+      .set(idem())
       .send({ destinationWalletId: alice.body.id, amount: '100' })
       .expect(201);
+
+    // Missing Idempotency-Key on a financial write must be rejected (§18).
+    await http
+      .post(`/api/v1/assets/${assetId}/issue`)
+      .set(auth)
+      .send({ destinationWalletId: alice.body.id, amount: '1' })
+      .expect(400);
 
     await http
       .post(`/api/v1/assets/${assetId}/transfer`)
       .set(auth)
+      .set(idem())
       .send({ sourceWalletId: alice.body.id, destinationWalletId: bob.body.id, amount: '40' })
       .expect(201);
 

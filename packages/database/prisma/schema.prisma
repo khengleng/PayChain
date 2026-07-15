@@ -111,6 +111,36 @@ enum OutboxStatus {
   FAILED
 }
 
+enum WebhookEndpointStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  DEAD
+}
+
+// Reconciliation exception categories (§31). M1 covers the loyalty-relevant subset; the
+// stablecoin-specific categories (RESERVE_SHORTFALL, UNMATCHED_FIAT_PAYOUT, ...) are added
+// with the stablecoin milestone (M3/M4) as an additive change.
+enum ReconciliationCategory {
+  MISSING_CONFIRMATION
+  SUPPLY_MISMATCH
+  DUPLICATE_TRANSACTION
+  ORPHAN_BLOCKCHAIN_TRANSACTION
+  BALANCE_DRIFT
+  UNAUTHORIZED_MOVEMENT
+}
+
+enum ReconciliationStatus {
+  OPEN
+  RESOLVED
+  IGNORED
+}
+
 // --- models ----------------------------------------------------------------
 
 model Tenant {
@@ -304,4 +334,66 @@ model AuditLog {
   @@index([tenantId])
   @@index([resourceType, resourceId])
   @@map("audit_logs")
+}
+
+// Outbound webhook subscription (§35). The signing secret is stored encrypted (§41).
+model WebhookEndpoint {
+  id        String                @id @default(uuid())
+  tenantId  String
+  url       String
+  secretEnc String
+  events    String[]              @default([])
+  status    WebhookEndpointStatus @default(ACTIVE)
+  createdBy String?
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId])
+  @@map("webhook_endpoints")
+}
+
+// One delivery attempt-set per (endpoint, event). The unique (endpointId, eventId) key
+// enforces at-most-once delivery per event — the basis of duplicate-webhook protection (§35).
+model WebhookDelivery {
+  id            String                @id @default(uuid())
+  tenantId      String
+  endpointId    String
+  eventType     String
+  eventId       String
+  payload       Json
+  status        WebhookDeliveryStatus @default(PENDING)
+  attempts      Int                   @default(0)
+  lastError     String?
+  correlationId String?
+  createdAt     DateTime              @default(now())
+  deliveredAt   DateTime?
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id])
+
+  @@unique([endpointId, eventId])
+  @@index([tenantId])
+  @@index([status, createdAt])
+  @@map("webhook_deliveries")
+}
+
+// Reconciliation exception queue (§31). Discrepancies are recorded, never silently
+// overwritten. A human/operator resolves or ignores each one.
+model ReconciliationException {
+  id            String                 @id @default(uuid())
+  tenantId      String
+  category      ReconciliationCategory
+  status        ReconciliationStatus   @default(OPEN)
+  transactionId String?
+  blockchainHash String?
+  detail        Json
+  correlationId String?
+  createdAt     DateTime               @default(now())
+  resolvedAt    DateTime?
+  resolvedBy    String?
+
+  @@index([tenantId])
+  @@index([status, category])
+  @@map("reconciliation_exceptions")
 }

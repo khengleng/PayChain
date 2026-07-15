@@ -18,5 +18,10 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "typescript": "^5.4.5"
+  },
+  "pnpm": {
+    "overrides": {
+      "ioredis": "5.10.1"
+    }
   }
 }

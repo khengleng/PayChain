@@ -19,6 +19,7 @@ const SCOPES = [
   'asset.issue',
   'asset.transfer',
   'asset.burn',
+  'webhook.manage',
 ];
 
 async function main(): Promise<void> {

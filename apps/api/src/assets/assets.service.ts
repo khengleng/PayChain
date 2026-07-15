@@ -17,8 +17,17 @@ import { AuditService } from '../audit/audit.service';
 import type { AuthContext } from '../auth/auth-context';
 import { BalanceService } from '../wallets/balance.service';
 import { WalletsService } from '../wallets/wallets.service';
+import { WebhookEmitterService } from '../webhooks/webhook-emitter.service';
 import { assertValidAmount } from '../common/money';
 import type { CreateAssetDto } from './dto';
+
+// Maps a transaction type to its outbound webhook event name (§35).
+const TX_EVENT_NAME: Partial<Record<TransactionType, string>> = {
+  ASSET_ISSUED: 'asset.issued',
+  ASSET_TRANSFERRED: 'asset.transferred',
+  ASSET_REDEEMED: 'asset.redeemed',
+  ASSET_BURNED: 'asset.burned',
+};
 
 export interface AssetView {
   id: string;
@@ -38,6 +47,7 @@ export class AssetsService {
     private readonly audit: AuditService,
     private readonly wallets: WalletsService,
     private readonly balances: BalanceService,
+    private readonly webhooks: WebhookEmitterService,
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
   ) {}
 
@@ -345,6 +355,26 @@ export class AssetsService {
       correlationId: params.correlationId,
       metadata: { blockchainHash: record.blockchainHash, amount: params.amount },
     });
+
+    // Emit an outbound event for subscribers (§35). eventId = transaction id → the worker
+    // delivers it at-most-once per endpoint even if this path is retried.
+    const eventType = TX_EVENT_NAME[params.type];
+    if (eventType) {
+      await this.webhooks.emit({
+        tenantId: params.auth.tenantId,
+        eventType,
+        eventId: record.id,
+        payload: {
+          transactionId: record.id,
+          type: record.type,
+          status: record.status,
+          assetId: params.asset.id,
+          amount: params.amount,
+          blockchainHash: record.blockchainHash,
+        },
+        correlationId: params.correlationId,
+      });
+    }
     return {
       id: record.id,
       type: record.type,
