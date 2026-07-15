@@ -283,6 +283,29 @@ enum AlertStatus {
   DISMISSED
 }
 
+// --- M6: production-readiness gates ------------------------------------------
+
+enum ReadinessStatus {
+  PENDING
+  IN_PROGRESS
+  PASSED
+  FAILED
+  BLOCKED
+  WAIVED
+}
+
+enum EmergencyActionType {
+  SUSPEND_MINTING
+  SUSPEND_REDEMPTION
+  SUSPEND_CONVERSION
+  SUSPEND_TRANSFERS
+  FREEZE_WALLET
+  FREEZE_ASSET
+  DISABLE_TENANT
+  DISABLE_MAINNET_WRITES
+  RESUME
+}
+
 enum ReconciliationStatus {
   OPEN
   RESOLVED
@@ -830,6 +853,43 @@ model MonitoringAlert {
   @@index([tenantId])
   @@index([severity, status])
   @@map("monitoring_alerts")
+}
+
+// A production-readiness gate (§43, §35). Platform-level (not tenant-scoped). Production /
+// mainnet activation stays blocked until every MANDATORY gate is PASSED (or WAIVED with a
+// recorded reason). Evidence-based — never an arbitrary confidence number.
+model ReadinessGate {
+  id         String          @id @default(uuid())
+  key        String          @unique
+  category   String
+  title      String
+  mandatory  Boolean         @default(true)
+  status     ReadinessStatus @default(PENDING)
+  evidence   String?
+  owner      String?
+  verifiedBy String?
+  verifiedAt DateTime?
+  notes      String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([category])
+  @@map("readiness_gates")
+}
+
+// Audit-friendly record of an emergency control action (§37). Every emergency action is
+// recorded with a reason — never a silent block.
+model EmergencyControlEvent {
+  id        String              @id @default(uuid())
+  tenantId  String?
+  action    EmergencyActionType
+  scope     String?
+  reason    String
+  actor     String
+  createdAt DateTime            @default(now())
+
+  @@index([action])
+  @@map("emergency_control_events")
 }
 
 // Outbound webhook subscription (§35). The signing secret is stored encrypted (§41).

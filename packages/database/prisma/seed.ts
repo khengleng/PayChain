@@ -29,6 +29,8 @@ const SCOPES = [
   'reserve.manage',
   'treasury.manage',
   'treasury.approve',
+  'platform.readiness',
+  'platform.emergency',
 ];
 
 async function main(): Promise<void> {

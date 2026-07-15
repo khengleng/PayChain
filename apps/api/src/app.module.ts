@@ -17,6 +17,7 @@ import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { StablecoinProvidersModule } from './stablecoin/providers/providers.module';
 import { StablecoinModule } from './stablecoin/stablecoin.module';
+import { ReadinessModule } from './readiness/readiness.module';
 import { HealthModule } from './health/health.module';
 import { CorrelationInterceptor } from './common/correlation.interceptor';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
@@ -42,6 +43,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
     ComplianceModule,
     StablecoinProvidersModule,
     StablecoinModule,
+    ReadinessModule,
     HealthModule,
   ],
   providers: [
