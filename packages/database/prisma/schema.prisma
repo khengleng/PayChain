@@ -205,6 +205,84 @@ enum StablecoinApprovalGate {
   PILOT
 }
 
+// --- M4: stablecoin workflow enums --------------------------------------------
+
+enum ReserveAccountStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+// Mint saga states (§22). A mint NEVER advances to SIGNING/SUBMITTED before reserve
+// confirmation and approval. A network failure after SUBMITTED stays SUBMITTED (recoverable),
+// never silently FAILED and never re-minted.
+enum MintStatus {
+  REQUESTED
+  RESERVE_PENDING
+  RESERVE_CONFIRMED
+  COMPLIANCE_REVIEW
+  APPROVAL_REQUIRED
+  APPROVED
+  SIGNING
+  SUBMITTED
+  CONFIRMED
+  RECONCILED
+  REJECTED
+  FAILED
+}
+
+// Redemption saga states (§25). Not COMPLETED until BOTH burn and fiat payout confirm.
+enum RedemptionStatus {
+  REQUESTED
+  VALIDATING
+  COMPLIANCE_REVIEW
+  APPROVAL_REQUIRED
+  APPROVED
+  ESCROW_HELD
+  BURN_PENDING
+  BURN_CONFIRMED
+  FIAT_PAYOUT_PENDING
+  FIAT_PAYOUT_CONFIRMED
+  COMPLETED
+  REJECTED
+  FAILED
+  MANUAL_REVIEW
+}
+
+// Conversion saga states (§26). Loyalty→stablecoin as quote→burn→mint with compensation.
+enum ConversionStatus {
+  QUOTED
+  CONFIRMED
+  POINTS_BURN_PENDING
+  POINTS_BURNED
+  STABLECOIN_MINT_PENDING
+  COMPLETED
+  FAILED
+  COMPENSATING
+  COMPENSATED
+}
+
+enum TreasuryMovementStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  EXECUTED
+  FAILED
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  HELD
+  RESOLVED
+  DISMISSED
+}
+
 enum ReconciliationStatus {
   OPEN
   RESOLVED
@@ -585,6 +663,173 @@ model Attestation {
 
   @@index([tenantId, assetId])
   @@map("attestations")
+}
+
+// --- M4: stablecoin workflow models -------------------------------------------
+
+// A registered reserve account (§23). Stores only references (bank/custodian) — NEVER
+// online banking credentials. Balances are recorded via reserve movements/snapshots.
+model ReserveAccount {
+  id                 String               @id @default(uuid())
+  tenantId           String
+  assetId            String
+  label              String
+  custodianReference String?
+  bankReference      String?
+  balance            String               @default("0")
+  status             ReserveAccountStatus @default(ACTIVE)
+  createdBy          String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  movements ReserveMovement[]
+
+  @@index([tenantId, assetId])
+  @@map("reserve_accounts")
+}
+
+// An approved change to a reserve balance (§23). Movements are maker-checker gated in the
+// service; this table is the audit-friendly ledger of reserve changes.
+model ReserveMovement {
+  id               String   @id @default(uuid())
+  tenantId         String
+  reserveAccountId String
+  direction        String // CREDIT | DEBIT
+  amount           String
+  reference        String?
+  createdBy        String?
+  approvedBy       String?
+  createdAt        DateTime @default(now())
+
+  account ReserveAccount @relation(fields: [reserveAccountId], references: [id])
+
+  @@index([tenantId])
+  @@map("reserve_movements")
+}
+
+// Mint request saga (§22, §0.5). Persisted state machine; each step is idempotent and
+// resumable. references funding/reserve/approval/compliance/hash/idempotency/correlation.
+model StablecoinMintRequest {
+  id                   String     @id @default(uuid())
+  tenantId             String
+  assetId              String
+  destinationWalletId  String
+  amount               String
+  status               MintStatus @default(REQUESTED)
+  fundingReference     String?
+  reserveConfirmed     Boolean    @default(false)
+  complianceResult     String?
+  approvedBy           String?
+  requestedBy          String
+  idempotencyKey       String?
+  blockchainHash       String?
+  reconciliationStatus String?
+  failureReason        String?
+  correlationId        String
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  @@index([tenantId, assetId])
+  @@index([status])
+  @@map("stablecoin_mint_requests")
+}
+
+// Redemption saga (§25, §0.8). Default sequencing: escrow hold → payout authorization →
+// burn on payout confirmation. COMPLETED only when both burn and payout are confirmed.
+model StablecoinRedemption {
+  id                  String           @id @default(uuid())
+  tenantId            String
+  assetId             String
+  walletId            String
+  amount              String
+  status              RedemptionStatus @default(REQUESTED)
+  kycValidated        Boolean          @default(false)
+  amlResult           String?
+  sanctionsResult     String?
+  bankAccountReference String?
+  approvedBy          String?
+  requestedBy         String
+  burnHash            String?
+  payoutReference     String?
+  failureReason       String?
+  correlationId       String
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@index([tenantId, assetId])
+  @@index([status])
+  @@map("stablecoin_redemptions")
+}
+
+// Loyalty→stablecoin conversion saga (§26). Never a simple balance update: quote → burn
+// points → mint stablecoin, with compensation if a leg fails.
+model StablecoinConversion {
+  id               String           @id @default(uuid())
+  tenantId         String
+  fromAssetId      String
+  toAssetId        String
+  walletId         String
+  pointsAmount     String
+  stablecoinAmount String
+  rate             String
+  spread           String           @default("0")
+  fee              String           @default("0")
+  status           ConversionStatus @default(QUOTED)
+  quoteExpiresAt   DateTime
+  pointsBurnHash   String?
+  mintRequestId    String?
+  failureReason    String?
+  correlationId    String
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("stablecoin_conversions")
+}
+
+// Treasury movement with maker-checker (§30). The same user may not create AND approve.
+model TreasuryMovement {
+  id            String                 @id @default(uuid())
+  tenantId      String
+  assetId       String?
+  fromAccount   String
+  toAccount     String
+  amount        String
+  purpose       String
+  status        TreasuryMovementStatus @default(PENDING_APPROVAL)
+  createdBy     String
+  approvedBy    String?
+  executedAt    DateTime?
+  correlationId String
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("treasury_movements")
+}
+
+// Transaction-monitoring alert (§29). CRITICAL may trigger an automated hold; every action
+// (including holds) records a reason — never a silent block.
+model MonitoringAlert {
+  id               String        @id @default(uuid())
+  tenantId         String
+  ruleKey          String
+  severity         AlertSeverity
+  status           AlertStatus   @default(OPEN)
+  subjectType      String
+  subjectReference String
+  reason           String
+  holdApplied      Boolean       @default(false)
+  detail           Json?
+  correlationId    String?
+  createdAt        DateTime      @default(now())
+  resolvedAt       DateTime?
+
+  @@index([tenantId])
+  @@index([severity, status])
+  @@map("monitoring_alerts")
 }
 
 // Outbound webhook subscription (§35). The signing secret is stored encrypted (§41).

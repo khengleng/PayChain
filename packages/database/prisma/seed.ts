@@ -26,6 +26,9 @@ const SCOPES = [
   'stablecoin.read',
   'stablecoin.manage',
   'stablecoin.approve',
+  'reserve.manage',
+  'treasury.manage',
+  'treasury.approve',
 ];
 
 async function main(): Promise<void> {

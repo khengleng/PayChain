@@ -14,6 +14,7 @@ import { TransactionsModule } from './transactions/transactions.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { ComplianceModule } from './compliance/compliance.module';
+import { StablecoinProvidersModule } from './stablecoin/providers/providers.module';
 import { StablecoinModule } from './stablecoin/stablecoin.module';
 import { HealthModule } from './health/health.module';
 import { CorrelationInterceptor } from './common/correlation.interceptor';
@@ -34,6 +35,7 @@ import { CorrelationInterceptor } from './common/correlation.interceptor';
     WebhooksModule,
     FeatureFlagsModule,
     ComplianceModule,
+    StablecoinProvidersModule,
     StablecoinModule,
     HealthModule,
   ],
