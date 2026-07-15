@@ -1,0 +1,20 @@
+{
+  "name": "@paychain/stellar",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
+    "test": "echo \"no unit tests in @paychain/stellar (exercised via testnet e2e)\" && exit 0"
+  },
+  "dependencies": {
+    "@paychain/blockchain": "workspace:*",
+    "@stellar/stellar-sdk": "^12.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

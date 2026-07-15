@@ -1,0 +1,307 @@
+// PayChain database schema — M0 foundation.
+//
+// Design rules honored here (README §0.4, §7, §16, §17, §18, §0.5):
+//  - Every tenant-owned record carries tenantId + timestamps.
+//  - The blockchain is authoritative for balances; BalanceReadModel is a rebuildable cache.
+//  - Financial records (Transaction) are append-only in practice — never hard-deleted.
+//  - IdempotencyRecord and OutboxEvent are first-class from day one.
+//  - Migrations are additive; stablecoin-specific fields (§14) arrive as an additive
+//    migration in M3, not by rewriting these tables.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- enums -----------------------------------------------------------------
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum ApiClientStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum WalletOwnerType {
+  CUSTOMER
+  MERCHANT
+  ORGANIZATION
+  TREASURY
+  CAMPAIGN
+  SYSTEM
+  REDEMPTION
+  SETTLEMENT
+}
+
+enum WalletStatus {
+  PENDING
+  ACTIVE
+  RESTRICTED
+  FROZEN
+  SUSPENDED
+  CLOSING
+  CLOSED
+}
+
+// Single canonical asset-type enum (§0.3, §13). Only LOYALTY_POINT is usable in M0;
+// the remaining loyalty/non-stable types are reserved. Stablecoin lifecycle/controls
+// (§14, §15) are layered in at M3 behind disabled feature flags.
+enum AssetType {
+  LOYALTY_POINT
+  CASHBACK
+  PROMOTIONAL_CREDIT
+  MERCHANT_CREDIT
+  GIFT_CARD
+  VOUCHER
+  COUPON
+  MEMBERSHIP_CREDIT
+  TICKET
+  CARBON_CREDIT
+  STABLE_VALUE_CREDIT
+  FIAT_BACKED_STABLECOIN
+  TOKENIZED_DEPOSIT
+}
+
+enum AssetStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum TransactionType {
+  WALLET_CREATED
+  TRUSTLINE_CREATED
+  ASSET_ISSUED
+  ASSET_TRANSFERRED
+  ASSET_REDEEMED
+  ASSET_BURNED
+  WALLET_FROZEN
+  WALLET_UNFROZEN
+  TRANSACTION_FAILED
+  TRANSACTION_RECONCILED
+}
+
+enum TransactionStatus {
+  RECEIVED
+  VALIDATING
+  REJECTED
+  QUEUED
+  SIGNING
+  SUBMITTED
+  PENDING_CONFIRMATION
+  CONFIRMED
+  FAILED
+  EXPIRED
+  RECONCILIATION_REQUIRED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+// --- models ----------------------------------------------------------------
+
+model Tenant {
+  id        String       @id @default(uuid())
+  name      String
+  status    TenantStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  apiClients   ApiClient[]
+  wallets      Wallet[]
+  assets       Asset[]
+  transactions Transaction[]
+
+  @@map("tenants")
+}
+
+model ApiClient {
+  id               String          @id @default(uuid())
+  tenantId         String
+  name             String
+  clientId         String          @unique
+  clientSecretHash String
+  scopes           String[]        @default([])
+  status           ApiClientStatus @default(ACTIVE)
+  createdBy        String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@map("api_clients")
+}
+
+model Wallet {
+  id                 String          @id @default(uuid())
+  tenantId           String
+  ownerType          WalletOwnerType
+  ownerReference     String
+  stellarAccountId   String          @unique
+  // Dev-only encrypted secret (§11). KMS/HSM/MPC replace this before any pilot (§0.6).
+  stellarSecretEnc   String?
+  status             WalletStatus    @default(PENDING)
+  verificationStatus String          @default("UNVERIFIED")
+  riskLevel          String          @default("LOW")
+  createdBy          String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  lastActivityAt     DateTime?
+
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id])
+  balances     BalanceReadModel[]
+  sourceTxns   Transaction[]          @relation("SourceWallet")
+  destTxns     Transaction[]          @relation("DestinationWallet")
+
+  @@index([tenantId])
+  @@index([tenantId, ownerReference])
+  @@map("wallets")
+}
+
+model Asset {
+  id                 String      @id @default(uuid())
+  tenantId           String
+  assetCode          String
+  assetName          String
+  assetType          AssetType   @default(LOYALTY_POINT)
+  status             AssetStatus @default(DRAFT)
+  issuerPublicKey    String
+  // Dev-only encrypted issuer secret (§11). Issuer keys are isolated (§11) and must be
+  // HSM/MPC-backed before leaving TECHNICAL_TESTING for any regulated asset (§0.6).
+  issuerSecretEnc    String?
+  distributionPublicKey String?
+  decimals           Int         @default(7)
+  transferability    Boolean     @default(true)
+  redeemability      Boolean     @default(true)
+  createdBy          String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  transactions Transaction[]
+
+  @@unique([tenantId, assetCode, issuerPublicKey])
+  @@index([tenantId])
+  @@map("assets")
+}
+
+model Transaction {
+  id                  String            @id @default(uuid())
+  tenantId            String
+  type                TransactionType
+  status              TransactionStatus @default(RECEIVED)
+  externalReference   String?
+  idempotencyKey      String?
+  blockchainHash      String?
+  sourceWalletId      String?
+  destinationWalletId String?
+  assetId             String?
+  amount              String?
+  fee                 String?
+  businessReason      String?
+  correlationId       String
+  failureCode         String?
+  failureReason       String?
+  createdAt           DateTime          @default(now())
+  submittedAt         DateTime?
+  confirmedAt         DateTime?
+
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  asset             Asset?   @relation(fields: [assetId], references: [id])
+  sourceWallet      Wallet?  @relation("SourceWallet", fields: [sourceWalletId], references: [id])
+  destinationWallet Wallet?  @relation("DestinationWallet", fields: [destinationWalletId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, correlationId])
+  @@index([blockchainHash])
+  @@map("transactions")
+}
+
+// Rebuildable read model of balances (§16, §32). NEVER the source of truth — the chain
+// is authoritative. `pnpm paychain rebuild:wallet-balances` reconstructs this from chain.
+model BalanceReadModel {
+  id       String @id @default(uuid())
+  tenantId String
+  walletId String
+  assetCode String
+  // Empty string for the native/no-issuer asset (XLM). Non-null so it can participate in
+  // the compound unique key (Prisma disallows null in unique selectors).
+  issuerPublicKey String   @default("")
+  balance         String   @default("0")
+  source          String   @default("stellar")
+  ledger          Int?
+  updatedAt       DateTime @updatedAt
+
+  wallet Wallet @relation(fields: [walletId], references: [id])
+
+  @@unique([walletId, assetCode, issuerPublicKey])
+  @@index([tenantId])
+  @@map("balance_read_models")
+}
+
+// Tenant-scoped, persistent idempotency (§18). Survives restarts. Same key+payload
+// returns the stored response; same key+different payload is a conflict.
+model IdempotencyRecord {
+  id             String   @id @default(uuid())
+  tenantId       String
+  key            String
+  requestHash    String
+  responseStatus Int
+  responseBody   Json
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@unique([tenantId, key])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+// Transactional outbox (§0.5). Side effects are written here in the same DB transaction
+// as the state change, then dispatched by the worker — no fire-and-forget inside a txn.
+model OutboxEvent {
+  id            String       @id @default(uuid())
+  tenantId      String
+  aggregateType String
+  aggregateId   String
+  eventType     String
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  correlationId String
+  attempts      Int          @default(0)
+  createdAt     DateTime     @default(now())
+  processedAt   DateTime?
+
+  @@index([status, createdAt])
+  @@index([tenantId])
+  @@map("outbox_events")
+}
+
+model AuditLog {
+  id            String   @id @default(uuid())
+  tenantId      String?
+  actor         String
+  action        String
+  resourceType  String
+  resourceId    String?
+  correlationId String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}

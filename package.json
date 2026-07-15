@@ -1,0 +1,22 @@
+{
+  "name": "paychain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PayChain — blockchain-backed digital value infrastructure (loyalty-first, stablecoin-ready)",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/**\" build && pnpm -r --filter \"./apps/**\" build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "echo \"[M0] ESLint config is an M1 follow-up; per-package lint scripts are placeholders\" && exit 0",
+    "test": "pnpm -r test",
+    "db:generate": "pnpm --filter @paychain/database generate",
+    "db:migrate": "pnpm --filter @paychain/database migrate:dev"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.5"
+  }
+}
