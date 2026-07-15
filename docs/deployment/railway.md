@@ -5,13 +5,20 @@ PayChain deploys on Railway. The M0 deployable is the **paychain-api** service, 
 
 ## Services
 
-| Service | Source | Notes |
+| Service | Dockerfile (via `RAILWAY_DOCKERFILE_PATH`) | Notes |
 |---|---|---|
-| paychain-api | `apps/api/Dockerfile` | NestJS API, runs `prisma migrate deploy` on start |
-| paychain-postgres | Railway plugin | Managed PostgreSQL |
-| paychain-redis | Railway plugin | Managed Redis (declared now; used from M1) |
+| paychain-api | `apps/api/Dockerfile` | NestJS API, runs `prisma migrate deploy` on start (Dockerfile CMD) |
+| paychain-worker | `apps/worker/Dockerfile` | BullMQ worker: confirmation, webhook delivery, reconciliation |
+| Postgres | Railway plugin | Managed PostgreSQL |
+| Redis | Railway plugin | Managed Redis |
 
-Worker, admin, and developer-portal services arrive in later milestones.
+Admin and developer-portal services arrive in later milestones.
+
+**Multi-service build selection:** do NOT use a root `railway.json` with a hardcoded
+`dockerfilePath` — it applies to every service in the project and would make all services
+build the same image. Instead each service sets `RAILWAY_DOCKERFILE_PATH` to its own
+Dockerfile, and the Dockerfile's `CMD` provides the start command. The api Dockerfile CMD
+runs `prisma migrate deploy` before serving; the worker does not run migrations.
 
 ## One-time setup
 
