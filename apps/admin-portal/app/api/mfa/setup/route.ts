@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import QRCode from 'qrcode';
 
 const API_BASE =
-  process.env.PAYCHAIN_API_URL ?? 'https://paychain-api-production-90f0.up.railway.app';
+  process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
 
 /** First-time enrollment: provision a TOTP secret and return it + a QR data URI to scan. */
 export async function POST(req: Request): Promise<NextResponse> {

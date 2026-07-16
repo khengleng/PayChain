@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 const API_BASE =
-  process.env.PAYCHAIN_API_URL ?? 'https://paychain-api-production-90f0.up.railway.app';
+  process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
 
 async function get(path: string): Promise<Record<string, unknown> | null> {
   try {

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { SESSION_COOKIE } from './session';
 
 const API_BASE =
-  process.env.PAYCHAIN_API_URL ?? 'https://paychain-api-production-90f0.up.railway.app';
+  process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
 
 /** Proxy a request to the API. `authed` attaches the admin's session JWT (for admin-only ops). */
 export async function proxy(

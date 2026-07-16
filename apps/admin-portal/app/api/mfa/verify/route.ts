@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { SESSION_COOKIE } from '../../../../lib/session';
 
 const API_BASE =
-  process.env.PAYCHAIN_API_URL ?? 'https://paychain-api-production-90f0.up.railway.app';
+  process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
 
 /** Step 2: verify the TOTP code → mint the admin session and set the httpOnly cookie. */
 export async function POST(req: Request): Promise<NextResponse> {

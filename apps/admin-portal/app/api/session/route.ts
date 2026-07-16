@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { SESSION_COOKIE } from '../../../lib/session';
 
 const API_BASE =
-  process.env.PAYCHAIN_API_URL ?? 'https://paychain-api-production-90f0.up.railway.app';
+  process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
 
 /** Step 1 of login: email/password → MFA challenge. No session cookie is set here — a valid
  * TOTP code (via /api/mfa/verify) is required before any session is created. */

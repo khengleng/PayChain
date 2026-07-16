@@ -1,5 +1,5 @@
 const API_BASE =
-  process.env.PAYCHAIN_API_URL ?? 'https://paychain-api-production-90f0.up.railway.app';
+  process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
 
 const TOKEN_SNIPPET = `curl -X POST ${API_BASE}/api/v1/oauth/token \\
   -H 'Content-Type: application/json' \\

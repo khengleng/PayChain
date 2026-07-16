@@ -6,7 +6,7 @@ import { cookies } from 'next/headers';
 import { SESSION_COOKIE } from './session';
 
 const API_BASE =
-  process.env.PAYCHAIN_API_URL ?? 'https://paychain-api-production-90f0.up.railway.app';
+  process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
 
 function token(): string | undefined {
   return cookies().get(SESSION_COOKIE)?.value;
