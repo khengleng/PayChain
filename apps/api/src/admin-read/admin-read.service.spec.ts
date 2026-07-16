@@ -22,7 +22,7 @@ describe('AdminReadService', () => {
     } as never;
     const svc = new AdminReadService(prisma);
 
-    const { global, overrides } = await svc.flags();
+    const { global, overrides } = await svc.flags(null);
 
     // Every declared flag is present in the global view.
     expect(global).toHaveLength(STABLECOIN_FLAGS.length);
@@ -50,7 +50,7 @@ describe('AdminReadService', () => {
     } as never;
     const svc = new AdminReadService(prisma);
 
-    const { items } = await svc.treasury();
+    const { items } = await svc.treasury(null);
     expect(items[0]?.tenant).toBe('PayKH Sandbox');
     // Unknown tenant id falls back to the raw id rather than crashing or showing blank.
     expect(items[1]?.tenant).toBe('unknown');
@@ -61,7 +61,7 @@ describe('AdminReadService', () => {
     const prisma = { wallet: { findMany } } as never;
     const svc = new AdminReadService(prisma);
 
-    await svc.wallets('  GABC  ');
+    await svc.wallets(null, '  GABC  ');
 
     const arg = findMany.mock.calls[0][0];
     expect(arg.where.OR).toEqual([
@@ -76,7 +76,7 @@ describe('AdminReadService', () => {
     const prisma = { wallet: { findMany } } as never;
     const svc = new AdminReadService(prisma);
 
-    const res = await svc.wallets('   ');
+    const res = await svc.wallets(null, '   ');
     expect(findMany.mock.calls[0][0].where).toEqual({});
     expect(res.query).toBeNull();
   });

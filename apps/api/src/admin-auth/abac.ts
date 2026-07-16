@@ -42,3 +42,29 @@ export function assertPermittedByAttributes(admin: AdminContext, resource: Resou
     throw new ForbiddenException('Your access attributes do not permit acting on this resource');
   }
 }
+
+/**
+ * The tenant ids an admin is scoped to, or null when unscoped (all tenants).
+ *
+ * ABAC was write-only: assertPermittedByAttributes guarded freeze, flags and treasury approval,
+ * while every read endpoint returned cross-tenant data regardless of scope. A tenant-A-scoped
+ * AUDITOR or SUPPORT_ADMIN could read every tenant's wallets, transactions, reserves and
+ * treasury — scoping that stops you changing another tenant's data but not seeing it is not
+ * tenant isolation, and a regulator assessing data segregation would say so.
+ *
+ * Returns null rather than an empty array for "unscoped": an empty array must mean "nothing",
+ * never "everything", or a mis-set attribute would silently grant total visibility.
+ */
+export function tenantScopeOf(admin: AdminContext): string[] | null {
+  const tenants = admin.attributes?.tenants;
+  if (!Array.isArray(tenants) || tenants.length === 0) return null;
+  return tenants as string[];
+}
+
+/**
+ * A Prisma `where` fragment applying an admin's tenant scope. Spread into a where clause:
+ *   where: { ...tenantScopeWhere(scope), status: 'ACTIVE' }
+ */
+export function tenantScopeWhere(scope: string[] | null): { tenantId?: { in: string[] } } {
+  return scope ? { tenantId: { in: scope } } : {};
+}

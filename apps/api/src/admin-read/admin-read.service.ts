@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { tenantScopeWhere } from '../admin-auth/abac';
 import { STABLECOIN_FLAGS, GLOBAL_TENANT } from '../feature-flags/feature-flags.constants';
+
+/** An admin's tenant scope: a list of tenant ids, or null for unscoped (all tenants). */
+export type TenantScope = string[] | null;
 
 /**
  * Cross-tenant, read-only admin views (§37). Every method here backs a permission-gated
@@ -23,16 +27,19 @@ export class AdminReadService {
     return new Map(tenants.map((t) => [t.id, t.name]));
   }
 
-  async wallets(query?: string) {
+  async wallets(scope: TenantScope, query?: string) {
     const q = query?.trim() || undefined;
-    const where = q
-      ? {
-          OR: [
-            { ownerReference: { contains: q, mode: 'insensitive' as const } },
-            { stellarAccountId: { contains: q, mode: 'insensitive' as const } },
-          ],
-        }
-      : {};
+    const where = {
+      ...tenantScopeWhere(scope),
+      ...(q
+        ? {
+            OR: [
+              { ownerReference: { contains: q, mode: 'insensitive' as const } },
+              { stellarAccountId: { contains: q, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
     const rows = await this.prisma.wallet.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -56,8 +63,9 @@ export class AdminReadService {
     };
   }
 
-  async assets() {
+  async assets(scope: TenantScope) {
     const rows = await this.prisma.asset.findMany({
+      where: tenantScopeWhere(scope),
       orderBy: { createdAt: 'desc' },
       take: MAX,
       include: { tenant: { select: { name: true } } },
@@ -78,8 +86,9 @@ export class AdminReadService {
     };
   }
 
-  async stablecoins() {
+  async stablecoins(scope: TenantScope) {
     const rows = await this.prisma.stablecoinConfig.findMany({
+      where: tenantScopeWhere(scope),
       orderBy: { createdAt: 'desc' },
       take: MAX,
       include: { asset: { select: { assetCode: true, assetName: true } } },
@@ -101,9 +110,9 @@ export class AdminReadService {
     };
   }
 
-  async reserve() {
+  async reserve(scope: TenantScope) {
     const [accounts, tenants] = await Promise.all([
-      this.prisma.reserveAccount.findMany({ orderBy: { createdAt: 'desc' }, take: MAX }),
+      this.prisma.reserveAccount.findMany({ where: tenantScopeWhere(scope), orderBy: { createdAt: 'desc' }, take: MAX }),
       this.tenantNames(),
     ]);
     return {
@@ -121,9 +130,9 @@ export class AdminReadService {
     };
   }
 
-  async treasury() {
+  async treasury(scope: TenantScope) {
     const [movements, tenants] = await Promise.all([
-      this.prisma.treasuryMovement.findMany({ orderBy: { createdAt: 'desc' }, take: MAX }),
+      this.prisma.treasuryMovement.findMany({ where: tenantScopeWhere(scope), orderBy: { createdAt: 'desc' }, take: MAX }),
       this.tenantNames(),
     ]);
     return {
@@ -143,9 +152,9 @@ export class AdminReadService {
     };
   }
 
-  async complianceAlerts() {
+  async complianceAlerts(scope: TenantScope) {
     const [alerts, tenants] = await Promise.all([
-      this.prisma.monitoringAlert.findMany({ orderBy: { createdAt: 'desc' }, take: MAX }),
+      this.prisma.monitoringAlert.findMany({ where: tenantScopeWhere(scope), orderBy: { createdAt: 'desc' }, take: MAX }),
       this.tenantNames(),
     ]);
     return {
@@ -165,9 +174,9 @@ export class AdminReadService {
     };
   }
 
-  async reconciliation() {
+  async reconciliation(scope: TenantScope) {
     const [exceptions, tenants] = await Promise.all([
-      this.prisma.reconciliationException.findMany({ orderBy: { createdAt: 'desc' }, take: MAX }),
+      this.prisma.reconciliationException.findMany({ where: tenantScopeWhere(scope), orderBy: { createdAt: 'desc' }, take: MAX }),
       this.tenantNames(),
     ]);
     return {
@@ -191,9 +200,14 @@ export class AdminReadService {
    * stablecoin.* flag is shown even without a DB row — its effective value is then OFF,
    * making the "all production flags default OFF" invariant visible (§36).
    */
-  async flags() {
+  async flags(scope: TenantScope) {
     const [rows, tenants] = await Promise.all([
-      this.prisma.featureFlag.findMany({ orderBy: [{ key: 'asc' }, { tenantId: 'asc' }] }),
+      // GLOBAL flags are platform-wide and always visible; only tenant OVERRIDES are scoped,
+      // since a global flag is not another tenant's data.
+      this.prisma.featureFlag.findMany({
+        where: scope ? { OR: [{ tenantId: GLOBAL_TENANT }, { tenantId: { in: scope } }] } : {},
+        orderBy: [{ key: 'asc' }, { tenantId: 'asc' }],
+      }),
       this.tenantNames(),
     ]);
     const globalByKey = new Map(

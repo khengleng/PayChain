@@ -81,3 +81,98 @@ describe('CompensationService', () => {
     await expect(svc.approve(auth, 'comp-1', 'corr')).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
+
+/**
+ * Structuring (§19). The threshold used to gate on the single amount, so a large transaction
+ * could be reversed in slices that each sat just below it — every slice unapproved, the whole
+ * original drained, no checker ever involved. The codebase names this attack in
+ * monitoring.service.ts (`structuring`) and did not consult it here.
+ *
+ * The threshold is now measured against the cumulative amount reversed against the original.
+ */
+describe('CompensationService — structuring is blocked (§19)', () => {
+  const original = {
+    id: 'orig-1',
+    tenantId: 't1',
+    type: 'ASSET_ISSUED',
+    status: 'CONFIRMED',
+    assetId: 'a1',
+    amount: '500000',
+    destinationWalletId: 'w1',
+  };
+  const auth = { tenantId: 't1', clientId: 'maker-1', scopes: [] };
+
+  /** `priorReversed` models compensations already recorded against this original. */
+  function build(priorReversed: string[], create = jest.fn().mockResolvedValue({ id: 'c1', status: 'APPROVAL_REQUIRED' })) {
+    const prisma = {
+      transaction: {
+        findUnique: jest.fn().mockResolvedValue(original),
+        findMany: jest.fn().mockResolvedValue(priorReversed.map((amount) => ({ amount }))),
+        create,
+        update: jest.fn(),
+      },
+      wallet: { findUnique: jest.fn() },
+      asset: { findUnique: jest.fn() },
+    } as never;
+    return new CompensationService(
+      prisma,
+      {} as never, // wallets — only reached on the execute path
+      {} as never, // balances
+      { record: jest.fn() } as never, // audit
+      { emit: jest.fn() } as never, // webhooks
+      { COMPENSATION_APPROVAL_THRESHOLD: 100000 } as never,
+      {} as never, // chain
+    );
+  }
+
+  it('still routes a single over-threshold reversal to approval', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'c1', status: 'APPROVAL_REQUIRED' });
+    const svc = build([], create);
+    await svc.compensate(auth, 'orig-1', { amount: '100000', reason: 'REFUND' }, 'corr');
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'APPROVAL_REQUIRED' }),
+    }));
+  });
+
+  it('THE ATTACK: a second sub-threshold slice now trips approval cumulatively', async () => {
+    // 99,999 already reversed; another 99,999 is individually under the threshold but takes the
+    // cumulative to 199,998 — well past it. Previously this executed with no checker.
+    const create = jest.fn().mockResolvedValue({ id: 'c2', status: 'APPROVAL_REQUIRED' });
+    const svc = build(['99999'], create);
+    await svc.compensate(auth, 'orig-1', { amount: '99999', reason: 'REFUND' }, 'corr');
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'APPROVAL_REQUIRED' }),
+    }));
+  });
+
+  it('trips exactly at the boundary when slices sum to the threshold', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'c2', status: 'APPROVAL_REQUIRED' });
+    const svc = build(['50000'], create);
+    await svc.compensate(auth, 'orig-1', { amount: '50000', reason: 'REFUND' }, 'corr');
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'APPROVAL_REQUIRED' }),
+    }));
+  });
+
+  it('leaves genuinely small reversals unblocked — the rule must not stop ordinary refunds', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'c1', status: 'APPROVAL_REQUIRED' });
+    const svc = build(['10'], create);
+    // 10 + 5 = 15, nowhere near 100000: this must NOT be routed to approval.
+    await expect(
+      svc.compensate(auth, 'orig-1', { amount: '5', reason: 'REFUND' }, 'corr'),
+    ).rejects.toThrow(); // executeReversal needs chain deps this fake lacks — proves it took the
+                        // execute path rather than creating an APPROVAL_REQUIRED row.
+    expect(create).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'APPROVAL_REQUIRED' }),
+    }));
+  });
+
+  it('uses fixed-point comparison, not floats, at the boundary', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'c2', status: 'APPROVAL_REQUIRED' });
+    const svc = build(['99999.9999999'], create);
+    await svc.compensate(auth, 'orig-1', { amount: '0.0000001', reason: 'REFUND' }, 'corr');
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'APPROVAL_REQUIRED' }),
+    }));
+  });
+});

@@ -3,6 +3,7 @@ import { CorrelationId } from '../auth/auth-context';
 import { AdminAuthGuard } from '../admin-auth/admin-auth.guard';
 import { AdminPermissionGuard, RequireAdminPermission } from '../admin-auth/admin-permission.guard';
 import { CurrentAdmin, type AdminContext } from '../admin-auth/admin-context';
+import { tenantScopeOf } from '../admin-auth/abac';
 import { AuditService } from './audit.service';
 import { AuditExportService, type AuditQuery } from './audit-export.service';
 
@@ -26,8 +27,11 @@ export class AuditExportController {
   /** Filtered, cursor-paginated trail. Replaces the old unfiltered "most recent N" read. */
   @Get()
   @RequireAdminPermission('audit:read')
-  query(@Query() q: AuditQuery) {
-    return this.exports.query({ ...q, limit: q.limit ? Number(q.limit) : undefined });
+  query(@CurrentAdmin() admin: AdminContext, @Query() q: AuditQuery) {
+    return this.exports.query(
+      { ...q, limit: q.limit ? Number(q.limit) : undefined },
+      tenantScopeOf(admin),
+    );
   }
 
   /**
@@ -52,6 +56,7 @@ export class AuditExportController {
     const pkg = await this.exports.evidencePackage(
       { ...q, limit: q.limit ? Number(q.limit) : undefined },
       admin.email,
+      tenantScopeOf(admin),
     );
     await this.audit.record({
       actor: admin.email,
@@ -77,7 +82,10 @@ export class AuditExportController {
     @CorrelationId() corr: string,
     @Query() q: AuditQuery,
   ) {
-    const csv = await this.exports.csv({ ...q, limit: q.limit ? Number(q.limit) : undefined });
+    const csv = await this.exports.csv(
+      { ...q, limit: q.limit ? Number(q.limit) : undefined },
+      tenantScopeOf(admin),
+    );
     await this.audit.record({
       actor: admin.email,
       action: 'audit.exported',

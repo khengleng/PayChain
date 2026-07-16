@@ -64,7 +64,8 @@ export class CompensationService {
     const original = await this.loadOriginal(auth.tenantId, originalTxId);
     await this.assertWithinCompensatable(original, dto.amount);
 
-    if (Number(dto.amount) >= this.threshold) {
+    const { required, cumulative } = await this.requiresApproval(original, dto.amount);
+    if (required) {
       const pending = await this.prisma.transaction.create({
         data: {
           tenantId: auth.tenantId,
@@ -85,7 +86,15 @@ export class CompensationService {
         resourceType: 'transaction',
         resourceId: pending.id,
         correlationId,
-        metadata: { originalTransactionId: original.id, amount: dto.amount, reason: dto.reason },
+        metadata: {
+          originalTransactionId: original.id,
+          amount: dto.amount,
+          // Recorded so a reviewer can see WHY approval was required: a small amount that
+          // crossed the line cumulatively looks arbitrary without it.
+          cumulativeAgainstOriginal: cumulative,
+          threshold: String(this.threshold),
+          reason: dto.reason,
+        },
       });
       return this.toView(pending);
     }
@@ -240,21 +249,50 @@ export class CompensationService {
     return { hash, confirmed: chainTx.status === 'confirmed' };
   }
 
+  /**
+   * Does this reversal need a second approver (§19)?
+   *
+   * The threshold is measured against the CUMULATIVE amount reversed against the original, not
+   * against this request alone. Gating on the single amount invited structuring: a 500,000
+   * transaction could be reversed as 6 x 99,999, each below the threshold, each unapproved,
+   * draining the whole original with no checker ever involved. The codebase names this attack
+   * itself — monitoring.service.ts has a `structuring` rule — and did not consult it here.
+   *
+   * Comparison is fixed-point. The old check floated the amount (`Number(dto.amount)`), which is
+   * exactly the arithmetic the money helpers exist to avoid.
+   */
+  private async requiresApproval(
+    original: Transaction,
+    amount: string,
+  ): Promise<{ required: boolean; cumulative: string }> {
+    const already = await this.sumOpenCompensations(original.id);
+    const cumulative = addAmounts(already, amount);
+    return {
+      required: compareAmounts(cumulative, String(this.threshold)) >= 0,
+      cumulative,
+    };
+  }
+
+  /** Total of compensations against an original that are still open (not failed/rejected). */
+  private async sumOpenCompensations(originalId: string, excludeId?: string): Promise<string> {
+    const priorComps = await this.prisma.transaction.findMany({
+      where: {
+        compensatesTransactionId: originalId,
+        status: { in: [...OPEN_STATUSES] },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { amount: true },
+    });
+    return sumAmounts(priorComps.map((t) => t.amount ?? '0'));
+  }
+
   private async assertWithinCompensatable(
     original: Transaction,
     amount: string,
     excludeId?: string,
   ): Promise<void> {
     if (!original.amount) throw new BadRequestException('Original transaction has no amount');
-    const priorComps = await this.prisma.transaction.findMany({
-      where: {
-        compensatesTransactionId: original.id,
-        status: { in: [...OPEN_STATUSES] },
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-      },
-      select: { amount: true },
-    });
-    const already = sumAmounts(priorComps.map((t) => t.amount ?? '0'));
+    const already = await this.sumOpenCompensations(original.id, excludeId);
     if (compareAmounts(addAmounts(already, amount), original.amount) > 0) {
       throw new BadRequestException(
         `Compensation exceeds remaining amount (original=${original.amount}, alreadyCompensated=${already})`,

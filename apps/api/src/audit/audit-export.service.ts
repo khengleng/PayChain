@@ -58,9 +58,19 @@ export interface AuditPage {
 export class AuditExportService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private where(q: AuditQuery): Prisma.AuditLogWhereInput {
+  private where(q: AuditQuery, scope: string[] | null = null): Prisma.AuditLogWhereInput {
     const where: Prisma.AuditLogWhereInput = {};
-    if (q.tenantId) where.tenantId = q.tenantId;
+    // A tenant-scoped auditor must not read or export other tenants' trails. Applied before the
+    // caller's own tenantId filter so it cannot be widened by the query string.
+    if (scope) where.tenantId = { in: scope };
+    if (q.tenantId) {
+      if (scope && !scope.includes(q.tenantId)) {
+        // Asking for a tenant outside your scope yields nothing, rather than everything.
+        where.tenantId = { in: [] };
+      } else {
+        where.tenantId = q.tenantId;
+      }
+    }
     if (q.actor) where.actor = { contains: q.actor, mode: 'insensitive' };
     if (q.action) where.action = { contains: q.action, mode: 'insensitive' };
     if (q.resourceType) where.resourceType = q.resourceType;
@@ -85,9 +95,9 @@ export class AuditExportService {
    * `tenant` (resolved name) is kept alongside `tenantId` because the admin console renders it;
    * dropping it here would break the audit-logs screen.
    */
-  async query(q: AuditQuery): Promise<AuditPage> {
+  async query(q: AuditQuery, scope: string[] | null = null): Promise<AuditPage> {
     const take = Math.min(Math.max(q.limit ?? DEFAULT_PAGE, 1), MAX_PAGE);
-    const where = this.where(q);
+    const where = this.where(q, scope);
     if (q.cursor) {
       where.seq = { lt: BigInt(q.cursor) };
     }
@@ -137,8 +147,11 @@ export class AuditExportService {
    * verified at export time, and is included even when it fails — a broken chain is exactly the
    * thing an auditor must be told about, not an error to swallow.
    */
-  async evidencePackage(q: AuditQuery, requestedBy: string) {
-    const [page, chain] = await Promise.all([this.query({ ...q, limit: MAX_PAGE }), this.verify()]);
+  async evidencePackage(q: AuditQuery, requestedBy: string, scope: string[] | null = null) {
+    const [page, chain] = await Promise.all([
+      this.query({ ...q, limit: MAX_PAGE }, scope),
+      this.verify(),
+    ]);
     const generatedAt = new Date().toISOString();
     const exportHash = createHash('sha256')
       .update(JSON.stringify(page.items), 'utf8')
@@ -187,8 +200,8 @@ export class AuditExportService {
   }
 
   /** CSV for auditors who want the trail in a spreadsheet rather than JSON. */
-  async csv(q: AuditQuery): Promise<string> {
-    const page = await this.query({ ...q, limit: MAX_PAGE });
+  async csv(q: AuditQuery, scope: string[] | null = null): Promise<string> {
+    const page = await this.query({ ...q, limit: MAX_PAGE }, scope);
     const header = [
       'seq',
       'createdAt',

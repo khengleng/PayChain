@@ -1,12 +1,18 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { AdminAuthGuard } from '../admin-auth/admin-auth.guard';
 import { AdminPermissionGuard, RequireAdminPermission } from '../admin-auth/admin-permission.guard';
+import { CurrentAdmin, type AdminContext } from '../admin-auth/admin-context';
+import { tenantScopeOf } from '../admin-auth/abac';
 import { AdminReadService } from './admin-read.service';
 
 /**
  * Read-only admin console API (§37). Each endpoint is gated by the matching RBAC read
- * permission (§7, §8) and returns a cross-tenant view. These back the admin-portal
- * management screens; write actions live in their own gated controllers.
+ * permission (§7, §8) and is ABAC-filtered to the admin's tenant scope. These back the
+ * admin-portal management screens; write actions live in their own gated controllers.
+ *
+ * Scoping applies to reads as well as writes: an admin restricted to tenant A must not be able
+ * to read tenant B's wallets, transactions, reserves or treasury. Enforcing it only on writes
+ * would stop them changing another tenant's data while leaving them able to see all of it.
  */
 @Controller('admin')
 @UseGuards(AdminAuthGuard, AdminPermissionGuard)
@@ -18,50 +24,50 @@ export class AdminReadController {
 
   @Get('wallets')
   @RequireAdminPermission('wallet:read')
-  wallets(@Query('query') query?: string) {
-    return this.svc.wallets(query);
+  wallets(@CurrentAdmin() admin: AdminContext, @Query('query') query?: string) {
+    return this.svc.wallets(tenantScopeOf(admin), query);
   }
 
   @Get('assets')
   @RequireAdminPermission('asset:read')
-  assets() {
-    return this.svc.assets();
+  assets(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.assets(tenantScopeOf(admin));
   }
 
   @Get('stablecoins')
   @RequireAdminPermission('stablecoin:read')
-  stablecoins() {
-    return this.svc.stablecoins();
+  stablecoins(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.stablecoins(tenantScopeOf(admin));
   }
 
   @Get('reserve')
   @RequireAdminPermission('reserve:read')
-  reserve() {
-    return this.svc.reserve();
+  reserve(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.reserve(tenantScopeOf(admin));
   }
 
   @Get('treasury')
   @RequireAdminPermission('treasury:read')
-  treasury() {
-    return this.svc.treasury();
+  treasury(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.treasury(tenantScopeOf(admin));
   }
 
   @Get('compliance/alerts')
   @RequireAdminPermission('compliance:read')
-  complianceAlerts() {
-    return this.svc.complianceAlerts();
+  complianceAlerts(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.complianceAlerts(tenantScopeOf(admin));
   }
 
   @Get('reconciliation')
   @RequireAdminPermission('reconciliation:read')
-  reconciliation() {
-    return this.svc.reconciliation();
+  reconciliation(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.reconciliation(tenantScopeOf(admin));
   }
 
   @Get('flags')
   @RequireAdminPermission('flags:read')
-  flags() {
-    return this.svc.flags();
+  flags(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.flags(tenantScopeOf(admin));
   }
 
   // GET admin/audit now lives on AuditExportController (apps/api/src/audit), alongside the chain
