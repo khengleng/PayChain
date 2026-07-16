@@ -141,8 +141,13 @@ export class AdminAuthService {
     });
 
     const permissions = permissionsForRole(user.role);
+    // `perms` is for the console's navigation only — it decodes the token to decide which links
+    // to show (see admin-portal/lib/session.ts). It is NOT an authorization input: AdminAuthGuard
+    // re-reads permissions from the database on every request, so a role change takes effect
+    // immediately regardless of what this token claims. Omitting it previously left the console
+    // filtering every nav item against an empty array, hiding all of them.
     const token = await this.jwt.signAsync(
-      { sub: user.id, email: user.email, role: user.role, typ: 'admin' },
+      { sub: user.id, email: user.email, role: user.role, typ: 'admin', perms: permissions },
       { expiresIn: this.ttlSeconds },
     );
     await this.audit.record({
