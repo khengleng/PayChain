@@ -22,6 +22,8 @@ import { MonitoringService } from './monitoring.service';
     TreasuryService,
     MonitoringService,
   ],
-  exports: [TreasuryService],
+  // ReserveService is exported for AdminReserveModule: the console operates the reserve through
+  // the same maker-checker service as the tenant API, never a parallel implementation.
+  exports: [TreasuryService, ReserveService],
 })
 export class StablecoinModule {}

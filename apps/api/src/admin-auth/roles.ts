@@ -25,6 +25,9 @@ export const PERMISSIONS = [
   'stablecoin:approve',
   'reserve:read',
   'reserve:manage',
+  // Separate from reserve:manage so requesting and approving a reserve movement can be held by
+  // different people — the whole point of maker-checker on the assets backing customer tokens.
+  'reserve:approve',
   'treasury:read',
   'treasury:approve',
   'compliance:read',
@@ -87,6 +90,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'treasury:approve',
     'reserve:read',
     'reserve:manage',
+    'reserve:approve',
     'stablecoin:read',
     'audit:read',
   ],
