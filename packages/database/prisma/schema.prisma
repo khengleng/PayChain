@@ -306,6 +306,23 @@ enum EmergencyActionType {
   RESUME
 }
 
+// Platform admin roles (§8) for the administration portal. RBAC — each role maps to a fixed
+// permission set (in code). ABAC attributes (below) further scope what a user can act on.
+enum AdminRole {
+  SUPER_ADMIN
+  SECURITY_ADMIN
+  OPERATIONS_ADMIN
+  COMPLIANCE_ADMIN
+  TREASURY_ADMIN
+  SUPPORT_ADMIN
+  AUDITOR
+}
+
+enum AdminUserStatus {
+  ACTIVE
+  DISABLED
+}
+
 enum ReconciliationStatus {
   OPEN
   RESOLVED
@@ -890,6 +907,26 @@ model EmergencyControlEvent {
 
   @@index([action])
   @@map("emergency_control_events")
+}
+
+// A human administrator of the platform (§8). Authenticates with email/password (login →
+// short-lived admin JWT). RBAC comes from `role`; ABAC from `attributes` (e.g. tenant scope,
+// region, clearance) evaluated by policy at request time.
+model AdminUser {
+  id           String          @id @default(uuid())
+  email        String          @unique
+  passwordHash String
+  fullName     String?
+  role         AdminRole       @default(AUDITOR)
+  status       AdminUserStatus @default(ACTIVE)
+  // ABAC attributes, e.g. { "tenants": ["<id>"], "region": "KH", "clearance": 2 }.
+  attributes   Json            @default("{}")
+  lastLoginAt  DateTime?
+  createdBy    String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@map("admin_users")
 }
 
 // Outbound webhook subscription (§35). The signing secret is stored encrypted (§41).

@@ -1,0 +1,89 @@
+import type { AdminRole } from '@paychain/database';
+
+/**
+ * RBAC permission catalog + role→permission map (§8). Authorization checks a specific
+ * permission, never a role name directly (§7). ABAC attributes (see abac.ts) further scope
+ * what a permitted user may act on.
+ */
+export const PERMISSIONS = [
+  'readiness:read',
+  'readiness:write',
+  'emergency:execute',
+  'mainnet:enable',
+  'tenant:read',
+  'tenant:write',
+  'wallet:read',
+  'wallet:freeze',
+  'asset:read',
+  'stablecoin:read',
+  'stablecoin:manage',
+  'stablecoin:approve',
+  'reserve:read',
+  'reserve:manage',
+  'treasury:read',
+  'treasury:approve',
+  'compliance:read',
+  'compliance:manage',
+  'reconciliation:read',
+  'flags:read',
+  'flags:write',
+  'audit:read',
+  'admin:manage',
+] as const;
+
+export type Permission = (typeof PERMISSIONS)[number];
+
+const ALL: Permission[] = [...PERMISSIONS];
+const READ_ONLY: Permission[] = PERMISSIONS.filter((p) => p.endsWith(':read'));
+
+export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
+  SUPER_ADMIN: ALL,
+  SECURITY_ADMIN: [
+    'readiness:read',
+    'readiness:write',
+    'emergency:execute',
+    'mainnet:enable',
+    'flags:read',
+    'flags:write',
+    'wallet:read',
+    'wallet:freeze',
+    'audit:read',
+    'admin:manage',
+  ],
+  OPERATIONS_ADMIN: [
+    'readiness:read',
+    'wallet:read',
+    'wallet:freeze',
+    'asset:read',
+    'tenant:read',
+    'reserve:read',
+    'treasury:read',
+    'reconciliation:read',
+    'flags:read',
+    'audit:read',
+  ],
+  COMPLIANCE_ADMIN: [
+    'readiness:read',
+    'compliance:read',
+    'compliance:manage',
+    'wallet:read',
+    'wallet:freeze',
+    'stablecoin:read',
+    'audit:read',
+  ],
+  TREASURY_ADMIN: [
+    'readiness:read',
+    'treasury:read',
+    'treasury:approve',
+    'reserve:read',
+    'reserve:manage',
+    'stablecoin:read',
+    'audit:read',
+  ],
+  SUPPORT_ADMIN: ['wallet:read', 'asset:read', 'tenant:read', 'audit:read'],
+  AUDITOR: READ_ONLY,
+};
+
+export function permissionsForRole(role: AdminRole): Permission[] {
+  return ROLE_PERMISSIONS[role] ?? [];
+}

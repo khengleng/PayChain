@@ -80,3 +80,21 @@ td.wrap, th.wrap { white-space: normal; }
 .notice code { color: var(--text); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; }
 ul.clean { margin: 8px 0 0; padding-left: 18px; }
 ul.clean li { margin: 4px 0; }
+
+/* Sidebar identity + logout */
+.sidebar { display: flex; flex-direction: column; }
+.who { margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border); }
+.who-email { font-size: 13px; color: var(--text); word-break: break-all; }
+.who-role { font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; margin: 2px 0 10px; }
+.logout-btn { width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 8px; font-size: 13px; cursor: pointer; }
+.logout-btn:hover { color: var(--text); border-color: var(--accent); }
+
+/* Login */
+.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.login-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 32px; width: 100%; max-width: 380px; }
+.login-label { display: block; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 14px 0 6px; }
+.login-input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--text); font-size: 14px; }
+.login-input:focus { outline: none; border-color: var(--accent); }
+.login-btn { width: 100%; margin-top: 22px; background: var(--accent); border: none; color: #fff; border-radius: 8px; padding: 11px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.login-btn:disabled { opacity: 0.6; cursor: default; }
+.login-error { background: rgba(248,113,113,0.12); border: 1px solid var(--err); color: var(--err); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 6px; }

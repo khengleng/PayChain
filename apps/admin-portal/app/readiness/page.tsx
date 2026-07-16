@@ -1,4 +1,4 @@
-import { apiConfigured, apiGet } from '../../lib/api';
+import { apiGet } from '../../lib/api';
 
 // Always render per request so live gate data is fetched (never build-time prerendered).
 export const dynamic = 'force-dynamic';
@@ -30,15 +30,8 @@ export default async function ReadinessPage() {
         <h1>Production Readiness</h1>
         <p className="subtitle">§43 gates · evidence-based · blocks mainnet until all mandatory pass</p>
         <div className="notice">
-          {apiConfigured() ? (
-            <>Could not reach the readiness API (auth failed or the platform client lacks the <code>platform.readiness</code> scope).</>
-          ) : (
-            <>
-              This portal is not yet connected to the API. Set <code>ADMIN_CLIENT_ID</code> and{' '}
-              <code>ADMIN_CLIENT_SECRET</code> (a client with the <code>platform.readiness</code> scope) on the
-              admin service to show live gate data.
-            </>
-          )}
+          Live readiness data is unavailable — your role may lack the <code>readiness:read</code>{' '}
+          permission, or the API is unreachable.
         </div>
       </>
     );

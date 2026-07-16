@@ -2,7 +2,6 @@ import { ForbiddenException, Injectable, NotFoundException, type OnModuleInit } 
 import type { ReadinessGate, ReadinessStatus } from '@paychain/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import type { AuthContext } from '../auth/auth-context';
 import { READINESS_GATES } from './readiness.constants';
 
 const READY_STATES: ReadinessStatus[] = ['PASSED', 'WAIVED'];
@@ -75,7 +74,7 @@ export class ReadinessService implements OnModuleInit {
   }
 
   async setGate(
-    auth: AuthContext,
+    actor: string,
     key: string,
     input: { status: ReadinessStatus; evidence?: string; notes?: string },
     correlationId: string,
@@ -88,13 +87,12 @@ export class ReadinessService implements OnModuleInit {
         status: input.status,
         evidence: input.evidence ?? gate.evidence,
         notes: input.notes ?? gate.notes,
-        verifiedBy: auth.clientId,
+        verifiedBy: actor,
         verifiedAt: new Date(),
       },
     });
     await this.audit.record({
-      tenantId: auth.tenantId,
-      actor: auth.clientId,
+      actor,
       action: 'readiness.gate.update',
       resourceType: 'readiness_gate',
       resourceId: key,

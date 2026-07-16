@@ -1,17 +1,18 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
-import { CorrelationId, CurrentAuth, type AuthContext } from '../auth/auth-context';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { ScopesGuard } from '../auth/scopes.guard';
-import { RequireScopes } from '../auth/scopes.decorator';
+import { CorrelationId } from '../auth/auth-context';
+import { AdminAuthGuard } from '../admin-auth/admin-auth.guard';
+import { AdminPermissionGuard, RequireAdminPermission } from '../admin-auth/admin-permission.guard';
+import { CurrentAdmin, type AdminContext } from '../admin-auth/admin-context';
 import { ReadinessService } from './readiness.service';
 import { EmergencyService } from './emergency.service';
 import { EmergencyActionDto, SetGateDto } from './dto';
 
 /**
- * Production-readiness + emergency controls admin API (§37, §43). Platform-level, scope-gated.
+ * Production-readiness + emergency controls admin API (§37, §43). Protected by admin (human)
+ * authentication with RBAC permissions; emergency freezes additionally apply ABAC scoping.
  */
 @Controller('admin')
-@UseGuards(JwtAuthGuard, ScopesGuard)
+@UseGuards(AdminAuthGuard, AdminPermissionGuard)
 export class ReadinessController {
   constructor(
     private readonly readiness: ReadinessService,
@@ -19,43 +20,43 @@ export class ReadinessController {
   ) {}
 
   @Get('readiness')
-  @RequireScopes('platform.readiness')
+  @RequireAdminPermission('readiness:read')
   async getReadiness() {
     const [gates, summary] = await Promise.all([this.readiness.list(), this.readiness.summary()]);
     return { summary, gates };
   }
 
   @Post('readiness/:key')
-  @RequireScopes('platform.readiness')
+  @RequireAdminPermission('readiness:write')
   setGate(
-    @CurrentAuth() auth: AuthContext,
+    @CurrentAdmin() admin: AdminContext,
     @CorrelationId() corr: string,
     @Param('key') key: string,
     @Body() dto: SetGateDto,
   ) {
-    return this.readiness.setGate(auth, key, dto, corr);
+    return this.readiness.setGate(admin.email, key, dto, corr);
   }
 
   @Post('emergency')
-  @RequireScopes('platform.emergency')
+  @RequireAdminPermission('emergency:execute')
   emergencyAction(
-    @CurrentAuth() auth: AuthContext,
+    @CurrentAdmin() admin: AdminContext,
     @CorrelationId() corr: string,
     @Body() dto: EmergencyActionDto,
   ) {
-    return this.emergency.execute(auth, dto, corr);
+    return this.emergency.execute(admin, dto, corr);
   }
 
   @Get('emergency/events')
-  @RequireScopes('platform.emergency')
-  listEvents(@CurrentAuth() auth: AuthContext) {
-    return this.emergency.listEvents(auth);
+  @RequireAdminPermission('readiness:read')
+  listEvents() {
+    return this.emergency.listEvents();
   }
 
   /** Attempt to enable mainnet writes — blocked until every mandatory readiness gate passes. */
   @Post('mainnet/enable')
-  @RequireScopes('platform.emergency')
-  enableMainnet(@CurrentAuth() auth: AuthContext, @CorrelationId() corr: string) {
-    return this.emergency.enableMainnetWrites(auth, corr);
+  @RequireAdminPermission('mainnet:enable')
+  enableMainnet(@CurrentAdmin() admin: AdminContext, @CorrelationId() corr: string) {
+    return this.emergency.enableMainnetWrites(admin.email, corr);
   }
 }

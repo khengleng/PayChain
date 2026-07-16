@@ -4,7 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { GLOBAL_TENANT } from '../feature-flags/feature-flags.constants';
-import type { AuthContext } from '../auth/auth-context';
+import { assertPermittedByAttributes } from '../admin-auth/abac';
+import type { AdminContext } from '../admin-auth/admin-context';
 import { ReadinessService } from './readiness.service';
 
 export interface EmergencyInput {
@@ -28,58 +29,52 @@ export class EmergencyService {
     private readonly readiness: ReadinessService,
   ) {}
 
-  async execute(auth: AuthContext, input: EmergencyInput, correlationId: string) {
+  async execute(admin: AdminContext, input: EmergencyInput, correlationId: string) {
     if (!input.reason || input.reason.trim().length === 0) {
       throw new BadRequestException('An emergency action requires a reason');
     }
     const scope = input.scope ?? GLOBAL_TENANT;
+    const actor = admin.email;
 
     switch (input.action) {
       case 'SUSPEND_MINTING':
-        await this.flags.set('stablecoin.minting.enabled', false, scope, auth.clientId);
+        await this.flags.set('stablecoin.minting.enabled', false, scope, actor);
         break;
       case 'SUSPEND_REDEMPTION':
-        await this.flags.set('stablecoin.redemption.enabled', false, scope, auth.clientId);
+        await this.flags.set('stablecoin.redemption.enabled', false, scope, actor);
         break;
       case 'SUSPEND_CONVERSION':
-        await this.flags.set('stablecoin.conversion.enabled', false, scope, auth.clientId);
+        await this.flags.set('stablecoin.conversion.enabled', false, scope, actor);
         break;
       case 'SUSPEND_TRANSFERS':
-        await this.flags.set('stablecoin.transfer.enabled', false, scope, auth.clientId);
+        await this.flags.set('stablecoin.transfer.enabled', false, scope, actor);
         break;
       case 'DISABLE_MAINNET_WRITES':
-        await this.flags.set('stablecoin.mainnet.enabled', false, GLOBAL_TENANT, auth.clientId);
+        await this.flags.set('stablecoin.mainnet.enabled', false, GLOBAL_TENANT, actor);
         break;
       case 'FREEZE_WALLET':
-        await this.freezeWallet(auth.tenantId, this.requireTarget(input));
+        await this.freezeWallet(admin, this.requireTarget(input));
         break;
       case 'FREEZE_ASSET':
-        await this.freezeAsset(auth.tenantId, this.requireTarget(input));
+        await this.freezeAsset(admin, this.requireTarget(input));
         break;
       case 'DISABLE_TENANT':
-        await this.disableTenant(this.requireTarget(input));
+        await this.disableTenant(admin, this.requireTarget(input));
         break;
       default:
         throw new BadRequestException(`Unsupported emergency action: ${input.action}`);
     }
 
     const event = await this.prisma.emergencyControlEvent.create({
-      data: {
-        tenantId: auth.tenantId,
-        action: input.action,
-        scope: input.targetId ?? scope,
-        reason: input.reason,
-        actor: auth.clientId,
-      },
+      data: { action: input.action, scope: input.targetId ?? scope, reason: input.reason, actor },
     });
     await this.audit.record({
-      tenantId: auth.tenantId,
-      actor: auth.clientId,
+      actor,
       action: `emergency.${input.action.toLowerCase()}`,
       resourceType: 'emergency_control',
       resourceId: event.id,
       correlationId,
-      metadata: { target: input.targetId, scope, reason: input.reason },
+      metadata: { target: input.targetId, scope, reason: input.reason, role: admin.role },
     });
     return event;
   }
@@ -88,12 +83,11 @@ export class EmergencyService {
    * Mainnet write enablement is guarded by the readiness gates (§0.2, §43): it can only be
    * turned on once EVERY mandatory gate passes. Until then this refuses.
    */
-  async enableMainnetWrites(auth: AuthContext, correlationId: string) {
+  async enableMainnetWrites(actor: string, correlationId: string) {
     await this.readiness.assertProductionReady(); // throws if any mandatory gate is unmet
-    await this.flags.set('stablecoin.mainnet.enabled', true, GLOBAL_TENANT, auth.clientId);
+    await this.flags.set('stablecoin.mainnet.enabled', true, GLOBAL_TENANT, actor);
     await this.audit.record({
-      tenantId: auth.tenantId,
-      actor: auth.clientId,
+      actor,
       action: 'emergency.enable_mainnet_writes',
       resourceType: 'feature_flag',
       resourceId: 'stablecoin.mainnet.enabled',
@@ -102,9 +96,8 @@ export class EmergencyService {
     return { enabled: true };
   }
 
-  async listEvents(auth: AuthContext) {
+  async listEvents() {
     return this.prisma.emergencyControlEvent.findMany({
-      where: { tenantId: auth.tenantId },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
@@ -115,19 +108,23 @@ export class EmergencyService {
     return input.targetId;
   }
 
-  private async freezeWallet(tenantId: string, walletId: string): Promise<void> {
+  private async freezeWallet(admin: AdminContext, walletId: string): Promise<void> {
     const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId } });
-    if (!wallet || wallet.tenantId !== tenantId) throw new NotFoundException('Wallet not found');
+    if (!wallet) throw new NotFoundException('Wallet not found');
+    // ABAC: a tenant-scoped admin may only freeze wallets in their tenants.
+    assertPermittedByAttributes(admin, { tenantId: wallet.tenantId });
     await this.prisma.wallet.update({ where: { id: walletId }, data: { status: 'FROZEN' } });
   }
 
-  private async freezeAsset(tenantId: string, assetId: string): Promise<void> {
+  private async freezeAsset(admin: AdminContext, assetId: string): Promise<void> {
     const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
-    if (!asset || asset.tenantId !== tenantId) throw new NotFoundException('Asset not found');
+    if (!asset) throw new NotFoundException('Asset not found');
+    assertPermittedByAttributes(admin, { tenantId: asset.tenantId });
     await this.prisma.asset.update({ where: { id: assetId }, data: { status: 'SUSPENDED' } });
   }
 
-  private async disableTenant(tenantId: string): Promise<void> {
+  private async disableTenant(admin: AdminContext, tenantId: string): Promise<void> {
+    assertPermittedByAttributes(admin, { tenantId });
     await this.prisma.tenant.update({ where: { id: tenantId }, data: { status: 'SUSPENDED' } });
   }
 }
