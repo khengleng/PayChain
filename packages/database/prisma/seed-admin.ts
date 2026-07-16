@@ -1,18 +1,18 @@
-import { randomBytes, scryptSync } from 'node:crypto';
+import { hashPassword } from '@paychain/security';
 import { PrismaClient } from '@prisma/client';
 
 /**
  * Provisions (or updates) a platform admin user (§8). Run with env:
  *   ADMIN_EMAIL, ADMIN_PASSWORD, [ADMIN_ROLE=SUPER_ADMIN], [ADMIN_NAME]
- * Password hashing matches @paychain/security (scrypt$salt$hash).
+ *
+ * This is the bootstrap/break-glass path — the first admin, or recovery when nobody can log in.
+ * Routine accounts are created in the admin console (Admins page), which is audited and applies
+ * the no-self-lockout rules; this script bypasses all of that, so keep its use rare and logged.
+ *
+ * Hashing is imported from @paychain/security rather than reimplemented: a local copy that drifts
+ * from the verifier would silently lock the break-glass account out of its own platform.
  */
 const prisma = new PrismaClient();
-
-function hashPassword(password: string): string {
-  const salt = randomBytes(16);
-  const derived = scryptSync(password, salt, 64);
-  return `scrypt$${salt.toString('hex')}$${derived.toString('hex')}`;
-}
 
 const EMAIL = (process.env.ADMIN_EMAIL ?? '').toLowerCase();
 const PASSWORD = process.env.ADMIN_PASSWORD ?? '';
