@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { EmergencyService } from './emergency.service';
 import type { AdminContext } from '../admin-auth/admin-context';
 
@@ -12,6 +12,7 @@ describe('EmergencyService (§37, RBAC/ABAC)', () => {
     walletUpdate?: jest.Mock;
     walletTenantId?: string;
     assertReady?: jest.Mock;
+    network?: string;
   }) {
     const prisma = {
       wallet: {
@@ -23,7 +24,8 @@ describe('EmergencyService (§37, RBAC/ABAC)', () => {
     const flags = { set: overrides.flagSet ?? jest.fn() } as never;
     const audit = { record: jest.fn() } as never;
     const readiness = { assertProductionReady: overrides.assertReady ?? jest.fn() } as never;
-    return new EmergencyService(prisma, flags, audit, readiness);
+    const cfg = { STELLAR_NETWORK: overrides.network ?? 'testnet' } as never;
+    return new EmergencyService(prisma, flags, audit, readiness, cfg);
   }
 
   it('suspends minting by disabling the flag, attributed to the admin email', async () => {
@@ -61,5 +63,23 @@ describe('EmergencyService (§37, RBAC/ABAC)', () => {
     const svc = build({ flagSet, assertReady });
     await expect(svc.enableMainnetWrites('ops@paychain.dev', 'corr')).rejects.toBeInstanceOf(ForbiddenException);
     expect(flagSet).not.toHaveBeenCalled();
+  });
+
+  // Second, independent control (§0.2): even with every gate green, the running config has no
+  // mainnet write path, so we must refuse rather than persist a flag implying mainnet is live.
+  it('refuses to enable mainnet writes when config excludes mainnet, even if all gates pass', async () => {
+    const flagSet = jest.fn();
+    const svc = build({ flagSet, assertReady: jest.fn(), network: 'testnet' });
+    await expect(svc.enableMainnetWrites('ops@paychain.dev', 'corr')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(flagSet).not.toHaveBeenCalled();
+  });
+
+  it('clears the mainnet intent flag on DISABLE_MAINNET_WRITES', async () => {
+    const flagSet = jest.fn();
+    const svc = build({ flagSet });
+    await svc.execute(admin(), { action: 'DISABLE_MAINNET_WRITES', reason: 'drill' }, 'corr');
+    expect(flagSet).toHaveBeenCalledWith('stablecoin.mainnet.enabled', false, 'GLOBAL', 'ops@paychain.dev');
   });
 });

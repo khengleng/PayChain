@@ -34,9 +34,11 @@ export class WalletsService {
   ) {}
 
   /**
-   * Creates a sponsored Stellar account for a wallet (§10). In M0 the account is funded
-   * via friendbot (testnet). Reserve/fee sponsorship via begin/end-sponsoring is the
-   * documented M1 follow-up; customers never hold/purchase XLM either way.
+   * Creates a custodial Stellar account for a wallet (§10). The account is funded via friendbot,
+   * which is testnet-only — there is no mainnet funding path until reserve/fee sponsorship
+   * (begin/end-sponsoring, §10) lands, which is the documented M1 follow-up. Customers never
+   * hold or purchase XLM either way. Do not describe these as "sponsored" wallets until that
+   * work exists; the sponsorship config (STELLAR_SPONSOR_*) is currently unread.
    */
   async create(auth: AuthContext, dto: CreateWalletDto, correlationId: string): Promise<WalletView> {
     const created = await this.chain.createWallet({ correlationId });

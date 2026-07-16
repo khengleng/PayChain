@@ -7,9 +7,14 @@ import { z } from 'zod';
  * anything required is missing or malformed — we never boot with half-configured
  * blockchain or database access.
  *
- * NOTE (README §0.2 / §0.7): STELLAR_NETWORK is constrained to non-mainnet values in
- * M0. Mainnet stablecoin/production writes are gated and intentionally cannot be
- * selected from configuration alone at this milestone.
+ * Two constraints fail closed here rather than being enforced elsewhere, because config is the
+ * one place they cannot be bypassed:
+ *
+ * - STELLAR_NETWORK (README §0.2 / §0.7): constrained to non-mainnet values. Mainnet
+ *   stablecoin/production writes are gated and intentionally cannot be selected from
+ *   configuration alone at this milestone.
+ * - KEY_MANAGEMENT_PROVIDER (README §0.6, §11): only 'local-dev' is implemented; kms/hsm/mpc
+ *   are rejected so the enum cannot imply custody guarantees the code does not provide.
  */
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -36,6 +41,7 @@ const envSchema = z.object({
   STELLAR_SPONSOR_PUBLIC_KEY: z.string().optional().or(z.literal('')),
   STELLAR_SPONSOR_SECRET_KEY: z.string().optional().or(z.literal('')),
 
+  // Only 'local-dev' is implemented; the other values are rejected at boot (see refine below).
   KEY_MANAGEMENT_PROVIDER: z.enum(['local-dev', 'kms', 'hsm', 'mpc']).default('local-dev'),
   KEY_ENCRYPTION_KEY: z.string().min(16),
 
@@ -46,6 +52,24 @@ const envSchema = z.object({
   ADMIN_PORTAL_URL: z.string().url().default('https://paychain.cambobia.com'),
 
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional().or(z.literal('')),
+}).superRefine((cfg, ctx) => {
+  // KEY_MANAGEMENT_PROVIDER advertises kms/hsm/mpc, but only the local-dev provider is built:
+  // CryptoService wraps AES-256-GCM over KEY_ENCRYPTION_KEY and every signing path decrypts the
+  // secret into application memory (WalletsService.requireSecret). Accepting 'kms' here would
+  // silently keep using that dev provider while implying custody guarantees we do not have —
+  // so it fails closed at boot instead, exactly like the STELLAR_NETWORK mainnet exclusion.
+  // Lifting this requires a signer abstraction (key never leaves the KMS/HSM), which is the
+  // `key_management` readiness gate (§0.6, §43) — BLOCKED as of this writing.
+  if (cfg.KEY_MANAGEMENT_PROVIDER !== 'local-dev') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['KEY_MANAGEMENT_PROVIDER'],
+      message:
+        `'${cfg.KEY_MANAGEMENT_PROVIDER}' is not implemented — no KMS/HSM/MPC signer exists yet, ` +
+        `so this would silently fall back to dev-grade encrypted keys. Only 'local-dev' is ` +
+        `supported until the key_management readiness gate (§0.6) passes.`,
+    });
+  }
 });
 
 export type PayChainConfig = z.infer<typeof envSchema>;

@@ -1,7 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { EmergencyActionType } from '@paychain/database';
+import type { PayChainConfig } from '@paychain/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { CONFIG } from '../config/config.module';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { GLOBAL_TENANT } from '../feature-flags/feature-flags.constants';
 import { assertPermittedByAttributes } from '../admin-auth/abac';
@@ -17,8 +25,13 @@ export interface EmergencyInput {
 
 /**
  * Emergency controls (§37). Fast, audited kill-switches: suspend mint/redeem/convert/transfer,
- * freeze wallets/assets, disable a tenant, disable mainnet writes. Every action records an
- * EmergencyControlEvent AND an audit entry with a reason — never a silent block.
+ * freeze wallets/assets, disable a tenant. Every action records an EmergencyControlEvent AND an
+ * audit entry with a reason — never a silent block.
+ *
+ * The suspend/freeze/disable actions are load-bearing: the flags they clear are read on every
+ * corresponding write path (see FeatureFlagsService.requireEnabled callers). DISABLE_MAINNET_WRITES
+ * is the exception — mainnet is excluded at config, so it clears an intent flag rather than
+ * stopping traffic. It is documented as such rather than presented as a live kill-switch.
  */
 @Injectable()
 export class EmergencyService {
@@ -27,6 +40,7 @@ export class EmergencyService {
     private readonly flags: FeatureFlagsService,
     private readonly audit: AuditService,
     private readonly readiness: ReadinessService,
+    @Inject(CONFIG) private readonly cfg: PayChainConfig,
   ) {}
 
   async execute(admin: AdminContext, input: EmergencyInput, correlationId: string) {
@@ -50,6 +64,9 @@ export class EmergencyService {
         await this.flags.set('stablecoin.transfer.enabled', false, scope, actor);
         break;
       case 'DISABLE_MAINNET_WRITES':
+        // Belt-and-braces only: mainnet writes are already impossible because STELLAR_NETWORK
+        // cannot be 'mainnet' (see enableMainnetWrites). This clears the intent flag so the
+        // recorded state stays consistent; it is not what stops a mainnet write today.
         await this.flags.set('stablecoin.mainnet.enabled', false, GLOBAL_TENANT, actor);
         break;
       case 'FREEZE_WALLET':
@@ -80,11 +97,29 @@ export class EmergencyService {
   }
 
   /**
-   * Mainnet write enablement is guarded by the readiness gates (§0.2, §43): it can only be
-   * turned on once EVERY mandatory gate passes. Until then this refuses.
+   * Mainnet write enablement is guarded by TWO independent controls, and both must give way
+   * before this can succeed:
+   *
+   *  1. Readiness gates (§0.2, §43) — every mandatory gate must pass. Process control.
+   *  2. STELLAR_NETWORK config (packages/config) — the *enforcing* control. The enum admits
+   *     only testnet/futurenet, so the running process has no mainnet write path at all.
+   *
+   * (2) is what actually stops mainnet writes; the flag set below is a record of intent that
+   * no code path currently reads. So we refuse unless the runtime could genuinely honor it —
+   * otherwise this would persist `stablecoin.mainnet.enabled = true` and imply a capability
+   * that does not exist. Enabling mainnet is therefore a deliberate code+config change, not a
+   * toggle, and this endpoint's job is to say so precisely rather than to fake a switch.
    */
   async enableMainnetWrites(actor: string, correlationId: string) {
     await this.readiness.assertProductionReady(); // throws if any mandatory gate is unmet
+    if (this.cfg.STELLAR_NETWORK !== ('mainnet' as string)) {
+      throw new ConflictException(
+        `Cannot enable mainnet writes: STELLAR_NETWORK is '${this.cfg.STELLAR_NETWORK}' and the ` +
+          `config schema admits only testnet/futurenet, so no mainnet write path exists in this ` +
+          `build. Setting the flag here would claim a capability the runtime does not have. ` +
+          `Enabling mainnet requires a deliberate code + config change (§0.2, §0.6).`,
+      );
+    }
     await this.flags.set('stablecoin.mainnet.enabled', true, GLOBAL_TENANT, actor);
     await this.audit.record({
       actor,

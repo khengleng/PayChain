@@ -16,8 +16,9 @@ const GROUPS: Group[] = [
   },
   {
     title: 'Wallets',
+    note: 'Wallets are custodial: PayChain generates and holds the Stellar key. New accounts are funded by testnet friendbot — customers never hold or buy XLM. Reserve/fee sponsorship is not yet implemented.',
     endpoints: [
-      { method: 'POST', path: '/api/v1/wallets', desc: 'Create a sponsored wallet (idempotent)' },
+      { method: 'POST', path: '/api/v1/wallets', desc: 'Create a managed wallet (idempotent)' },
       { method: 'GET', path: '/api/v1/wallets/{id}', desc: 'Get a wallet' },
       { method: 'GET', path: '/api/v1/wallets/{id}/balances', desc: 'Rebuildable balance read-model' },
     ],
