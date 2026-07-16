@@ -29,6 +29,10 @@ export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
             horizonUrl,
             networkPassphrase: cfg.STELLAR_NETWORK_PASSPHRASE,
             friendbotUrl: cfg.STELLAR_FRIENDBOT_URL || undefined,
+            // When set, wallets are created with sponsored reserves instead of friendbot (§10).
+            // These were previously declared in config and read by nothing.
+            sponsorPublicKey: cfg.STELLAR_SPONSOR_PUBLIC_KEY || undefined,
+            sponsorSecretKey: cfg.STELLAR_SPONSOR_SECRET_KEY || undefined,
           });
 
         const providers: NamedProvider[] = [

@@ -60,6 +60,32 @@ const envSchema = z.object({
   // so it fails closed at boot instead, exactly like the STELLAR_NETWORK mainnet exclusion.
   // Lifting this requires a signer abstraction (key never leaves the KMS/HSM), which is the
   // `key_management` readiness gate (§0.6, §43) — BLOCKED as of this writing.
+  // A sponsor is only half-configured if one key is present without the other — that would throw
+  // at wallet-creation time rather than at boot, which is the wrong place to find out.
+  const hasSponsorPub = Boolean(cfg.STELLAR_SPONSOR_PUBLIC_KEY);
+  const hasSponsorSec = Boolean(cfg.STELLAR_SPONSOR_SECRET_KEY);
+  if (hasSponsorPub !== hasSponsorSec) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['STELLAR_SPONSOR_SECRET_KEY'],
+      message:
+        'STELLAR_SPONSOR_PUBLIC_KEY and STELLAR_SPONSOR_SECRET_KEY must be set together — a ' +
+        'half-configured sponsor fails at wallet creation instead of at startup.',
+    });
+  }
+
+  // Off testnet there is no friendbot, so without a sponsor every wallet would be created
+  // unfunded and fail on first use. Refuse to start rather than mint dead accounts.
+  if (cfg.STELLAR_NETWORK !== 'testnet' && !hasSponsorSec && !cfg.STELLAR_FRIENDBOT_URL) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['STELLAR_SPONSOR_SECRET_KEY'],
+      message:
+        `No account funding path on network '${cfg.STELLAR_NETWORK}': friendbot is testnet-only, ` +
+        'so a sponsor account is required or every created wallet would be unfunded and unusable.',
+    });
+  }
+
   if (cfg.KEY_MANAGEMENT_PROVIDER !== 'local-dev') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

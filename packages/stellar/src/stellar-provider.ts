@@ -43,9 +43,10 @@ const TX_TIMEOUT_SECONDS = 60;
  * This is the ONLY package permitted to import the Stellar SDK. It translates the
  * provider-agnostic domain types into classic Stellar operations over Horizon.
  *
- * Scope in M0: loyalty points modeled as classic Stellar assets on TESTNET.
- * - Account funding uses friendbot (testnet). Sponsored-reserve account creation
- *   (begin/end sponsoring future reserves, §10) is a documented M1 follow-up.
+ * Loyalty points are modeled as classic Stellar assets.
+ * - Account funding: sponsored reserves when a sponsor is configured (§10), otherwise friendbot.
+ *   Friendbot is testnet-only, so sponsorship is the only funding path that works off testnet.
+ *   Customers never hold or purchase XLM under either strategy.
  * - freeze/unfreeze require the asset issuer to have AUTH_REVOCABLE set; enforced by
  *   the caller's asset policy, not here.
  */
@@ -58,8 +59,22 @@ export class StellarProvider implements BlockchainProvider {
     });
   }
 
+  /**
+   * Creates a customer account (§10).
+   *
+   * Prefers sponsored reserves when a sponsor is configured: the sponsor pays the account's base
+   * reserve, so the customer holds zero XLM and never has to acquire any. Falls back to friendbot
+   * for local/testnet development. Friendbot does not exist off testnet, so sponsorship is the
+   * only funding path that works on mainnet.
+   */
   async createWallet(_input: CreateWalletInput): Promise<CreateWalletResult> {
     const keypair = Keypair.random();
+
+    if (this.sponsor()) {
+      await this.createSponsoredAccount(keypair);
+      return { publicKey: keypair.publicKey(), secretKey: keypair.secret(), funded: true };
+    }
+
     let funded = false;
     if (this.cfg.friendbotUrl) {
       funded = await this.fundWithFriendbot(keypair.publicKey());
@@ -71,6 +86,42 @@ export class StellarProvider implements BlockchainProvider {
     };
   }
 
+  /**
+   * begin/create/end sandwich. `endSponsoringFutureReserves` is sourced from the *sponsored*
+   * account, so the transaction needs both signatures — the sponsor authorises paying, and the
+   * new account authorises being sponsored. Missing the second signer is the classic way this
+   * fails, which is why it is tested against a real network rather than a mock.
+   *
+   * startingBalance is "0": the sponsor covers the reserve, so the account needs no XLM of its own.
+   */
+  private async createSponsoredAccount(keypair: Keypair): Promise<void> {
+    const sponsor = this.sponsor();
+    if (!sponsor) throw new BlockchainProviderError('No sponsor configured', 'SPONSOR_MISSING', false);
+
+    const sponsorAccount = await this.loadAccount(sponsor.publicKey());
+    const tx = this.buildTx(sponsorAccount, [
+      Operation.beginSponsoringFutureReserves({ sponsoredId: keypair.publicKey() }),
+      Operation.createAccount({ destination: keypair.publicKey(), startingBalance: '0' }),
+      Operation.endSponsoringFutureReserves({ source: keypair.publicKey() }),
+    ]);
+    await this.submit(tx, [sponsor, keypair]);
+  }
+
+  /** The configured sponsor keypair, or undefined when running unsponsored (friendbot/dev). */
+  private sponsor(): Keypair | undefined {
+    const secret = this.cfg.sponsorSecretKey;
+    if (!secret) return undefined;
+    try {
+      return Keypair.fromSecret(secret);
+    } catch {
+      throw new BlockchainProviderError(
+        'STELLAR_SPONSOR_SECRET_KEY is not a valid Stellar secret key',
+        'SPONSOR_INVALID',
+        false,
+      );
+    }
+  }
+
   async createAsset(input: CreateAssetInput): Promise<CreateAssetResult> {
     // Classic Stellar assets are implicit: an asset exists once (code, issuer) is used.
     // No on-chain call is required to "create" the asset itself.
@@ -78,12 +129,33 @@ export class StellarProvider implements BlockchainProvider {
     return { assetCode: input.assetCode, issuerPublicKey: input.issuerPublicKey };
   }
 
+  /**
+   * Establishes a trustline (§10). A trustline is its own ledger entry and costs another 0.5 XLM
+   * reserve, so sponsoring account creation but not the trustline would still leave the customer
+   * needing XLM — the sponsorship has to cover both or it buys nothing.
+   *
+   * When sponsored, the sponsor is the transaction source (it pays the fee too) and the sandwich
+   * wraps changeTrust; both parties sign.
+   */
   async establishTrustline(input: TrustlineInput): Promise<TrustlineResult> {
     const asset = new Asset(input.assetCode, input.issuerPublicKey);
+    const accountKeypair = Keypair.fromSecret(input.accountSecretKey);
+    const sponsor = this.sponsor();
+
+    if (sponsor) {
+      const sponsorAccount = await this.loadAccount(sponsor.publicKey());
+      const tx = this.buildTx(sponsorAccount, [
+        Operation.beginSponsoringFutureReserves({ sponsoredId: input.accountPublicKey }),
+        Operation.changeTrust({ asset, source: input.accountPublicKey }),
+        Operation.endSponsoringFutureReserves({ source: input.accountPublicKey }),
+      ]);
+      const result = await this.submit(tx, [sponsor, accountKeypair]);
+      return { transactionHash: result.transactionHash };
+    }
+
     const account = await this.loadAccount(input.accountPublicKey);
     const tx = this.buildTx(account, [Operation.changeTrust({ asset })]);
-    const signers = [Keypair.fromSecret(input.accountSecretKey)];
-    const result = await this.submit(tx, signers);
+    const result = await this.submit(tx, [accountKeypair]);
     return { transactionHash: result.transactionHash };
   }
 
