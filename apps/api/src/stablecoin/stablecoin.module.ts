@@ -22,5 +22,6 @@ import { MonitoringService } from './monitoring.service';
     TreasuryService,
     MonitoringService,
   ],
+  exports: [TreasuryService],
 })
 export class StablecoinModule {}

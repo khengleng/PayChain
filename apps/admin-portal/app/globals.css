@@ -72,6 +72,21 @@ td.wrap, th.wrap { white-space: normal; }
 .pill.PASSED, .pill.WAIVED { background: rgba(52,211,153,0.15); color: var(--ok); }
 .pill.IN_PROGRESS, .pill.PENDING { background: rgba(251,191,36,0.15); color: var(--warn); }
 .pill.FAILED, .pill.BLOCKED { background: rgba(248,113,113,0.15); color: var(--err); }
+/* Generic semantic tones (mapped from arbitrary domain statuses) */
+.pill.good { background: rgba(52,211,153,0.15); color: var(--ok); }
+.pill.warn { background: rgba(251,191,36,0.15); color: var(--warn); }
+.pill.bad { background: rgba(248,113,113,0.15); color: var(--err); }
+.pill.neutral { background: var(--panel-2); color: var(--muted); }
+
+/* Section headers with a right-aligned control (e.g. search) */
+.head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.count { color: var(--muted); font-size: 13px; }
+.search { display: flex; gap: 8px; margin: 4px 0 20px; }
+.search input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 13px; min-width: 260px; }
+.search input:focus { outline: none; border-color: var(--accent); }
+.search button { background: var(--accent); border: none; color: #fff; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.empty { color: var(--muted); font-size: 14px; padding: 28px; text-align: center; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .banner { border-radius: 12px; padding: 16px 18px; margin-bottom: 24px; border: 1px solid var(--border); }
 .banner.blocked { background: rgba(248,113,113,0.08); border-color: var(--err); }

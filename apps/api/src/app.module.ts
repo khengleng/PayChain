@@ -20,6 +20,7 @@ import { StablecoinModule } from './stablecoin/stablecoin.module';
 import { ReadinessModule } from './readiness/readiness.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
 import { AdminUsersModule } from './admin-users/admin-users.module';
+import { AdminReadModule } from './admin-read/admin-read.module';
 import { MailerModule } from './mailer/mailer.module';
 import { HealthModule } from './health/health.module';
 import { CorrelationMiddleware } from './common/correlation.middleware';
@@ -49,6 +50,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
     MailerModule,
     AdminAuthModule,
     AdminUsersModule,
+    AdminReadModule,
     ReadinessModule,
     HealthModule,
   ],
