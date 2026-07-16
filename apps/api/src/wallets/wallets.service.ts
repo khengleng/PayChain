@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { AuditService } from '../audit/audit.service';
 import type { AuthContext } from '../auth/auth-context';
+import { assertWalletCanTransact } from './wallet-status';
 import { BalanceService } from './balance.service';
 import type { CreateWalletDto } from './dto';
 
@@ -106,9 +107,21 @@ export class WalletsService {
     return this.balances.list(auth.tenantId, wallet.id);
   }
 
-  /** Returns the decrypted signing secret for an owned wallet. Internal use only (§41). */
+  /**
+   * Returns the decrypted signing secret for an owned wallet. Internal use only (§41).
+   *
+   * This is also where a wallet's status is enforced, and deliberately so: every money-moving
+   * path (issue, transfer, redeem, burn, expiry) must obtain a signing key, so a control placed
+   * here cannot be forgotten by a future caller. Previously `status` was written by freeze and
+   * read by nothing — a FROZEN wallet transferred its full balance, and both the routine freeze
+   * and the emergency break-glass freeze were equally cosmetic.
+   *
+   * Reads are intentionally unaffected: a frozen customer can still see their balance and
+   * history. Freezing stops value moving; it is not a gag.
+   */
   async requireSecret(tenantId: string, walletId: string): Promise<{ wallet: Wallet; secret: string }> {
     const wallet = await this.getOwned(tenantId, walletId);
+    assertWalletCanTransact(wallet);
     if (!wallet.stellarSecretEnc) {
       throw new ForbiddenException('Wallet has no managed signing key');
     }
