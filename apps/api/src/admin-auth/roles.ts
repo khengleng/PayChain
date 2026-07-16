@@ -19,6 +19,7 @@ export const PERMISSIONS = [
   'wallet:read',
   'wallet:freeze',
   'asset:read',
+  'asset:write',
   'stablecoin:read',
   'stablecoin:manage',
   'stablecoin:approve',
@@ -59,6 +60,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'wallet:read',
     'wallet:freeze',
     'asset:read',
+    'asset:write',
     'tenant:read',
     // Issues partner credentials — this is the role that onboards a tenant, so it needs to
     // create clients. It deliberately holds no treasury/reserve write permission.
