@@ -1,7 +1,7 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { hashClientSecret, verifyClientSecret } from '@paychain/security';
 import { PrismaService } from '../prisma/prisma.service';
-import { CryptoService } from '../crypto/crypto.service';
 
 export interface TokenResponse {
   access_token: string;
@@ -17,6 +17,8 @@ export interface TokenResponse {
  */
 @Injectable()
 export class AuthService {
+  private readonly log = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -28,10 +30,31 @@ export class AuthService {
     if (!client || client.status !== 'ACTIVE') {
       throw new UnauthorizedException('Invalid client credentials');
     }
-    const presentedHash = CryptoService.sha256(clientSecret);
-    if (presentedHash !== client.clientSecretHash) {
+
+    const { ok, needsRehash } = verifyClientSecret(clientSecret, client.clientSecretHash);
+    if (!ok) {
       throw new UnauthorizedException('Invalid client credentials');
     }
+
+    // Transparently upgrade legacy unsalted SHA-256 secrets to scrypt on first successful use,
+    // so credentials issued before the change migrate without a flag day or a reset. Never let
+    // this fail the request: the caller authenticated correctly, and a rehash is best-effort.
+    if (needsRehash) {
+      try {
+        await this.prisma.apiClient.update({
+          where: { id: client.id },
+          data: { clientSecretHash: hashClientSecret(clientSecret) },
+        });
+        this.log.log(`Upgraded client secret hash to scrypt for client ${client.clientId}`);
+      } catch (err) {
+        this.log.warn(
+          `Failed to upgrade client secret hash for ${client.clientId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
     const token = await this.jwt.signAsync(
       { sub: client.clientId, tid: client.tenantId, scopes: client.scopes },
       { expiresIn: this.ttlSeconds },
