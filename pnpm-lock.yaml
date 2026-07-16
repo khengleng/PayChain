@@ -284,6 +284,9 @@ importers:
 
   packages/database:
     dependencies:
+      '@paychain/security':
+        specifier: workspace:*
+        version: link:../security
       '@prisma/client':
         specifier: ^5.16.0
         version: 5.22.0(prisma@5.22.0)

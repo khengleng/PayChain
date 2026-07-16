@@ -1,10 +1,9 @@
-import { createHash } from 'node:crypto';
+import { hashClientSecret } from '@paychain/security';
 import { PrismaClient } from '@prisma/client';
 
 /**
  * Bootstraps a demo tenant + API client for local/testnet development (§7, §34).
- * Credentials are dev-only. NEVER seed real secrets; production clients are provisioned
- * through the admin flow (a later milestone).
+ * Credentials are dev-only. NEVER seed real secrets.
  */
 const prisma = new PrismaClient();
 
@@ -40,7 +39,7 @@ async function main(): Promise<void> {
     create: { id: '00000000-0000-0000-0000-000000000001', name: 'PayKH Sandbox' },
   });
 
-  const secretHash = createHash('sha256').update(DEMO_CLIENT_SECRET).digest('hex');
+  const secretHash = hashClientSecret(DEMO_CLIENT_SECRET);
   await prisma.apiClient.upsert({
     where: { clientId: DEMO_CLIENT_ID },
     update: { clientSecretHash: secretHash, scopes: SCOPES, status: 'ACTIVE' },
