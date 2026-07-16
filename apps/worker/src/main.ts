@@ -1,7 +1,7 @@
 import { Queue, Worker, type Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { loadConfig } from '@paychain/config';
-import { createPrismaClient } from '@paychain/database';
+import { appendAuditLog, createPrismaClient } from '@paychain/database';
 import { SymmetricCrypto } from '@paychain/security';
 import { createChainProvider } from './chain';
 import { ConfirmationService } from './services/confirmation.service';
@@ -30,7 +30,9 @@ async function main(): Promise<void> {
     return { status: res.status };
   };
   const delivery = new WebhookDeliveryService(prisma as never, crypto, httpPost);
-  const expiry = new ExpiryService(prisma as never, chain, crypto);
+  const expiry = new ExpiryService(prisma as never, chain, crypto, (entry) =>
+    appendAuditLog(prisma, entry),
+  );
 
   // Schedule the background jobs (§17 confirmation, §35 delivery, §31 reconciliation, §21 expiry).
   const queue = new Queue(QUEUE, { connection });

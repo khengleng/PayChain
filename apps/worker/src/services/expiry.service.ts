@@ -1,4 +1,5 @@
 import type { BlockchainProvider } from '@paychain/blockchain';
+import type { AuditEntryInput } from '@paychain/database';
 import type { SymmetricCrypto } from '@paychain/security';
 
 export interface ExpiryLot {
@@ -19,8 +20,14 @@ export interface ExpiryPrisma {
     findUnique(args: unknown): Promise<{ id: string; stellarAccountId: string; stellarSecretEnc: string | null } | null>;
   };
   transaction: { create(args: unknown): Promise<unknown> };
-  auditLog: { create(args: unknown): Promise<unknown> };
 }
+
+/**
+ * Appends a sealed entry to the audit chain (§41). Injected rather than reached through prisma
+ * so the worker cannot write an unchained audit row by accident — see
+ * packages/database/src/audit-chain.ts.
+ */
+export type RecordAudit = (entry: AuditEntryInput) => Promise<void>;
 
 export interface ExpiryResult {
   scanned: number;
@@ -40,6 +47,7 @@ export class ExpiryService {
     private readonly prisma: ExpiryPrisma,
     private readonly chain: BlockchainProvider,
     private readonly crypto: SymmetricCrypto,
+    private readonly recordAudit: RecordAudit,
   ) {}
 
   async processExpired(now: Date, limit = 100): Promise<ExpiryResult> {
@@ -98,15 +106,14 @@ export class ExpiryService {
       }
 
       // Lot already marked EXPIRED/remaining=0 by the claim above.
-      await this.prisma.auditLog.create({
-        data: {
-          tenantId: lot.tenantId,
-          actor: 'worker:expiry',
-          action: 'loyalty.expiry.processed',
-          resourceType: 'points_lot',
-          resourceId: lot.id,
-          metadata: { walletId: lot.walletId, assetId: lot.assetId },
-        },
+      await this.recordAudit({
+        tenantId: lot.tenantId,
+        actor: 'worker:expiry',
+        action: 'loyalty.expiry.processed',
+        resourceType: 'points_lot',
+        resourceId: lot.id,
+        correlationId: `expiry-${lot.id}`,
+        metadata: { walletId: lot.walletId, assetId: lot.assetId },
       });
     }
     return { scanned: due.length, expired, burned };

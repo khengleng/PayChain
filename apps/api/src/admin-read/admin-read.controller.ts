@@ -67,9 +67,7 @@ export class AdminReadController {
     return this.svc.flags();
   }
 
-  @Get('audit')
-  @RequireAdminPermission('audit:read')
-  audit() {
-    return this.svc.audit();
-  }
+  // GET admin/audit now lives on AuditExportController (apps/api/src/audit), alongside the chain
+  // verification and export endpoints, and supports filters + pagination. It kept this route and
+  // response shape, so the admin console is unaffected.
 }

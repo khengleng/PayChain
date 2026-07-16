@@ -15,6 +15,11 @@ describe('ExpiryService', () => {
     asset: { assetCode: 'PTS', issuerPublicKey: 'GISSUER' },
   };
 
+  let recordAudit: jest.Mock;
+  beforeEach(() => {
+    recordAudit = jest.fn().mockResolvedValue(undefined);
+  });
+
   function build(balance: string, burnAsset: jest.Mock, updateMany: jest.Mock, txCreate: jest.Mock) {
     const prisma = {
       pointsLot: { findMany: jest.fn().mockResolvedValue([lot]), updateMany },
@@ -22,13 +27,12 @@ describe('ExpiryService', () => {
         findUnique: jest.fn().mockResolvedValue({ id: 'w1', stellarAccountId: 'GHOLDER', stellarSecretEnc: secretEnc }),
       },
       transaction: { create: txCreate },
-      auditLog: { create: jest.fn().mockResolvedValue({}) },
     } as never;
     const chain = {
       getBalance: jest.fn().mockResolvedValue([{ assetCode: 'PTS', issuerPublicKey: 'GISSUER', balance }]),
       burnAsset,
     } as never;
-    return new ExpiryService(prisma, chain, crypto);
+    return new ExpiryService(prisma, chain, crypto, recordAudit);
   }
 
   it('claims the lot (ACTIVE→EXPIRED) then burns the held remaining', async () => {

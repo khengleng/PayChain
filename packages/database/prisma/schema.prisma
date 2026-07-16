@@ -519,6 +519,19 @@ model OutboxEvent {
   @@map("outbox_events")
 }
 
+// Append-only audit trail (§41). Immutability is enforced by the database, not by convention:
+// a BEFORE UPDATE OR DELETE trigger rejects any mutation of a sealed row, and a TRUNCATE
+// trigger rejects wholesale removal (see migration add_audit_chain).
+//
+// Entries are additionally hash-chained so tampering is *detectable* even if someone with DDL
+// rights drops the triggers: each row carries a monotonic `seq`, the previous row's `entryHash`,
+// and its own `entryHash` over a canonical serialization of its contents. Removing, reordering,
+// or editing any entry breaks every subsequent link. See packages/database/src/audit-chain.ts —
+// an auditor can recompute the whole chain independently from the exported data.
+//
+// `seq`/`prevHash`/`entryHash` are nullable only to admit pre-chain legacy rows written before
+// this migration; those are reported as unchained by verifyAuditChain and can be sealed with
+// the backfill script. Every new entry is always sealed.
 model AuditLog {
   id            String   @id @default(uuid())
   tenantId      String?
@@ -530,8 +543,15 @@ model AuditLog {
   metadata      Json?
   createdAt     DateTime @default(now())
 
+  seq       BigInt? @unique
+  prevHash  String?
+  entryHash String? @unique
+
   @@index([tenantId])
   @@index([resourceType, resourceId])
+  @@index([createdAt])
+  @@index([actor])
+  @@index([action])
   @@map("audit_logs")
 }
 

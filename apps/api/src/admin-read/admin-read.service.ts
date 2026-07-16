@@ -253,22 +253,4 @@ export class AdminReadService {
     return { global, overrides };
   }
 
-  async audit() {
-    const [logs, tenants] = await Promise.all([
-      this.prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: MAX }),
-      this.tenantNames(),
-    ]);
-    return {
-      items: logs.map((l) => ({
-        id: l.id,
-        tenant: l.tenantId ? (tenants.get(l.tenantId) ?? l.tenantId) : null,
-        actor: l.actor,
-        action: l.action,
-        resourceType: l.resourceType,
-        resourceId: l.resourceId,
-        correlationId: l.correlationId,
-        createdAt: l.createdAt,
-      })),
-    };
-  }
 }
