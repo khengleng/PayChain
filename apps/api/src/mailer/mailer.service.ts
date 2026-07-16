@@ -43,9 +43,12 @@ export class MailerService {
         body: JSON.stringify({ from: this.from, to: msg.to, subject: msg.subject, html: msg.html, text: msg.text }),
       });
       if (!res.ok) {
-        this.logger.error(`Resend send failed (${res.status}) for ${msg.to}`);
+        const body = await res.text().catch(() => '');
+        this.logger.error(`Resend send failed (${res.status}) for ${msg.to} from "${this.from}": ${body}`);
         return { sent: false };
       }
+      const id = (((await res.json().catch(() => ({}))) as { id?: string }).id) ?? '?';
+      this.logger.log(`Resend accepted email to ${msg.to} (id=${id})`);
       return { sent: true };
     } catch (err) {
       this.logger.error(`Resend error: ${err instanceof Error ? err.message : 'unknown'}`);

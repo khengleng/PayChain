@@ -1,0 +1,25 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PayChain icon">
+  <defs>
+    <linearGradient id="pc-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#14B8A6"/>
+      <stop offset="0.55" stop-color="#0EA5A4"/>
+      <stop offset="1" stop-color="#0369A1"/>
+    </linearGradient>
+    <clipPath id="pc-weave"><circle cx="219" cy="219" r="33"/></clipPath>
+  </defs>
+
+  <!-- app-icon background -->
+  <rect width="512" height="512" rx="116" fill="url(#pc-bg)"/>
+
+  <!-- interlocking chain links = "PayChain" -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
+    <!-- link A (lower-left) -->
+    <rect x="-88" y="-52" width="176" height="104" rx="52" transform="translate(210 302) rotate(45)"/>
+    <!-- link B (upper-right) drawn on top -->
+    <rect x="-88" y="-52" width="176" height="104" rx="52" transform="translate(302 210) rotate(45)"/>
+  </g>
+  <!-- weave: redraw link A over link B at the lower-left crossing -->
+  <g clip-path="url(#pc-weave)" fill="none" stroke="#FFFFFF" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="-88" y="-52" width="176" height="104" rx="52" transform="translate(210 302) rotate(45)"/>
+  </g>
+</svg>

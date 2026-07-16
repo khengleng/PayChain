@@ -1,0 +1,27 @@
+<svg width="560" height="140" viewBox="0 0 560 140" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PayChain">
+  <defs>
+    <linearGradient id="pcl-bg" x1="14" y1="14" x2="126" y2="126" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#14B8A6"/>
+      <stop offset="0.55" stop-color="#0EA5A4"/>
+      <stop offset="1" stop-color="#0369A1"/>
+    </linearGradient>
+    <clipPath id="pcl-weave"><circle cx="52.4" cy="52.4" r="8.3"/></clipPath>
+  </defs>
+
+  <!-- icon mark (scaled from the 512 icon: factor 0.25, inset 14) -->
+  <g transform="translate(14 14)">
+    <rect width="112" height="112" rx="25.4" fill="url(#pcl-bg)"/>
+    <g fill="none" stroke="#FFFFFF" stroke-width="7.44" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="-19.25" y="-11.375" width="38.5" height="22.75" rx="11.375" transform="translate(45.94 66.06) rotate(45)"/>
+      <rect x="-19.25" y="-11.375" width="38.5" height="22.75" rx="11.375" transform="translate(66.06 45.94) rotate(45)"/>
+    </g>
+    <g clip-path="url(#pcl-weave)" fill="none" stroke="#FFFFFF" stroke-width="7.44" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="-19.25" y="-11.375" width="38.5" height="22.75" rx="11.375" transform="translate(45.94 66.06) rotate(45)"/>
+    </g>
+  </g>
+
+  <!-- wordmark -->
+  <text x="150" y="90" font-family="'Inter','SF Pro Display','Segoe UI',system-ui,-apple-system,sans-serif" font-size="62" font-weight="700" letter-spacing="-1.5">
+    <tspan fill="#0F172A">Pay</tspan><tspan fill="#0D9488">Chain</tspan>
+  </text>
+</svg>

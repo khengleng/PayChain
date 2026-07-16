@@ -22,7 +22,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="topnav">
           <div className="topnav-inner">
             <Link href="/" className="logo">
-              Pay<span>Chain</span> Developers
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/paychain-icon.svg" alt="" width={24} height={24} />
+              <span className="logo-word">Pay<span>Chain</span></span> Developers
             </Link>
             <div className="links">
               {LINKS.map((l) => (

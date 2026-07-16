@@ -39,7 +39,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="layout">
             <aside className="sidebar">
               <div className="brand">
-                Pay<span>Chain</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/brand/paychain-icon.svg" alt="" className="brand-mark" width={26} height={26} />
+                <span className="brand-word">Pay<span>Chain</span></span>
               </div>
               <div className="brand-sub">Admin Portal</div>
               <nav className="nav">

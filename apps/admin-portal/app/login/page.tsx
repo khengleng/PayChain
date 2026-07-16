@@ -83,8 +83,10 @@ export default function LoginPage() {
     <div className="login-wrap">
       {phase === 'password' ? (
         <form className="login-card" onSubmit={submitPassword}>
-          <div className="brand" style={{ fontSize: 22, marginBottom: 4 }}>
-            Pay<span>Chain</span>
+          <div className="brand" style={{ fontSize: 22, marginBottom: 4, justifyContent: 'center' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/paychain-icon.svg" alt="" className="brand-mark" width={30} height={30} />
+            <span className="brand-word">Pay<span>Chain</span></span>
           </div>
           <div className="brand-sub" style={{ marginBottom: 24 }}>Admin Portal — sign in</div>
           {error && <div className="login-error">{error}</div>}
@@ -101,8 +103,10 @@ export default function LoginPage() {
         </form>
       ) : (
         <form className="login-card" onSubmit={submitCode}>
-          <div className="brand" style={{ fontSize: 22, marginBottom: 4 }}>
-            Pay<span>Chain</span>
+          <div className="brand" style={{ fontSize: 22, marginBottom: 4, justifyContent: 'center' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/paychain-icon.svg" alt="" className="brand-mark" width={30} height={30} />
+            <span className="brand-word">Pay<span>Chain</span></span>
           </div>
           <div className="brand-sub" style={{ marginBottom: 20 }}>
             {enrolled ? 'Two-factor authentication' : 'Set up two-factor authentication'}

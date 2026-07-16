@@ -15,8 +15,9 @@ a { color: var(--accent); text-decoration: none; }
 /* Top nav */
 .topnav { position: sticky; top: 0; z-index: 10; background: rgba(11,14,20,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
 .topnav-inner { max-width: 860px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 20px; }
-.topnav .logo { font-weight: 700; font-size: 16px; }
-.topnav .logo span { color: var(--accent); }
+.topnav .logo { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; }
+.topnav .logo img { border-radius: 6px; }
+.topnav .logo .logo-word span { color: var(--accent); }
 .topnav .links { display: flex; gap: 16px; margin-left: auto; flex-wrap: wrap; }
 .topnav .links a { color: var(--muted); font-size: 14px; }
 .topnav .links a:hover { color: var(--text); }

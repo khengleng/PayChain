@@ -30,8 +30,9 @@ a { color: var(--accent); text-decoration: none; }
   border-right: 1px solid var(--border);
   padding: 24px 16px;
 }
-.brand { font-weight: 700; font-size: 18px; letter-spacing: 0.5px; margin-bottom: 4px; }
-.brand span { color: var(--accent); }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; letter-spacing: 0.5px; margin-bottom: 4px; }
+.brand-mark { border-radius: 6px; flex: 0 0 auto; }
+.brand-word span { color: var(--accent); }
 .brand-sub { color: var(--muted); font-size: 12px; margin-bottom: 24px; }
 .nav a { display: block; padding: 8px 10px; border-radius: 8px; color: var(--muted); font-size: 14px; }
 .nav a:hover { background: var(--panel-2); color: var(--text); }
