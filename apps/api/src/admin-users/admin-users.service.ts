@@ -5,6 +5,7 @@ import type { AdminRole, AdminUserStatus } from '@paychain/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { AdminContext } from '../admin-auth/admin-context';
+import { assertCanActOn, assertCanGrantRole } from './no-escalation';
 
 const SAFE_SELECT = {
   id: true,
@@ -54,6 +55,7 @@ export class AdminUsersService {
     input: { email: string; fullName?: string; role: AdminRole; attributes?: Record<string, unknown> },
     correlationId: string,
   ): Promise<AdminUserView & { tempPassword: string }> {
+    assertCanGrantRole(actor, input.role);
     const password = tempPassword();
     try {
       const user = await this.prisma.adminUser.create({
@@ -83,11 +85,14 @@ export class AdminUsersService {
     input: { role?: AdminRole; status?: AdminUserStatus; attributes?: Record<string, unknown> },
     correlationId: string,
   ): Promise<AdminUserView> {
-    await this.mustExist(id);
+    const existing = await this.mustExist(id);
     // Guard against self-lockout: an admin can't disable or downgrade their own account.
     if (id === actor.userId && (input.status === 'DISABLED' || input.role)) {
       throw new BadRequestException('You cannot change your own role or status');
     }
+    // You may not seize an account more powerful than your own, nor promote anyone past yourself.
+    assertCanActOn(actor, existing);
+    if (input.role) assertCanGrantRole(actor, input.role);
     const user = await this.prisma.adminUser.update({
       where: { id },
       data: {
@@ -102,7 +107,8 @@ export class AdminUsersService {
   }
 
   async resetPassword(actor: AdminContext, id: string, correlationId: string) {
-    await this.mustExist(id);
+    // A temp password is returned to the caller, so this is account takeover by another name.
+    assertCanActOn(actor, await this.mustExist(id));
     const password = tempPassword();
     await this.prisma.adminUser.update({ where: { id }, data: { passwordHash: hashPassword(password) } });
     await this.audit.record({ actor: actor.email, action: 'admin.user.reset_password', resourceType: 'admin_user', resourceId: id, correlationId });
@@ -110,15 +116,21 @@ export class AdminUsersService {
   }
 
   async resetMfa(actor: AdminContext, id: string, correlationId: string) {
-    await this.mustExist(id);
+    // Stripping MFA leaves the account claimable by whoever knows the password — takeover.
+    assertCanActOn(actor, await this.mustExist(id));
     await this.prisma.adminUser.update({ where: { id }, data: { mfaEnabled: false, mfaSecretEnc: null } });
     await this.audit.record({ actor: actor.email, action: 'admin.user.reset_mfa', resourceType: 'admin_user', resourceId: id, correlationId });
     return { ok: true };
   }
 
-  private async mustExist(id: string) {
-    const user = await this.prisma.adminUser.findUnique({ where: { id }, select: { id: true } });
+  /** Returns role and email too: the no-escalation checks are about the target's actual power. */
+  private async mustExist(id: string): Promise<{ id: string; role: AdminRole; email: string }> {
+    const user = await this.prisma.adminUser.findUnique({
+      where: { id },
+      select: { id: true, role: true, email: true },
+    });
     if (!user) throw new NotFoundException('Admin user not found');
+    return user;
   }
 
   private isUnique(err: unknown): boolean {

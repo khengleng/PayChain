@@ -363,7 +363,15 @@ model ApiClient {
   clientSecretHash String
   scopes           String[]        @default([])
   status           ApiClientStatus @default(ACTIVE)
+  /// Admin who issued this credential.
   createdBy        String?
+  /// The human accountable for this credential — who holds and uses it.
+  ///
+  /// Distinct from createdBy (who issued it). Without this, maker-checker across the machine and
+  /// human namespaces is unenforceable: a movement's createdBy is a clientId while an approving
+  /// admin is an email, so comparing them can never match and the check silently never fires.
+  /// Required before a credential may hold sensitive scopes (see SENSITIVE_SCOPES).
+  ownerEmail       String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 

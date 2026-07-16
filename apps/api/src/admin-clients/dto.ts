@@ -1,4 +1,4 @@
-import { ArrayNotEmpty, IsArray, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsEmail, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class IssueClientDto {
   @IsString()
@@ -20,6 +20,15 @@ export class IssueClientDto {
     message: 'clientIdPrefix must be 1-16 chars of lowercase letters, digits or hyphens',
   })
   clientIdPrefix?: string;
+
+  /**
+   * The human accountable for this credential — who holds and uses it. Required when granting
+   * sensitive scopes, so maker-checker can be enforced when an admin later approves what this
+   * credential requested.
+   */
+  @IsOptional()
+  @IsEmail()
+  ownerEmail?: string;
 }
 
 export class UpdateScopesDto {

@@ -31,6 +31,7 @@ export interface ApiClientView {
   scopes: string[];
   status: ApiClientStatus;
   createdBy: string | null;
+  ownerEmail: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -65,6 +66,7 @@ export class AdminClientsService {
         scopes: true,
         status: true,
         createdBy: true,
+        ownerEmail: true,
         createdAt: true,
         updatedAt: true,
         // clientSecretHash is deliberately never selected — it must not reach a response body,
@@ -76,7 +78,7 @@ export class AdminClientsService {
   async issue(
     admin: AdminContext,
     tenantId: string,
-    input: { name: string; scopes: string[]; clientIdPrefix?: string },
+    input: { name: string; scopes: string[]; clientIdPrefix?: string; ownerEmail?: string },
     correlationId: string,
   ): Promise<IssuedClient> {
     assertPermittedByAttributes(admin, { tenantId });
@@ -85,6 +87,7 @@ export class AdminClientsService {
     if (!tenant) throw new NotFoundException('Tenant not found');
 
     const scopes = this.validateScopes(input.scopes);
+    this.assertOwnerForSensitiveScopes(scopes, input.ownerEmail);
 
     const clientId = generateClientId(input.clientIdPrefix?.trim() || 'pc');
     const clientSecret = generateClientSecret();
@@ -98,6 +101,7 @@ export class AdminClientsService {
         scopes,
         status: 'ACTIVE',
         createdBy: admin.email,
+        ownerEmail: input.ownerEmail?.toLowerCase() ?? null,
       },
     });
 
@@ -114,6 +118,7 @@ export class AdminClientsService {
         scopes,
         // Surfaced so a reviewer can find privileged grants without re-deriving the rule.
         sensitiveScopes: scopes.filter((s) => (SENSITIVE_SCOPES as string[]).includes(s)),
+        ownerEmail: input.ownerEmail ?? null,
         role: admin.role,
       },
     });
@@ -190,6 +195,7 @@ export class AdminClientsService {
         scopes: true,
         status: true,
         createdBy: true,
+        ownerEmail: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -216,6 +222,9 @@ export class AdminClientsService {
   ): Promise<ApiClientView> {
     const client = await this.requireClient(admin, id);
     const next = this.validateScopes(scopes);
+    // Otherwise a sensitive scope could be added later to a credential with no accountable
+    // owner, side-stepping the check at issuance.
+    this.assertOwnerForSensitiveScopes(next, client.ownerEmail ?? undefined);
 
     const updated = await this.prisma.apiClient.update({
       where: { id: client.id },
@@ -228,6 +237,7 @@ export class AdminClientsService {
         scopes: true,
         status: true,
         createdBy: true,
+        ownerEmail: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -251,6 +261,23 @@ export class AdminClientsService {
     });
 
     return updated;
+  }
+
+  /**
+   * A credential that can move or authorize value must have a named human behind it, or
+   * maker-checker cannot be enforced when a human later approves what it requested (see
+   * TreasuryService.adminApprove). Requiring it at issuance keeps that check from failing closed
+   * at the worst moment — mid-approval, on a real movement.
+   */
+  private assertOwnerForSensitiveScopes(scopes: ApiScope[], ownerEmail?: string): void {
+    const sensitive = scopes.filter((s) => (SENSITIVE_SCOPES as string[]).includes(s));
+    if (sensitive.length > 0 && !ownerEmail) {
+      throw new BadRequestException(
+        `An accountable owner (ownerEmail) is required for a credential holding sensitive ` +
+          `scope(s): ${sensitive.join(', ')}. Without one, separation of duties cannot be ` +
+          `enforced when a human approves what this credential requests.`,
+      );
+    }
   }
 
   private validateScopes(scopes: string[]): ApiScope[] {

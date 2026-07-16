@@ -146,12 +146,53 @@ describe('AdminClientsService — issuing partner credentials (§34)', () => {
     await svc.issue(
       admin(),
       't1',
-      { name: 'PayKH', scopes: [...LOYALTY, 'treasury.approve'] },
+      { name: 'PayKH', scopes: [...LOYALTY, 'treasury.approve'], ownerEmail: 'ops@paykh.dev' },
       'corr',
     );
     const entry = audit.record.mock.calls.find((c) => c[0].action === 'api_client.issued');
     expect(entry?.[0].metadata.sensitiveScopes).toEqual(['treasury.approve']);
     expect(entry?.[0].actor).toBe('ops@paychain.dev');
+  });
+});
+
+describe('AdminClientsService — sensitive scopes need an accountable owner (§30)', () => {
+  // Without a named human behind the credential, maker-checker cannot be enforced when an admin
+  // later approves what it requested — TreasuryService.adminApprove would fail closed mid-approval
+  // on a real movement, which is the worst possible moment to discover it.
+  it('REFUSES a sensitive scope with no ownerEmail', async () => {
+    const { svc } = build();
+    await expect(
+      svc.issue(admin(), 't1', { name: 'X', scopes: ['treasury.manage'] }, 'corr'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('names the offending scopes so the operator knows what to do', async () => {
+    const { svc } = build();
+    await expect(
+      svc.issue(admin(), 't1', { name: 'X', scopes: [...LOYALTY, 'treasury.approve'] }, 'corr'),
+    ).rejects.toThrow(/treasury\.approve/);
+  });
+
+  it('ALLOWS a sensitive scope when an owner is recorded', async () => {
+    const { svc, prisma } = build();
+    const issued = await svc.issue(
+      admin(), 't1', { name: 'X', scopes: ['treasury.manage'], ownerEmail: 'Ops@PayKH.dev' }, 'corr',
+    );
+    // Normalized, so the later comparison against an admin email is case-insensitive by storage.
+    expect(prisma.clients[issued.id]!.ownerEmail).toBe('ops@paykh.dev');
+  });
+
+  it('does NOT require an owner for ordinary loyalty scopes', async () => {
+    const { svc } = build();
+    await expect(svc.issue(admin(), 't1', { name: 'X', scopes: LOYALTY }, 'corr')).resolves.toBeDefined();
+  });
+
+  it('REFUSES adding a sensitive scope later to an unowned credential', async () => {
+    const { svc } = build();
+    const issued = await svc.issue(admin(), 't1', { name: 'X', scopes: LOYALTY }, 'corr');
+    await expect(
+      svc.updateScopes(admin(), issued.id, [...LOYALTY, 'treasury.manage'], 'corr'),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 
