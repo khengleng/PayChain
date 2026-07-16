@@ -1,6 +1,8 @@
 import { Global, Module } from '@nestjs/common';
+import IORedis from 'ioredis';
 import {
   FailoverBlockchainProvider,
+  RedisLock,
   type BlockchainProvider,
   type NamedProvider,
 } from '@paychain/blockchain';
@@ -15,6 +17,10 @@ export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
  * provider is wrapped in a FailoverBlockchainProvider with circuit breakers + timeouts (§40):
  * the primary RPC/Horizon endpoint is tried first, then the optional secondary. Business
  * modules inject BLOCKCHAIN_PROVIDER and never see the Stellar SDK or the failover logic.
+ *
+ * Submissions are serialized per Stellar source account through a Redis lock (§12). Redis rather
+ * than in-process, because the API runs multiple instances and the worker submits from the same
+ * accounts — an in-process lock would serialize one replica while the others still collided.
  */
 @Global()
 @Module({
@@ -23,6 +29,11 @@ export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
       provide: BLOCKCHAIN_PROVIDER,
       inject: [CONFIG],
       useFactory: (cfg: PayChainConfig): BlockchainProvider => {
+        // One connection shared by every provider instance: the lock is cheap and short-lived,
+        // and a connection per Horizon endpoint would double it for no benefit.
+        const redis = new IORedis(cfg.REDIS_URL, { maxRetriesPerRequest: null });
+        const lock = new RedisLock(redis as never);
+
         const makeStellar = (horizonUrl: string) =>
           new StellarProvider({
             network: cfg.STELLAR_NETWORK,
@@ -33,6 +44,7 @@ export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
             // These were previously declared in config and read by nothing.
             sponsorPublicKey: cfg.STELLAR_SPONSOR_PUBLIC_KEY || undefined,
             sponsorSecretKey: cfg.STELLAR_SPONSOR_SECRET_KEY || undefined,
+            lock,
           });
 
         const providers: NamedProvider[] = [

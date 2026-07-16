@@ -11,6 +11,7 @@ import {
 } from '@stellar/stellar-sdk';
 import {
   BlockchainProviderError,
+  SequenceCoordinator,
   type AssetBalance,
   type BlockchainProvider,
   type BlockchainTransaction,
@@ -59,11 +60,28 @@ const FEE_BUMP_MULTIPLIER = 10;
  */
 export class StellarProvider implements BlockchainProvider {
   private readonly server: Horizon.Server;
+  private readonly sequencer?: SequenceCoordinator;
 
   constructor(private readonly cfg: StellarProviderConfig) {
     this.server = new Horizon.Server(cfg.horizonUrl, {
       allowHttp: cfg.horizonUrl.startsWith('http://'),
     });
+    this.sequencer = cfg.lock ? new SequenceCoordinator(cfg.lock) : undefined;
+  }
+
+  /**
+   * Serializes a write on its source account's sequence number (§12).
+   *
+   * The whole load-account → build → submit cycle must be inside the lock: reading the sequence
+   * and then submitting are only safe together. Locking just the submit would let two builders
+   * read the same sequence and still collide.
+   *
+   * Without a configured lock this is a pass-through — correct only when nothing else submits
+   * from the same account concurrently.
+   */
+  private async onSource<T>(sourceAccount: string, fn: () => Promise<T>): Promise<T> {
+    if (!this.sequencer) return fn();
+    return this.sequencer.withSourceAccount(sourceAccount, fn);
   }
 
   /**
@@ -105,13 +123,17 @@ export class StellarProvider implements BlockchainProvider {
     const sponsor = this.sponsor();
     if (!sponsor) throw new BlockchainProviderError('No sponsor configured', 'SPONSOR_MISSING', false);
 
-    const sponsorAccount = await this.loadAccount(sponsor.publicKey());
-    const tx = this.buildTx(sponsorAccount, [
-      Operation.beginSponsoringFutureReserves({ sponsoredId: keypair.publicKey() }),
-      Operation.createAccount({ destination: keypair.publicKey(), startingBalance: '0' }),
-      Operation.endSponsoringFutureReserves({ source: keypair.publicKey() }),
-    ]);
-    await this.submit(tx, [sponsor, keypair]);
+    // Sourced from the sponsor, so every concurrent wallet creation contends for one sequence
+    // number. This is the hottest collision point in the system: it is the whole of onboarding.
+    await this.onSource(sponsor.publicKey(), async () => {
+      const sponsorAccount = await this.loadAccount(sponsor.publicKey());
+      const tx = this.buildTx(sponsorAccount, [
+        Operation.beginSponsoringFutureReserves({ sponsoredId: keypair.publicKey() }),
+        Operation.createAccount({ destination: keypair.publicKey(), startingBalance: '0' }),
+        Operation.endSponsoringFutureReserves({ source: keypair.publicKey() }),
+      ]);
+      await this.submit(tx, [sponsor, keypair]);
+    });
   }
 
   /** The configured sponsor keypair, or undefined when running unsponsored (friendbot/dev). */
@@ -150,74 +172,89 @@ export class StellarProvider implements BlockchainProvider {
     const sponsor = this.sponsor();
 
     if (sponsor) {
-      const sponsorAccount = await this.loadAccount(sponsor.publicKey());
-      const tx = this.buildTx(sponsorAccount, [
-        Operation.beginSponsoringFutureReserves({ sponsoredId: input.accountPublicKey }),
-        Operation.changeTrust({ asset, source: input.accountPublicKey }),
-        Operation.endSponsoringFutureReserves({ source: input.accountPublicKey }),
-      ]);
-      const result = await this.submit(tx, [sponsor, accountKeypair]);
+      // Sponsor is the source here too, so this contends with wallet creation.
+      const result = await this.onSource(sponsor.publicKey(), async () => {
+        const sponsorAccount = await this.loadAccount(sponsor.publicKey());
+        const tx = this.buildTx(sponsorAccount, [
+          Operation.beginSponsoringFutureReserves({ sponsoredId: input.accountPublicKey }),
+          Operation.changeTrust({ asset, source: input.accountPublicKey }),
+          Operation.endSponsoringFutureReserves({ source: input.accountPublicKey }),
+        ]);
+        return this.submit(tx, [sponsor, accountKeypair]);
+      });
       return { transactionHash: result.transactionHash };
     }
 
-    const account = await this.loadAccount(input.accountPublicKey);
-    const tx = this.buildTx(account, [Operation.changeTrust({ asset })]);
-    const result = await this.submit(tx, [accountKeypair]);
+    const result = await this.onSource(input.accountPublicKey, async () => {
+      const account = await this.loadAccount(input.accountPublicKey);
+      const tx = this.buildTx(account, [Operation.changeTrust({ asset })]);
+      return this.submit(tx, [accountKeypair]);
+    });
     return { transactionHash: result.transactionHash };
   }
 
   async issueAsset(input: IssueAssetInput): Promise<BlockchainTransactionResult> {
     const asset = new Asset(input.assetCode, input.issuerPublicKey);
-    const issuer = await this.loadAccount(input.issuerPublicKey);
-    const tx = this.buildTx(issuer, [
-      Operation.payment({
-        destination: input.destinationPublicKey,
-        asset,
-        amount: input.amount,
-      }),
-    ]);
-    return this.submit(tx, [Keypair.fromSecret(input.issuerSecretKey)]);
+    // Sourced from the issuer: issuing to N customers concurrently is N transactions from one
+    // account. Awarding points in bulk is precisely this shape.
+    return this.onSource(input.issuerPublicKey, async () => {
+      const issuer = await this.loadAccount(input.issuerPublicKey);
+      const tx = this.buildTx(issuer, [
+        Operation.payment({
+          destination: input.destinationPublicKey,
+          asset,
+          amount: input.amount,
+        }),
+      ]);
+      return this.submit(tx, [Keypair.fromSecret(input.issuerSecretKey)]);
+    });
   }
 
   async transferAsset(input: TransferAssetInput): Promise<BlockchainTransactionResult> {
     const asset = new Asset(input.assetCode, input.issuerPublicKey);
-    const source = await this.loadAccount(input.sourcePublicKey);
-    const tx = this.buildTx(source, [
-      Operation.payment({
-        destination: input.destinationPublicKey,
-        asset,
-        amount: input.amount,
-      }),
-    ]);
-    return this.submit(tx, [Keypair.fromSecret(input.sourceSecretKey)]);
+    return this.onSource(input.sourcePublicKey, async () => {
+      const source = await this.loadAccount(input.sourcePublicKey);
+      const tx = this.buildTx(source, [
+        Operation.payment({
+          destination: input.destinationPublicKey,
+          asset,
+          amount: input.amount,
+        }),
+      ]);
+      return this.submit(tx, [Keypair.fromSecret(input.sourceSecretKey)]);
+    });
   }
 
   async redeemAsset(input: RedeemAssetInput): Promise<BlockchainTransactionResult> {
     // Redemption = send the asset back to its issuer, which removes it from circulation.
     const asset = new Asset(input.assetCode, input.issuerPublicKey);
-    const source = await this.loadAccount(input.sourcePublicKey);
-    const tx = this.buildTx(source, [
-      Operation.payment({
-        destination: input.issuerPublicKey,
-        asset,
-        amount: input.amount,
-      }),
-    ]);
-    return this.submit(tx, [Keypair.fromSecret(input.sourceSecretKey)]);
+    return this.onSource(input.sourcePublicKey, async () => {
+      const source = await this.loadAccount(input.sourcePublicKey);
+      const tx = this.buildTx(source, [
+        Operation.payment({
+          destination: input.issuerPublicKey,
+          asset,
+          amount: input.amount,
+        }),
+      ]);
+      return this.submit(tx, [Keypair.fromSecret(input.sourceSecretKey)]);
+    });
   }
 
   async burnAsset(input: BurnAssetInput): Promise<BlockchainTransactionResult> {
     // Burn = holder sends the asset back to the issuer (supply reduction).
     const asset = new Asset(input.assetCode, input.issuerPublicKey);
-    const holder = await this.loadAccount(input.holderPublicKey);
-    const tx = this.buildTx(holder, [
-      Operation.payment({
-        destination: input.issuerPublicKey,
-        asset,
-        amount: input.amount,
-      }),
-    ]);
-    return this.submit(tx, [Keypair.fromSecret(input.holderSecretKey)]);
+    return this.onSource(input.holderPublicKey, async () => {
+      const holder = await this.loadAccount(input.holderPublicKey);
+      const tx = this.buildTx(holder, [
+        Operation.payment({
+          destination: input.issuerPublicKey,
+          asset,
+          amount: input.amount,
+        }),
+      ]);
+      return this.submit(tx, [Keypair.fromSecret(input.holderSecretKey)]);
+    });
   }
 
   async freezeWallet(input: FreezeWalletInput): Promise<BlockchainTransactionResult> {
@@ -300,15 +337,19 @@ export class StellarProvider implements BlockchainProvider {
     input: FreezeWalletInput,
     authorized: boolean,
   ): Promise<BlockchainTransactionResult> {
-    const issuer = await this.loadAccount(input.issuerPublicKey);
-    const tx = this.buildTx(issuer, [
-      Operation.setTrustLineFlags({
-        trustor: input.targetPublicKey,
-        asset: new Asset(input.assetCode, input.issuerPublicKey),
-        flags: { authorized },
-      }),
-    ]);
-    return this.submit(tx, [Keypair.fromSecret(input.issuerSecretKey)]);
+    // Also sourced from the issuer, so it contends with issuance — a freeze must not be lost to
+    // a sequence collision with routine point awards.
+    return this.onSource(input.issuerPublicKey, async () => {
+      const issuer = await this.loadAccount(input.issuerPublicKey);
+      const tx = this.buildTx(issuer, [
+        Operation.setTrustLineFlags({
+          trustor: input.targetPublicKey,
+          asset: new Asset(input.assetCode, input.issuerPublicKey),
+          flags: { authorized },
+        }),
+      ]);
+      return this.submit(tx, [Keypair.fromSecret(input.issuerSecretKey)]);
+    });
   }
 
   private buildTx(source: Horizon.AccountResponse, operations: xdr.Operation[]): Transaction {

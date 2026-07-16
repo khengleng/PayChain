@@ -1,7 +1,25 @@
-import type { NetworkName } from '@paychain/blockchain';
+import type { Lock, NetworkName } from '@paychain/blockchain';
 
 export interface StellarProviderConfig {
   network: NetworkName;
+
+  /**
+   * Serializes submissions per source account (§12).
+   *
+   * Stellar transactions consume the source account's sequence number, so two transactions built
+   * concurrently from one account claim the same sequence and one is rejected. That is not
+   * hypothetical here: every sponsored createAccount is sourced from the sponsor, and every issue
+   * from the asset's issuer — so wallet creation and point issuance are exactly the operations
+   * that collide under load.
+   *
+   * Pass a RedisLock in production: an in-process lock cannot serialize across API instances or
+   * between the API and the worker, which both submit from the same accounts. Omitting the lock
+   * entirely is safe only single-threaded (tests, local dev).
+   *
+   * Note fee bumps do NOT consume the fee source's sequence, so a sponsor paying fees for a
+   * customer's transaction needs no lock — only the true source account matters.
+   */
+  lock?: Lock;
   horizonUrl: string;
   networkPassphrase: string;
   /** Testnet-only account funder. Empty on networks without a friendbot. */
