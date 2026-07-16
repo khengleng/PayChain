@@ -35,3 +35,6 @@ coverage/
 # local Claude Code session state
 .claude/settings.json
 .claude/settings.local.json
+
+# next.js build output
+.next/
