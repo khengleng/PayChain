@@ -33,6 +33,7 @@ export function middleware(req: NextRequest): NextResponse {
 }
 
 export const config = {
-  // Protect everything except Next internals and the (public) auth route handlers under /api.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/).*)'],
+  // Protect everything except Next internals, the (public) auth route handlers under /api,
+  // the generated favicon/app-icon, brand assets, and any static file (has a dot extension).
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|brand/|api/|.*\\.).*)'],
 };
