@@ -57,7 +57,7 @@ export default async function Page() {
   return (
     <>
       <h1>Overview</h1>
-      <p className="subtitle">PayChain platform status · API: {API_BASE}</p>
+      <p className="subtitle">PayChain platform status</p>
 
       <div className="tiles">
         <div className="tile">

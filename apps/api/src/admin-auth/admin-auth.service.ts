@@ -114,7 +114,14 @@ export class AdminAuthService {
       where: { id: user.id },
       data: { mfaSecretEnc: this.crypto.encrypt(secret) },
     });
-    return { secret, otpauthUri: totpUri(user.email, secret) };
+    // Brand the authenticator entry with the portal domain (e.g. paychain.cambobia.com).
+    let issuer = 'PayChain';
+    try {
+      issuer = new URL(this.portalUrl).host;
+    } catch {
+      /* keep default */
+    }
+    return { secret, otpauthUri: totpUri(user.email, secret, issuer) };
   }
 
   /** Step 2b: verify the TOTP code → complete enrollment (if needed) and mint the session. */
