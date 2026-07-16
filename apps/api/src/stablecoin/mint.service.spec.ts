@@ -21,6 +21,14 @@ function statefulPrisma(initial: Record<string, unknown>) {
         rec = { ...rec, ...data };
         return { ...rec };
       },
+      findMany: async () => [],
+      updateMany: async ({ where, data }: { where: { status: string }; data: { status: string } }) => {
+        if (rec.status === where.status) {
+          rec = { ...rec, ...data };
+          return { count: 1 };
+        }
+        return { count: 0 };
+      },
     },
     asset: { findUnique: async () => ({ ...ASSET }) },
     wallet: { findUnique: async () => ({ id: 'w1', stellarAccountId: 'GDEST' }) },

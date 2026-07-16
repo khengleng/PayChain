@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { AuthContext } from '../auth/auth-context';
+import { addAmounts, subAmounts, sumAmounts } from '../common/money';
 
 export interface ReserveState {
   assetId: string;
@@ -60,12 +61,13 @@ export class ReserveService {
     const account = await this.prisma.reserveAccount.findUnique({ where: { id: input.reserveAccountId } });
     if (!account || account.tenantId !== auth.tenantId) throw new NotFoundException('Reserve account not found');
 
+    // Fixed-point arithmetic on money (§47) — never float the authoritative balance.
     const next = input.direction === 'CREDIT'
-      ? Number(account.balance) + Number(input.amount)
-      : Number(account.balance) - Number(input.amount);
+      ? addAmounts(account.balance, input.amount)
+      : subAmounts(account.balance, input.amount);
 
     const [, movement] = await this.prisma.$transaction([
-      this.prisma.reserveAccount.update({ where: { id: account.id }, data: { balance: String(next) } }),
+      this.prisma.reserveAccount.update({ where: { id: account.id }, data: { balance: next } }),
       this.prisma.reserveMovement.create({
         data: {
           tenantId: auth.tenantId,
@@ -85,7 +87,7 @@ export class ReserveService {
       resourceType: 'reserve_movement',
       resourceId: movement.id,
       correlationId,
-      metadata: { direction: input.direction, amount: input.amount, balance: String(next) },
+      metadata: { direction: input.direction, amount: input.amount, balance: next },
     });
     return movement;
   }
@@ -96,7 +98,7 @@ export class ReserveService {
       where: { tenantId, assetId, status: 'ACTIVE' },
       select: { balance: true },
     });
-    const reserveBalance = accounts.reduce((s, a) => s + Number(a.balance), 0);
+    const reserveBalance = sumAmounts(accounts.map((a) => a.balance));
 
     const [minted, redeemed] = await Promise.all([
       this.prisma.stablecoinMintRequest.findMany({
@@ -104,21 +106,24 @@ export class ReserveService {
         select: { amount: true },
       }),
       this.prisma.stablecoinRedemption.findMany({
-        where: { tenantId, assetId, status: { in: ['BURN_CONFIRMED', 'FIAT_PAYOUT_PENDING', 'FIAT_PAYOUT_CONFIRMED', 'COMPLETED'] } },
+        // Only count redemptions whose tokens are actually OFF-chain (burn confirmed). Tokens
+        // in FIAT_PAYOUT_PENDING/CONFIRMED are still circulating — counting them early would
+        // understate supply and hide a real shortfall.
+        where: { tenantId, assetId, status: { in: ['BURN_CONFIRMED', 'COMPLETED'] } },
         select: { amount: true },
       }),
     ]);
-    const outstandingSupply =
-      minted.reduce((s, m) => s + Number(m.amount), 0) - redeemed.reduce((s, r) => s + Number(r.amount), 0);
-
-    const ratio = outstandingSupply > 0 ? reserveBalance / outstandingSupply : Number.POSITIVE_INFINITY;
+    // Exact fixed-point supply; ratio is an inherently-fractional display value.
+    const outstandingSupply = subAmounts(sumAmounts(minted.map((m) => m.amount)), sumAmounts(redeemed.map((r) => r.amount)));
+    const supplyNum = Number(outstandingSupply);
+    const ratio = supplyNum > 0 ? Number(reserveBalance) / supplyNum : Number.POSITIVE_INFINITY;
     return {
       assetId,
-      reserveBalance: String(reserveBalance),
-      outstandingSupply: String(outstandingSupply),
-      reserveRatio: outstandingSupply > 0 ? ratio.toFixed(6) : 'N/A',
+      reserveBalance,
+      outstandingSupply,
+      reserveRatio: supplyNum > 0 ? ratio.toFixed(6) : 'N/A',
       targetRatio,
-      shortfall: outstandingSupply > 0 && ratio < Number(targetRatio),
+      shortfall: supplyNum > 0 && ratio < Number(targetRatio),
     };
   }
 

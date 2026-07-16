@@ -152,6 +152,12 @@ export class RedemptionService {
   }
 
   private async stepBurn(r: StablecoinRedemption): Promise<StablecoinRedemption> {
+    // Concurrency guard: atomically claim FIAT_PAYOUT_CONFIRMED → BURN_PENDING so only one
+    // caller burns. A crash after this claim leaves BURN_PENDING with no burnHash, which
+    // stepConfirmBurn routes to MANUAL_REVIEW — never a second burn.
+    const claimed = await this.claim(r.id, 'FIAT_PAYOUT_CONFIRMED', 'BURN_PENDING');
+    if (!claimed) return this.load(r.tenantId, r.id);
+
     const { asset } = await this.loadActive(r.tenantId, r.assetId);
     const wallet = await this.prisma.wallet.findUnique({ where: { id: r.walletId } });
     if (!wallet?.stellarSecretEnc) throw new BadRequestException('Redeemer wallet has no managed key');
@@ -163,7 +169,15 @@ export class RedemptionService {
       holderSecretKey: this.crypto.decrypt(wallet.stellarSecretEnc),
       amount: r.amount,
     });
-    return this.set(r.id, { status: 'BURN_PENDING', burnHash: res.transactionHash });
+    return this.set(r.id, { burnHash: res.transactionHash });
+  }
+
+  private async claim(id: string, from: string, to: string): Promise<boolean> {
+    const res = await this.prisma.stablecoinRedemption.updateMany({
+      where: { id, status: from as never },
+      data: { status: to as never },
+    });
+    return res.count === 1;
   }
 
   private async stepConfirmBurn(r: StablecoinRedemption): Promise<StablecoinRedemption> {

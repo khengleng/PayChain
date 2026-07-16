@@ -116,6 +116,11 @@ export class PayChainClient {
     const correlationId = opts.correlationId ?? randomUUID();
     const idempotencyKey = opts.write ? opts.idempotencyKey ?? randomUUID() : undefined;
 
+    // Only auto-retry requests that are SAFE to replay: reads (GET) and writes that carry an
+    // Idempotency-Key (the server dedupes them). A write WITHOUT a key (e.g. an approval) must
+    // NOT be retried — a retry after a committed-but-timed-out response would double-execute.
+    const canRetry = method === 'GET' || Boolean(idempotencyKey);
+
     let lastErr: unknown;
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
       try {
@@ -134,7 +139,9 @@ export class PayChainClient {
         });
 
         if (res.status >= 500 || res.status === 429) {
-          lastErr = new PayChainError(res.status, 'TRANSIENT', `Transient error ${res.status}`);
+          const transient = new PayChainError(res.status, 'TRANSIENT', `Transient error ${res.status}`);
+          if (!canRetry || attempt >= this.maxRetries) throw transient;
+          lastErr = transient;
           await this.backoff(attempt);
           continue;
         }
@@ -146,7 +153,9 @@ export class PayChainClient {
       } catch (err) {
         if (err instanceof PayChainError && err.code !== 'TRANSIENT') throw err;
         lastErr = err;
-        if (attempt < this.maxRetries) await this.backoff(attempt);
+        // Network error / transient: retry only if safe.
+        if (!canRetry || attempt >= this.maxRetries) throw err;
+        await this.backoff(attempt);
       }
     }
     throw lastErr instanceof Error

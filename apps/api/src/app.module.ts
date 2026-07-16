@@ -1,5 +1,5 @@
-import { Module } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppConfigModule } from './config/config.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -19,7 +19,7 @@ import { StablecoinProvidersModule } from './stablecoin/providers/providers.modu
 import { StablecoinModule } from './stablecoin/stablecoin.module';
 import { ReadinessModule } from './readiness/readiness.module';
 import { HealthModule } from './health/health.module';
-import { CorrelationInterceptor } from './common/correlation.interceptor';
+import { CorrelationMiddleware } from './common/correlation.middleware';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 
 @Module({
@@ -47,9 +47,13 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
     HealthModule,
   ],
   providers: [
-    { provide: APP_INTERCEPTOR, useClass: CorrelationInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    // Runs before guards so guard-rejected responses still carry a correlation id.
+    consumer.apply(CorrelationMiddleware).forRoutes('*');
+  }
+}

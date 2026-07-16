@@ -46,6 +46,19 @@ describe('PayChainClient', () => {
     expect(res).toEqual({ id: 'a1' });
   });
 
+  it('does NOT retry a non-idempotent write (approveCompensation) on a 503', async () => {
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 'tok', expires_in: 3600 }))
+      .mockResolvedValueOnce(jsonResponse(503, { error: 'busy' }));
+    const client = new PayChainClient({ ...opts, fetchImpl: fetchImpl as never, maxRetries: 3 });
+
+    await expect(client.transactions.approveCompensation('c1')).rejects.toMatchObject({ status: 503 });
+    // token call + exactly one approve attempt (no retry of the non-idempotent POST)
+    const approveCalls = fetchImpl.mock.calls.filter((c: unknown[]) => String(c[0]).includes('/approve'));
+    expect(approveCalls).toHaveLength(1);
+  });
+
   it('throws a typed error on a 4xx', async () => {
     const fetchImpl = jest
       .fn()

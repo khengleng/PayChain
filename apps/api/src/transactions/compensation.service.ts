@@ -16,7 +16,7 @@ import { WalletsService } from '../wallets/wallets.service';
 import { BalanceService } from '../wallets/balance.service';
 import { WebhookEmitterService } from '../webhooks/webhook-emitter.service';
 import type { AuthContext } from '../auth/auth-context';
-import { assertValidAmount } from '../common/money';
+import { addAmounts, assertValidAmount, compareAmounts, sumAmounts } from '../common/money';
 import type { CompensateDto } from './dto';
 
 export interface CompensationView {
@@ -111,6 +111,9 @@ export class CompensationService {
       throw new BadRequestException('Compensation is missing its original reference or amount');
     }
     const original = await this.loadOriginal(auth.tenantId, comp.compensatesTransactionId);
+    // Re-check remaining compensatable amount at approval time (excluding this pending record),
+    // so a stale pending approval can't push cumulative reversals past the original.
+    await this.assertWithinCompensatable(original, comp.amount, comp.id);
     const outcome = await this.performChainReversal(original, comp.amount, correlationId);
 
     const updated = await this.prisma.transaction.update({
@@ -237,17 +240,22 @@ export class CompensationService {
     return { hash, confirmed: chainTx.status === 'confirmed' };
   }
 
-  private async assertWithinCompensatable(original: Transaction, amount: string): Promise<void> {
+  private async assertWithinCompensatable(
+    original: Transaction,
+    amount: string,
+    excludeId?: string,
+  ): Promise<void> {
     if (!original.amount) throw new BadRequestException('Original transaction has no amount');
     const priorComps = await this.prisma.transaction.findMany({
       where: {
         compensatesTransactionId: original.id,
         status: { in: [...OPEN_STATUSES] },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
       },
       select: { amount: true },
     });
-    const already = priorComps.reduce((sum, t) => sum + Number(t.amount ?? '0'), 0);
-    if (already + Number(amount) > Number(original.amount)) {
+    const already = sumAmounts(priorComps.map((t) => t.amount ?? '0'));
+    if (compareAmounts(addAmounts(already, amount), original.amount) > 0) {
       throw new BadRequestException(
         `Compensation exceeds remaining amount (original=${original.amount}, alreadyCompensated=${already})`,
       );

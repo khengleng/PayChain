@@ -13,7 +13,7 @@ export interface ExpiryLot {
 export interface ExpiryPrisma {
   pointsLot: {
     findMany(args: unknown): Promise<ExpiryLot[]>;
-    update(args: unknown): Promise<unknown>;
+    updateMany(args: unknown): Promise<{ count: number }>;
   };
   wallet: {
     findUnique(args: unknown): Promise<{ id: string; stellarAccountId: string; stellarSecretEnc: string | null } | null>;
@@ -52,6 +52,16 @@ export class ExpiryService {
     let expired = 0;
     let burned = 0;
     for (const lot of due) {
+      // Claim the lot atomically (ACTIVE → EXPIRED) BEFORE burning, so a concurrent run or a
+      // re-run after a crash cannot burn the same lot twice. If another run already claimed
+      // it, skip. (A burn that later fails on-chain is caught by reconciliation.)
+      const claim = await this.prisma.pointsLot.updateMany({
+        where: { id: lot.id, status: 'ACTIVE' },
+        data: { status: 'EXPIRED', remaining: '0' },
+      });
+      if (claim.count !== 1) continue;
+      expired += 1;
+
       const wallet = await this.prisma.wallet.findUnique({ where: { id: lot.walletId } });
       if (wallet?.stellarSecretEnc) {
         const balances = await this.chain.getBalance({ publicKey: wallet.stellarAccountId });
@@ -87,10 +97,7 @@ export class ExpiryService {
         }
       }
 
-      await this.prisma.pointsLot.update({
-        where: { id: lot.id },
-        data: { status: 'EXPIRED', remaining: '0' },
-      });
+      // Lot already marked EXPIRED/remaining=0 by the claim above.
       await this.prisma.auditLog.create({
         data: {
           tenantId: lot.tenantId,
@@ -101,7 +108,6 @@ export class ExpiryService {
           metadata: { walletId: lot.walletId, assetId: lot.assetId },
         },
       });
-      expired += 1;
     }
     return { scanned: due.length, expired, burned };
   }

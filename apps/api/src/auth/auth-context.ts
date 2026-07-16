@@ -1,4 +1,4 @@
-import { createParamDecorator, type ExecutionContext } from '@nestjs/common';
+import { UnauthorizedException, createParamDecorator, type ExecutionContext } from '@nestjs/common';
 
 /**
  * The authenticated caller context, derived from a verified JWT and attached to the
@@ -22,7 +22,8 @@ export const CurrentAuth = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): AuthContext => {
     const req = ctx.switchToHttp().getRequest<AuthedRequest>();
     if (!req.auth) {
-      throw new Error('AuthContext missing — JwtAuthGuard must run before this handler');
+      // Defensive: a handler used @CurrentAuth without JwtAuthGuard. Surface a 401, not a 500.
+      throw new UnauthorizedException('Authentication required');
     }
     return req.auth;
   },

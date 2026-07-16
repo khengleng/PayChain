@@ -11,7 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { AuditService } from '../audit/audit.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
-import { assertValidAmount } from '../common/money';
+import { assertValidAmount, isValidAmount, normalizeAmount } from '../common/money';
 import type { AuthContext } from '../auth/auth-context';
 
 const QUOTE_TTL_MS = 5 * 60 * 1000;
@@ -44,8 +44,13 @@ export class ConversionService {
     const rate = input.rate ?? '0.01';
     const spread = input.spread ?? '0';
     const fee = input.fee ?? '0';
+    // Rate math is fractional; normalize the result to a valid 7-dp amount so float garbage
+    // (>7 dp / IEEE-754 error / 0) never reaches the chain.
     const gross = Number(input.pointsAmount) * Number(rate) * (1 - Number(spread));
-    const stablecoinAmount = Math.max(0, gross - Number(fee));
+    const stablecoinAmount = normalizeAmount(Math.max(0, gross - Number(fee)));
+    if (!isValidAmount(stablecoinAmount)) {
+      throw new BadRequestException('Conversion yields a non-positive amount for these terms');
+    }
 
     return this.prisma.stablecoinConversion.create({
       data: {
@@ -54,7 +59,7 @@ export class ConversionService {
         toAssetId: input.toAssetId,
         walletId: input.walletId,
         pointsAmount: input.pointsAmount,
-        stablecoinAmount: String(stablecoinAmount),
+        stablecoinAmount,
         rate,
         spread,
         fee,
@@ -83,6 +88,10 @@ export class ConversionService {
         return this.stepConfirmBurn(c);
       case 'POINTS_BURNED':
         return this.stepMint(c);
+      case 'STABLECOIN_MINT_PENDING':
+        // Interrupted mid-mint — the stablecoin may or may not have been issued. Do NOT
+        // auto-compensate (that could over-issue). Fail for manual review + reconciliation.
+        return this.set(c.id, { status: 'FAILED', failureReason: 'mint interrupted — manual review' });
       case 'COMPENSATING':
         return this.stepCompensate(c);
       default:
@@ -97,6 +106,8 @@ export class ConversionService {
   // --- saga steps ----------------------------------------------------------
 
   private async stepBurnPoints(c: StablecoinConversion): Promise<StablecoinConversion> {
+    const claimed = await this.claim(c.id, 'CONFIRMED', 'POINTS_BURN_PENDING');
+    if (!claimed) return this.load(c.tenantId, c.id);
     const from = await this.loadAsset(c.tenantId, c.fromAssetId);
     const wallet = await this.walletWithSecret(c.walletId);
     const res = await this.chain.burnAsset({
@@ -107,7 +118,15 @@ export class ConversionService {
       holderSecretKey: wallet.secret,
       amount: c.pointsAmount,
     });
-    return this.set(c.id, { status: 'POINTS_BURN_PENDING', pointsBurnHash: res.transactionHash });
+    return this.set(c.id, { pointsBurnHash: res.transactionHash });
+  }
+
+  private async claim(id: string, from: string, to: string): Promise<boolean> {
+    const res = await this.prisma.stablecoinConversion.updateMany({
+      where: { id, status: from as never },
+      data: { status: to as never },
+    });
+    return res.count === 1;
   }
 
   private async stepConfirmBurn(c: StablecoinConversion): Promise<StablecoinConversion> {
@@ -119,6 +138,8 @@ export class ConversionService {
   }
 
   private async stepMint(c: StablecoinConversion): Promise<StablecoinConversion> {
+    const claimed = await this.claim(c.id, 'POINTS_BURNED', 'STABLECOIN_MINT_PENDING');
+    if (!claimed) return this.load(c.tenantId, c.id);
     const to = await this.loadAsset(c.tenantId, c.toAssetId);
     const wallet = await this.prisma.wallet.findUnique({ where: { id: c.walletId } });
     if (!wallet) throw new NotFoundException('Wallet not found');

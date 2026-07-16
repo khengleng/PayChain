@@ -24,6 +24,7 @@ export class CircuitBreaker {
   private failures = 0;
   private state: CircuitState = 'CLOSED';
   private openedAt = 0;
+  private probing = false;
   private readonly failureThreshold: number;
   private readonly resetTimeoutMs: number;
   private readonly now: () => number;
@@ -43,6 +44,12 @@ export class CircuitBreaker {
     if (state === 'OPEN') {
       throw new CircuitOpenError(this.name);
     }
+    // In HALF_OPEN allow exactly ONE in-flight probe; other concurrent calls fail fast until
+    // that probe decides open-vs-closed.
+    if (state === 'HALF_OPEN') {
+      if (this.probing) throw new CircuitOpenError(this.name);
+      this.probing = true;
+    }
     try {
       const result = await fn();
       this.onSuccess();
@@ -50,6 +57,8 @@ export class CircuitBreaker {
     } catch (err) {
       this.onFailure();
       throw err;
+    } finally {
+      this.probing = false;
     }
   }
 

@@ -1,4 +1,12 @@
-import { assertValidAmount, isValidAmount } from './money';
+import {
+  addAmounts,
+  assertValidAmount,
+  compareAmounts,
+  isValidAmount,
+  normalizeAmount,
+  subAmounts,
+  sumAmounts,
+} from './money';
 
 describe('money', () => {
   it('accepts positive decimals up to 7 dp', () => {
@@ -18,5 +26,34 @@ describe('money', () => {
   it('assertValidAmount throws on invalid input', () => {
     expect(() => assertValidAmount('0')).toThrow();
     expect(() => assertValidAmount('1')).not.toThrow();
+  });
+
+  describe('fixed-point arithmetic (no float drift)', () => {
+    it('adds without IEEE-754 error', () => {
+      expect(addAmounts('0.1', '0.2')).toBe('0.3'); // 0.1 + 0.2 !== 0.30000000000000004
+      expect(addAmounts('100', '0.0000001')).toBe('100.0000001');
+    });
+
+    it('subtracts exactly', () => {
+      expect(subAmounts('1', '0.4')).toBe('0.6');
+      expect(subAmounts('100', '100')).toBe('0');
+    });
+
+    it('sums a list exactly', () => {
+      expect(sumAmounts(['0.1', '0.1', '0.1'])).toBe('0.3');
+      expect(sumAmounts([])).toBe('0');
+    });
+
+    it('compares amounts exactly', () => {
+      expect(compareAmounts('1.0000001', '1')).toBe(1);
+      expect(compareAmounts('1', '1')).toBe(0);
+      expect(compareAmounts('0.9', '1')).toBe(-1);
+    });
+
+    it('normalizes a fractional number to a valid 7-dp amount', () => {
+      expect(normalizeAmount(12.30000000001)).toBe('12.3');
+      expect(normalizeAmount(0)).toBe('0');
+      expect(isValidAmount(normalizeAmount(1000000000 * 0.01))).toBe(true);
+    });
   });
 });

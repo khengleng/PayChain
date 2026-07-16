@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Param, Post, UseGuards } from '@nestjs/common';
 import { CorrelationId, CurrentAuth, type AuthContext } from '../auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ScopesGuard } from '../auth/scopes.guard';
@@ -70,6 +70,11 @@ export class StablecoinController {
     @Param('stablecoinId') id: string,
     @Body() dto: AdvanceDto,
   ) {
+    // Activation is an approver action — it must go through /activate (stablecoin.approve),
+    // so a manage-only caller can't flip a coin to ACTIVE via the generic advance.
+    if (dto.toState === 'ACTIVE') {
+      throw new BadRequestException('Use POST /activate (requires stablecoin.approve) to activate');
+    }
     return this.stablecoin.advance(auth, id, dto.toState, correlationId);
   }
 

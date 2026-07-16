@@ -1,4 +1,4 @@
-import { CircuitBreaker, type CircuitBreakerOptions, withTimeout } from './circuit-breaker';
+import { CircuitBreaker, CircuitOpenError, type CircuitBreakerOptions, withTimeout } from './circuit-breaker';
 import { BlockchainProviderError, type BlockchainProvider } from './provider';
 import type {
   AssetBalance,
@@ -55,13 +55,34 @@ export class FailoverBlockchainProvider implements BlockchainProvider {
     this.timeoutMs = opts.timeoutMs ?? 15_000;
   }
 
-  private async run<T>(op: string, fn: (p: BlockchainProvider) => Promise<T>): Promise<T> {
+  /**
+   * @param isWrite  A state-changing/broadcasting op. Writes only fail over to the next
+   * provider when the current one's circuit is OPEN (the request was definitely never sent).
+   * On any other error (e.g. a timeout, where the write may already be in flight) a write is
+   * NOT retried on another provider — re-submitting could double-spend. Reads fail over freely.
+   */
+  private async run<T>(
+    op: string,
+    fn: (p: BlockchainProvider) => Promise<T>,
+    isWrite = false,
+  ): Promise<T> {
     const errors: string[] = [];
     for (const entry of this.entries) {
       try {
         return await entry.breaker.execute(() => withTimeout(fn(entry.provider), this.timeoutMs));
       } catch (err) {
-        errors.push(`${entry.name}: ${err instanceof Error ? err.message : String(err)}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`${entry.name}: ${msg}`);
+        // For a write, only continue to the next provider if this one never sent the request
+        // (circuit open). Otherwise stop — the write may have landed; the caller reconciles.
+        if (isWrite && !(err instanceof CircuitOpenError)) {
+          throw new BlockchainProviderError(
+            `Write ${op} failed on ${entry.name} and is not safe to retry on another provider (${msg})`,
+            'WRITE_NOT_RETRYABLE',
+            false,
+            err,
+          );
+        }
       }
     }
     throw new BlockchainProviderError(
@@ -72,31 +93,32 @@ export class FailoverBlockchainProvider implements BlockchainProvider {
   }
 
   createWallet(input: CreateWalletInput): Promise<CreateWalletResult> {
-    return this.run('createWallet', (p) => p.createWallet(input));
+    // Generates a fresh keypair per call — do not fail over (would create two wallets).
+    return this.run('createWallet', (p) => p.createWallet(input), true);
   }
   createAsset(input: CreateAssetInput): Promise<CreateAssetResult> {
-    return this.run('createAsset', (p) => p.createAsset(input));
+    return this.run('createAsset', (p) => p.createAsset(input)); // no chain write — safe to fail over
   }
   establishTrustline(input: TrustlineInput): Promise<TrustlineResult> {
-    return this.run('establishTrustline', (p) => p.establishTrustline(input));
+    return this.run('establishTrustline', (p) => p.establishTrustline(input), true);
   }
   issueAsset(input: IssueAssetInput): Promise<BlockchainTransactionResult> {
-    return this.run('issueAsset', (p) => p.issueAsset(input));
+    return this.run('issueAsset', (p) => p.issueAsset(input), true);
   }
   transferAsset(input: TransferAssetInput): Promise<BlockchainTransactionResult> {
-    return this.run('transferAsset', (p) => p.transferAsset(input));
+    return this.run('transferAsset', (p) => p.transferAsset(input), true);
   }
   redeemAsset(input: RedeemAssetInput): Promise<BlockchainTransactionResult> {
-    return this.run('redeemAsset', (p) => p.redeemAsset(input));
+    return this.run('redeemAsset', (p) => p.redeemAsset(input), true);
   }
   burnAsset(input: BurnAssetInput): Promise<BlockchainTransactionResult> {
-    return this.run('burnAsset', (p) => p.burnAsset(input));
+    return this.run('burnAsset', (p) => p.burnAsset(input), true);
   }
   freezeWallet(input: FreezeWalletInput): Promise<BlockchainTransactionResult> {
-    return this.run('freezeWallet', (p) => p.freezeWallet(input));
+    return this.run('freezeWallet', (p) => p.freezeWallet(input), true);
   }
   unfreezeWallet(input: UnfreezeWalletInput): Promise<BlockchainTransactionResult> {
-    return this.run('unfreezeWallet', (p) => p.unfreezeWallet(input));
+    return this.run('unfreezeWallet', (p) => p.unfreezeWallet(input), true);
   }
   getBalance(input: GetBalanceInput): Promise<AssetBalance[]> {
     return this.run('getBalance', (p) => p.getBalance(input));

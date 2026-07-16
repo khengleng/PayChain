@@ -14,7 +14,7 @@ import { CryptoService } from '../crypto/crypto.service';
 import { AuditService } from '../audit/audit.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { COMPLIANCE_PROVIDER } from '../compliance/compliance.module';
-import { assertValidAmount } from '../common/money';
+import { addAmounts, assertValidAmount, compareAmounts, sumAmounts } from '../common/money';
 import type { AuthContext } from '../auth/auth-context';
 import {
   RESERVE_FUNDING_PROVIDER,
@@ -52,7 +52,7 @@ export class MintService {
     assertValidAmount(input.amount);
 
     const { config } = await this.loadActive(auth.tenantId, assetId);
-    this.assertWithinDailyMintLimit(config, input.amount);
+    await this.assertWithinDailyMintLimit(auth.tenantId, assetId, config, input.amount);
 
     const created = await this.prisma.stablecoinMintRequest.create({
       data: {
@@ -107,6 +107,10 @@ export class MintService {
         return this.stepCompliance(req); // re-screen on retry
       case 'APPROVED':
         return this.stepMint(req);
+      case 'SIGNING':
+        // Interrupted between claim and submission — never blindly re-mint. Fail for manual
+        // review; reconciliation will reconcile whether the chain op actually landed.
+        return this.set(req.id, { status: 'FAILED', failureReason: 'interrupted during signing — manual review' });
       case 'SUBMITTED':
         return this.stepConfirm(req);
       case 'CONFIRMED':
@@ -159,13 +163,17 @@ export class MintService {
     if (!req.reserveConfirmed) {
       throw new BadRequestException('Refusing to mint: reserve not confirmed');
     }
+    // Concurrency guard: atomically claim APPROVED → SIGNING. Only the caller that wins this
+    // compare-and-set issues on-chain; a racing advance() (poller vs manual, or two workers)
+    // sees 0 rows updated and backs off — so the mint is broadcast at most once.
+    const claimed = await this.claim(req.id, 'APPROVED', 'SIGNING');
+    if (!claimed) return this.load(req.tenantId, req.id);
+
     const { asset } = await this.loadActive(req.tenantId, req.assetId);
     const issuerSecret = this.requireIssuerSecret(asset);
     const wallet = await this.prisma.wallet.findUnique({ where: { id: req.destinationWalletId } });
     if (!wallet) throw new NotFoundException('Destination wallet not found');
 
-    // Move to SIGNING then submit. issueAsset is reached ONLY from APPROVED, so a resume
-    // from SUBMITTED never re-issues.
     const result = await this.chain.issueAsset({
       correlationId: req.correlationId,
       assetCode: asset.assetCode,
@@ -175,6 +183,15 @@ export class MintService {
       amount: req.amount,
     });
     return this.set(req.id, { status: 'SUBMITTED', blockchainHash: result.transactionHash });
+  }
+
+  /** Compare-and-set the saga status. Returns true iff this caller performed the transition. */
+  private async claim(id: string, from: string, to: string): Promise<boolean> {
+    const res = await this.prisma.stablecoinMintRequest.updateMany({
+      where: { id, status: from as never },
+      data: { status: to as never },
+    });
+    return res.count === 1;
   }
 
   private async stepConfirm(req: StablecoinMintRequest): Promise<StablecoinMintRequest> {
@@ -200,8 +217,27 @@ export class MintService {
 
   // --- helpers -------------------------------------------------------------
 
-  private assertWithinDailyMintLimit(config: StablecoinConfig, amount: string): void {
-    if (config.dailyMintLimit && Number(amount) > Number(config.dailyMintLimit)) {
+  /** Enforces the CUMULATIVE daily mint limit (§14) — sum of today's non-failed mints + this one. */
+  private async assertWithinDailyMintLimit(
+    tenantId: string,
+    assetId: string,
+    config: StablecoinConfig,
+    amount: string,
+  ): Promise<void> {
+    if (!config.dailyMintLimit) return;
+    const startOfDay = new Date();
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const todays = await this.prisma.stablecoinMintRequest.findMany({
+      where: {
+        tenantId,
+        assetId,
+        createdAt: { gte: startOfDay },
+        status: { notIn: ['REJECTED', 'FAILED'] },
+      },
+      select: { amount: true },
+    });
+    const projected = addAmounts(sumAmounts(todays.map((t) => t.amount)), amount);
+    if (compareAmounts(projected, config.dailyMintLimit) > 0) {
       throw new BadRequestException('Mint exceeds the configured daily mint limit');
     }
   }
