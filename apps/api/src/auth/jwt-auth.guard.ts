@@ -11,6 +11,7 @@ interface AccessTokenClaims {
   sub: string; // clientId
   tid: string; // tenantId
   scopes: string[];
+  typ?: string;
 }
 
 /**
@@ -33,6 +34,10 @@ export class JwtAuthGuard implements CanActivate {
       claims = await this.jwt.verifyAsync<AccessTokenClaims>(token);
     } catch {
       throw new UnauthorizedException('Invalid or expired token');
+    }
+    // Reject admin (human) tokens here — they must not be usable on tenant/machine endpoints.
+    if (claims.typ === 'admin' || !claims.tid) {
+      throw new UnauthorizedException('This token is not valid for tenant API access');
     }
     const auth: AuthContext = {
       tenantId: claims.tid,
