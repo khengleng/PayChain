@@ -31,6 +31,6 @@ export function middleware(req: NextRequest): NextResponse {
 }
 
 export const config = {
-  // Protect everything except Next internals and the session route handler.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/session).*)'],
+  // Protect everything except Next internals and the (public) auth route handlers under /api.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/).*)'],
 };

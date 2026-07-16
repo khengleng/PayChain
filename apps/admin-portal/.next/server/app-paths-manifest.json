@@ -1,6 +1,8 @@
 {
   "/_not-found/page": "app/_not-found/page.js",
+  "/api/mfa/setup/route": "app/api/mfa/setup/route.js",
   "/api/session/route": "app/api/session/route.js",
+  "/api/mfa/verify/route": "app/api/mfa/verify/route.js",
   "/[section]/page": "app/[section]/page.js",
   "/login/page": "app/login/page.js",
   "/page": "app/page.js",

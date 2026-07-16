@@ -5,7 +5,8 @@ import { SESSION_COOKIE } from '../../../lib/session';
 const API_BASE =
   process.env.PAYCHAIN_API_URL ?? 'https://paychain-api-production-90f0.up.railway.app';
 
-/** Login: exchange email/password for an admin JWT and store it as an httpOnly cookie. */
+/** Step 1 of login: email/password → MFA challenge. No session cookie is set here — a valid
+ * TOTP code (via /api/mfa/verify) is required before any session is created. */
 export async function POST(req: Request): Promise<NextResponse> {
   let body: { email?: string; password?: string };
   try {
@@ -21,15 +22,8 @@ export async function POST(req: Request): Promise<NextResponse> {
   if (!res.ok) {
     return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
   }
-  const data = (await res.json()) as { access_token: string; expires_in: number };
-  cookies().set(SESSION_COOKIE, data.access_token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: data.expires_in,
-  });
-  return NextResponse.json({ ok: true });
+  // { mfaRequired, enrolled, challengeToken }
+  return NextResponse.json(await res.json());
 }
 
 /** Logout: clear the session cookie. */

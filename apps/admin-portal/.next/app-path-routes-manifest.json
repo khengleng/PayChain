@@ -1,1 +1,1 @@
-{"/_not-found/page":"/_not-found","/api/session/route":"/api/session","/[section]/page":"/[section]","/login/page":"/login","/page":"/","/readiness/page":"/readiness"}
+{"/_not-found/page":"/_not-found","/api/mfa/setup/route":"/api/mfa/setup","/api/session/route":"/api/session","/api/mfa/verify/route":"/api/mfa/verify","/[section]/page":"/[section]","/login/page":"/login","/page":"/","/readiness/page":"/readiness"}

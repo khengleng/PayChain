@@ -921,6 +921,9 @@ model AdminUser {
   status       AdminUserStatus @default(ACTIVE)
   // ABAC attributes, e.g. { "tenants": ["<id>"], "region": "KH", "clearance": 2 }.
   attributes   Json            @default("{}")
+  // MFA (TOTP): the secret is stored encrypted; mfaEnabled flips true after first verify.
+  mfaSecretEnc String?
+  mfaEnabled   Boolean         @default(false)
   lastLoginAt  DateTime?
   createdBy    String?
   createdAt    DateTime        @default(now())
