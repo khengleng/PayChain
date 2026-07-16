@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { AuditService } from '../audit/audit.service';
 import { MailerService } from '../mailer/mailer.service';
+import { AccessModelController } from './access-model.controller';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminAuthGuard } from './admin-auth.guard';
@@ -13,7 +14,7 @@ import { AdminPermissionGuard } from './admin-permission.guard';
 
 @Global()
 @Module({
-  controllers: [AdminAuthController],
+  controllers: [AdminAuthController, AccessModelController],
   providers: [
     {
       provide: AdminAuthService,
