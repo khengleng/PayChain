@@ -5,6 +5,7 @@ import {
   Keypair,
   Operation,
   TransactionBuilder,
+  type FeeBumpTransaction,
   type Transaction,
   type xdr,
 } from '@stellar/stellar-sdk';
@@ -36,6 +37,12 @@ import {
 import type { StellarProviderConfig } from './config';
 
 const TX_TIMEOUT_SECONDS = 60;
+
+/**
+ * Fee-bump bid as a multiple of BASE_FEE. Must exceed the inner transaction's per-op fee; the
+ * margin absorbs a rise in the network minimum rather than failing the customer's transaction.
+ */
+const FEE_BUMP_MULTIPLIER = 10;
 
 /**
  * Stellar implementation of BlockchainProvider (README §9, §10).
@@ -313,15 +320,52 @@ export class StellarProvider implements BlockchainProvider {
     return builder.setTimeout(TX_TIMEOUT_SECONDS).build();
   }
 
+  /**
+   * Signs and submits, wrapping in a fee-bump when a sponsor is configured (§10).
+   *
+   * Sponsorship covers an account's *reserve*, not its *fees*. A sponsored wallet holds zero XLM,
+   * so it cannot pay for its own transactions — without a fee bump it can receive assets but can
+   * never send, transfer or redeem them, and a sponsored issuer cannot even issue. The sponsor
+   * therefore becomes the fee source for any transaction it did not originate itself.
+   *
+   * The inner transaction is signed first by its own signers; the fee-bump envelope is then
+   * signed by the sponsor. The inner signatures stay valid — a fee bump wraps, it does not alter.
+   */
   private async submit(tx: Transaction, signers: Keypair[]): Promise<BlockchainTransactionResult> {
     for (const s of signers) tx.sign(s);
+
+    const sponsor = this.sponsor();
+    const envelope =
+      sponsor && tx.source !== sponsor.publicKey()
+        ? this.feeBump(tx, sponsor)
+        : tx;
+
     try {
-      const res = await this.server.submitTransaction(tx);
+      const res = await this.server.submitTransaction(envelope);
       // `submitted: true` = Horizon accepted it. Confirmation is verified separately (§40).
       return { transactionHash: res.hash, submitted: true };
     } catch (err) {
       throw this.wrap(err, 'SUBMIT_FAILED', this.isRetryable(err));
     }
+  }
+
+  /**
+   * Wraps an already-signed transaction so the sponsor pays its fee (CAP-15).
+   *
+   * FEE_BUMP_MULTIPLIER gives headroom over the inner fee: a fee bump must bid at least the inner
+   * transaction's per-operation fee, and bidding exactly equal leaves no margin when the network
+   * raises its minimum under load — the bump would be rejected and the customer's transaction
+   * would fail for a reason they cannot fix or even see.
+   */
+  private feeBump(tx: Transaction, sponsor: Keypair): FeeBumpTransaction {
+    const bumped = TransactionBuilder.buildFeeBumpTransaction(
+      sponsor,
+      String(Number(BASE_FEE) * FEE_BUMP_MULTIPLIER),
+      tx,
+      this.cfg.networkPassphrase,
+    );
+    bumped.sign(sponsor);
+    return bumped;
   }
 
   private async loadAccount(publicKey: string): Promise<Horizon.AccountResponse> {
