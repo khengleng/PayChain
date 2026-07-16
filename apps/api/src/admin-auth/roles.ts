@@ -12,6 +12,10 @@ export const PERMISSIONS = [
   'mainnet:enable',
   'tenant:read',
   'tenant:write',
+  // API client issuance (§34). Separated from tenant:write because handing a partner a working
+  // credential for a tenant is a materially different act from editing that tenant's record.
+  'client:read',
+  'client:write',
   'wallet:read',
   'wallet:freeze',
   'asset:read',
@@ -56,6 +60,10 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'wallet:freeze',
     'asset:read',
     'tenant:read',
+    // Issues partner credentials — this is the role that onboards a tenant, so it needs to
+    // create clients. It deliberately holds no treasury/reserve write permission.
+    'client:read',
+    'client:write',
     'reserve:read',
     'treasury:read',
     'reconciliation:read',
