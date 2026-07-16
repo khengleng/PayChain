@@ -21,6 +21,7 @@ import { ReadinessModule } from './readiness/readiness.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
 import { AdminUsersModule } from './admin-users/admin-users.module';
 import { AdminClientsModule } from './admin-clients/admin-clients.module';
+import { AdminTenantsModule } from './admin-tenants/admin-tenants.module';
 import { AdminReadModule } from './admin-read/admin-read.module';
 import { MailerModule } from './mailer/mailer.module';
 import { HealthModule } from './health/health.module';
@@ -52,6 +53,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
     AdminAuthModule,
     AdminUsersModule,
     AdminClientsModule,
+    AdminTenantsModule,
     AdminReadModule,
     ReadinessModule,
     HealthModule,

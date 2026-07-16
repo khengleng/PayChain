@@ -23,25 +23,6 @@ export class AdminReadService {
     return new Map(tenants.map((t) => [t.id, t.name]));
   }
 
-  async tenants() {
-    const rows = await this.prisma.tenant.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: MAX,
-      include: { _count: { select: { apiClients: true, wallets: true, assets: true } } },
-    });
-    return {
-      items: rows.map((t) => ({
-        id: t.id,
-        name: t.name,
-        status: t.status,
-        apiClients: t._count.apiClients,
-        wallets: t._count.wallets,
-        assets: t._count.assets,
-        createdAt: t.createdAt,
-      })),
-    };
-  }
-
   async wallets(query?: string) {
     const q = query?.trim() || undefined;
     const where = q

@@ -13,11 +13,8 @@ import { AdminReadService } from './admin-read.service';
 export class AdminReadController {
   constructor(private readonly svc: AdminReadService) {}
 
-  @Get('tenants')
-  @RequireAdminPermission('tenant:read')
-  tenants() {
-    return this.svc.tenants();
-  }
+  // GET admin/tenants now lives on AdminTenantsController, alongside tenant creation and
+  // suspension, and keeps this route and response shape.
 
   @Get('wallets')
   @RequireAdminPermission('wallet:read')
