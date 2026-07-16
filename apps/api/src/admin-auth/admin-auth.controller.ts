@@ -4,7 +4,14 @@ import { CorrelationId } from '../auth/auth-context';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminAuthGuard } from './admin-auth.guard';
 import { CurrentAdmin, type AdminContext } from './admin-context';
-import { AdminLoginDto, MfaSetupDto, MfaVerifyDto } from './dto';
+import {
+  AdminLoginDto,
+  ChangePasswordDto,
+  ForgotPasswordDto,
+  MfaSetupDto,
+  MfaVerifyDto,
+  ResetPasswordDto,
+} from './dto';
 
 @Controller('admin/auth')
 export class AdminAuthController {
@@ -32,6 +39,34 @@ export class AdminAuthController {
   @HttpCode(200)
   verifyMfa(@Body() dto: MfaVerifyDto, @CorrelationId() correlationId: string) {
     return this.auth.verifyMfa(dto.challengeToken, dto.code, correlationId);
+  }
+
+  /** Self-service password change (authenticated). */
+  @Post('change-password')
+  @UseGuards(AdminAuthGuard)
+  @HttpCode(200)
+  changePassword(
+    @CurrentAdmin() admin: AdminContext,
+    @Body() dto: ChangePasswordDto,
+    @CorrelationId() correlationId: string,
+  ) {
+    return this.auth.changePassword(admin.userId, dto.currentPassword, dto.newPassword, correlationId);
+  }
+
+  /** Request a password-reset email. Always 200 (never leaks whether the email exists). */
+  @Post('forgot-password')
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @HttpCode(200)
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.auth.forgotPassword(dto.email);
+  }
+
+  /** Complete a reset using the emailed token. */
+  @Post('reset-password')
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @HttpCode(200)
+  resetPassword(@Body() dto: ResetPasswordDto, @CorrelationId() correlationId: string) {
+    return this.auth.resetPassword(dto.token, dto.newPassword, correlationId);
   }
 
   /** The current admin's identity, role, permissions, attributes. */

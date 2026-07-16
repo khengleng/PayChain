@@ -15,16 +15,18 @@ function isExpired(token: string | undefined): boolean {
 }
 
 /** Gate the whole portal behind an admin session; bounce to /login when unauthenticated. */
+const PUBLIC_PATHS = ['/login', '/forgot', '/reset-password'];
+
 export function middleware(req: NextRequest): NextResponse {
   const { pathname } = req.nextUrl;
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   const authed = Boolean(token) && !isExpired(token);
-  const isLogin = pathname === '/login';
+  const isPublic = PUBLIC_PATHS.includes(pathname);
 
-  if (!authed && !isLogin) {
+  if (!authed && !isPublic) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
-  if (authed && isLogin) {
+  if (authed && pathname === '/login') {
     return NextResponse.redirect(new URL('/', req.url));
   }
   return NextResponse.next();

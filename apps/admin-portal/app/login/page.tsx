@@ -95,6 +95,9 @@ export default function LoginPage() {
           <button className="login-btn" type="submit" disabled={loading}>
             {loading ? 'Checking…' : 'Continue'}
           </button>
+          <div className="center-links">
+            <a className="link" href="/forgot">Forgot password?</a>
+          </div>
         </form>
       ) : (
         <form className="login-card" onSubmit={submitCode}>

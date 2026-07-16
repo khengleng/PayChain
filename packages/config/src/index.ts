@@ -39,6 +39,12 @@ const envSchema = z.object({
   KEY_MANAGEMENT_PROVIDER: z.enum(['local-dev', 'kms', 'hsm', 'mpc']).default('local-dev'),
   KEY_ENCRYPTION_KEY: z.string().min(16),
 
+  // Email (Resend) for password-reset links. If RESEND_API_KEY is unset, the mailer runs in
+  // dev mode (logs the link instead of sending). MAIL_FROM must be a Resend-verified sender.
+  RESEND_API_KEY: z.string().optional().or(z.literal('')),
+  MAIL_FROM: z.string().default('PayChain <noreply@cambobia.com>'),
+  ADMIN_PORTAL_URL: z.string().url().default('https://paychain.cambobia.com'),
+
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional().or(z.literal('')),
 });
 

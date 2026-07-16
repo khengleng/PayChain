@@ -1,12 +1,14 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { generateTotpSecret, totpUri, verifyPassword, verifyTotp } from '@paychain/security';
+import { generateTotpSecret, hashPassword, totpUri, verifyPassword, verifyTotp } from '@paychain/security';
 import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { AuditService } from '../audit/audit.service';
+import { MailerService } from '../mailer/mailer.service';
 import { permissionsForRole, type Permission } from './roles';
 
 const CHALLENGE_TTL_SECONDS = 300; // 5 min to complete the MFA step
+const RESET_TTL_SECONDS = 900; // 15 min password-reset link
 
 export interface LoginChallenge {
   mfaRequired: true;
@@ -39,8 +41,54 @@ export class AdminAuthService {
     private readonly jwt: JwtService,
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
+    private readonly mailer: MailerService,
     private readonly ttlSeconds: number,
+    private readonly portalUrl: string,
   ) {}
+
+  /** Self-service: change own password (requires the current password). */
+  async changePassword(userId: string, currentPassword: string, newPassword: string, correlationId: string): Promise<{ ok: true }> {
+    const user = await this.prisma.adminUser.findUnique({ where: { id: userId } });
+    if (!user || !verifyPassword(currentPassword, user.passwordHash)) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+    await this.prisma.adminUser.update({ where: { id: userId }, data: { passwordHash: hashPassword(newPassword) } });
+    await this.audit.record({ actor: user.email, action: 'admin.password.change', resourceType: 'admin_user', resourceId: user.id, correlationId });
+    return { ok: true };
+  }
+
+  /** Forgot password: email a reset link. Always returns ok (never leaks whether the email exists). */
+  async forgotPassword(email: string): Promise<{ ok: true }> {
+    const user = await this.prisma.adminUser.findUnique({ where: { email: email.toLowerCase() } });
+    if (user && user.status === 'ACTIVE') {
+      const token = await this.jwt.signAsync({ sub: user.id, typ: 'pwreset' }, { expiresIn: RESET_TTL_SECONDS });
+      const link = `${this.portalUrl}/reset-password?token=${encodeURIComponent(token)}`;
+      await this.mailer.send({
+        to: user.email,
+        subject: 'PayChain admin — password reset',
+        text: `Reset your PayChain admin password (valid 15 minutes): ${link}`,
+        html: `<p>Reset your PayChain admin password (valid 15 minutes):</p><p><a href="${link}">${link}</a></p><p>If you didn't request this, ignore this email.</p>`,
+      });
+    }
+    return { ok: true };
+  }
+
+  /** Complete a password reset from an emailed token. */
+  async resetPassword(token: string, newPassword: string, correlationId: string): Promise<{ ok: true }> {
+    let sub: string;
+    try {
+      const claims = await this.jwt.verifyAsync<{ sub: string; typ?: string }>(token);
+      if (claims.typ !== 'pwreset') throw new Error('wrong type');
+      sub = claims.sub;
+    } catch {
+      throw new UnauthorizedException('Invalid or expired reset link');
+    }
+    const user = await this.prisma.adminUser.findUnique({ where: { id: sub } });
+    if (!user || user.status !== 'ACTIVE') throw new UnauthorizedException('Account is not active');
+    await this.prisma.adminUser.update({ where: { id: sub }, data: { passwordHash: hashPassword(newPassword) } });
+    await this.audit.record({ actor: user.email, action: 'admin.password.reset', resourceType: 'admin_user', resourceId: user.id, correlationId });
+    return { ok: true };
+  }
 
   /** Step 1: verify password → issue an MFA challenge. Never returns a full token. */
   async login(email: string, password: string): Promise<LoginChallenge> {

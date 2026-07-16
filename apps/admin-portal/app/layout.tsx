@@ -25,6 +25,8 @@ const NAV: Array<{ label: string; href: string; perm?: string }> = [
   { label: 'Reconciliation', href: '/reconciliation', perm: 'reconciliation:read' },
   { label: 'Feature Flags', href: '/feature-flags', perm: 'flags:read' },
   { label: 'Audit Logs', href: '/audit-logs', perm: 'audit:read' },
+  { label: 'Admins', href: '/admins', perm: 'admin:manage' },
+  { label: 'Account', href: '/account' },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
