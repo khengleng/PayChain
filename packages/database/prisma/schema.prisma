@@ -269,6 +269,15 @@ enum TreasuryMovementStatus {
   FAILED
 }
 
+// Reserve movement lifecycle (§23). APPLIED is terminal-success: the balance moved. There is
+// deliberately no "APPROVED but not applied" state — approval and application happen in one
+// transaction, so an approved movement can never be silently left unapplied.
+enum ReserveMovementStatus {
+  PENDING_APPROVAL
+  APPLIED
+  REJECTED
+}
+
 enum AlertSeverity {
   LOW
   MEDIUM
@@ -684,7 +693,9 @@ model WalletStablecoinPolicy {
   @@map("wallet_stablecoin_policies")
 }
 
-// Point-in-time reserve figures for proof-of-reserve (§5, §24). Data model only in M3.
+// Point-in-time reserve figures for proof-of-reserve (§5, §24). Written by ReserveService.snapshot,
+// which commits the figures to `snapshotHash` so a recorded hash proves they were not revised.
+// The liability columns are still unwritten — see the gap register.
 model ReserveSnapshot {
   id                         String   @id @default(uuid())
   tenantId                   String
@@ -748,22 +759,33 @@ model ReserveAccount {
   @@map("reserve_accounts")
 }
 
-// An approved change to a reserve balance (§23). Movements are maker-checker gated in the
-// service; this table is the audit-friendly ledger of reserve changes.
+// A change to a reserve balance (§23). Maker-checker gated: a movement is created
+// PENDING_APPROVAL and moves no money. Only approveMovement — by a principal other than the
+// maker — applies it to ReserveAccount.balance, atomically with the status transition.
+//
+// The reserve is what backs customer tokens, so a single actor must never be able to inflate
+// it. `approvedBy` is stamped by the service from the approver's authenticated identity; it is
+// never accepted from the caller.
 model ReserveMovement {
-  id               String   @id @default(uuid())
+  id               String                @id @default(uuid())
   tenantId         String
   reserveAccountId String
   direction        String // CREDIT | DEBIT
   amount           String
   reference        String?
+  status           ReserveMovementStatus @default(PENDING_APPROVAL)
   createdBy        String?
   approvedBy       String?
-  createdAt        DateTime @default(now())
+  approvedAt       DateTime?
+  rejectedReason   String?
+  /// Balance after this movement was applied. Null until APPLIED — an audit-friendly trail.
+  balanceAfter     String?
+  createdAt        DateTime              @default(now())
 
   account ReserveAccount @relation(fields: [reserveAccountId], references: [id])
 
   @@index([tenantId])
+  @@index([reserveAccountId, status])
   @@map("reserve_movements")
 }
 

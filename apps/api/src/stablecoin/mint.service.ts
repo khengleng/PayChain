@@ -16,6 +16,7 @@ import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { COMPLIANCE_PROVIDER } from '../compliance/compliance.module';
 import { addAmounts, assertValidAmount, compareAmounts, sumAmounts } from '../common/money';
 import type { AuthContext } from '../auth/auth-context';
+import { ReserveService } from './reserve.service';
 import {
   RESERVE_FUNDING_PROVIDER,
   type ReserveFundingProvider,
@@ -37,6 +38,7 @@ export class MintService {
     @Inject(COMPLIANCE_PROVIDER) private readonly compliance: ComplianceProvider,
     @Inject(RESERVE_FUNDING_PROVIDER) private readonly funding: ReserveFundingProvider,
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
+    private readonly reserve: ReserveService,
   ) {}
 
   async request(
@@ -162,6 +164,28 @@ export class MintService {
     // Hard guard (§22): never mint before reserve confirmation, even if state was forced.
     if (!req.reserveConfirmed) {
       throw new BadRequestException('Refusing to mint: reserve not confirmed');
+    }
+
+    // Hard guard (§23): never mint tokens the reserve cannot back. reserveConfirmed only says
+    // *this* request's funding landed; it says nothing about whether total reserve still covers
+    // total supply. Checked here, immediately before broadcast, so a reserve that drained after
+    // approval still stops the mint.
+    const projection = await this.reserve.wouldBreachTarget(req.tenantId, req.assetId, req.amount);
+    if (projection.breach) {
+      await this.audit.record({
+        tenantId: req.tenantId,
+        actor: 'system:mint',
+        action: 'mint.blocked.reserve_shortfall',
+        resourceType: 'stablecoin_mint_request',
+        resourceId: req.id,
+        correlationId: req.correlationId ?? undefined,
+        metadata: { ...projection, amount: req.amount },
+      });
+      throw new BadRequestException(
+        `Refusing to mint: would breach reserve target. Reserve ${projection.reserveBalance} ` +
+          `against projected supply ${projection.projectedSupply} gives ratio ` +
+          `${projection.projectedRatio}, below target ${projection.targetRatio}.`,
+      );
     }
     // Concurrency guard: atomically claim APPROVED → SIGNING. Only the caller that wins this
     // compare-and-set issues on-chain; a racing advance() (poller vs manual, or two workers)

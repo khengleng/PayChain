@@ -17,7 +17,9 @@ import {
   MintRequestDto,
   MonitoringEvaluateDto,
   RedemptionRequestDto,
+  RejectMovementDto,
   ReserveAccountDto,
+  ReserveMovementDto,
   TreasuryMovementDto,
 } from './workflow.dto';
 
@@ -151,13 +153,49 @@ export class StablecoinWorkflowController {
   @Get('stablecoins/:id/reserve')
   @RequireScopes('stablecoin.read')
   getReserve(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
-    return this.reserve.getState(auth.tenantId, id);
+    // Evaluate against the asset's configured target, not a hardcoded 1.0.
+    return this.reserve.getStateForAsset(auth.tenantId, id);
   }
 
   @Post('stablecoins/:id/reserve-snapshots')
   @RequireScopes('reserve.manage')
   snapshotReserve(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
-    return this.reserve.snapshot(auth.tenantId, id);
+    return this.reserve.snapshot(auth.tenantId, id, { source: 'manual' });
+  }
+
+  /**
+   * Reserve movements are maker-checker gated (§23): requesting moves no money. `reserve.manage`
+   * requests; a *different* principal holding `reserve.approve` applies it.
+   */
+  @Post('reserve/movements')
+  @RequireScopes('reserve.manage')
+  requestReserveMovement(
+    @CurrentAuth() auth: AuthContext,
+    @CorrelationId() corr: string,
+    @Body() dto: ReserveMovementDto,
+  ) {
+    return this.reserve.requestMovement(auth, dto, corr);
+  }
+
+  @Post('reserve/movements/:movementId/approve')
+  @RequireScopes('reserve.approve')
+  approveReserveMovement(
+    @CurrentAuth() auth: AuthContext,
+    @CorrelationId() corr: string,
+    @Param('movementId') movementId: string,
+  ) {
+    return this.reserve.approveMovement(auth, movementId, corr);
+  }
+
+  @Post('reserve/movements/:movementId/reject')
+  @RequireScopes('reserve.approve')
+  rejectReserveMovement(
+    @CurrentAuth() auth: AuthContext,
+    @CorrelationId() corr: string,
+    @Param('movementId') movementId: string,
+    @Body() dto: RejectMovementDto,
+  ) {
+    return this.reserve.rejectMovement(auth, movementId, dto.reason, corr);
   }
 
   // --- treasury (§30) ---

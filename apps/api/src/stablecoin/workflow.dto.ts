@@ -28,6 +28,21 @@ export class ReserveAccountDto {
   @IsOptional() @IsString() bankReference?: string;
 }
 
+/**
+ * Note there is no `approvedBy` here, deliberately: the approver's identity is taken from the
+ * authenticated principal on the approve call, never from the requester's payload.
+ */
+export class ReserveMovementDto {
+  @IsString() reserveAccountId!: string;
+  @IsIn(['CREDIT', 'DEBIT']) direction!: 'CREDIT' | 'DEBIT';
+  @IsString() amount!: string;
+  @IsOptional() @IsString() @MaxLength(200) reference?: string;
+}
+
+export class RejectMovementDto {
+  @IsString() @MaxLength(500) reason!: string;
+}
+
 export class TreasuryMovementDto {
   @IsOptional() @IsString() assetId?: string;
   @IsString() fromAccount!: string;

@@ -35,7 +35,13 @@ function statefulPrisma(initial: Record<string, unknown>) {
   };
 }
 
-const deps = (prisma: unknown, chain: unknown, funding: unknown, compliance?: unknown) =>
+const deps = (
+  prisma: unknown,
+  chain: unknown,
+  funding: unknown,
+  compliance?: unknown,
+  reserve?: unknown,
+) =>
   new MintService(
     prisma as never,
     { decrypt: () => 'ISSUER_SECRET' } as never,
@@ -44,6 +50,17 @@ const deps = (prisma: unknown, chain: unknown, funding: unknown, compliance?: un
     (compliance ?? { screenTransaction: jest.fn().mockResolvedValue({ decision: 'CLEAR' }) }) as never,
     funding as never,
     chain as never,
+    // Default: reserve comfortably covers supply, so these tests exercise the saga rather than
+    // the reserve guard. The guard has its own tests below.
+    (reserve ?? {
+      wouldBreachTarget: jest.fn().mockResolvedValue({
+        breach: false,
+        projectedRatio: '1.500000',
+        targetRatio: '1.0',
+        reserveBalance: '150',
+        projectedSupply: '100',
+      }),
+    }) as never,
   );
 
 describe('MintService saga', () => {
@@ -63,6 +80,34 @@ describe('MintService saga', () => {
     const svc = deps(prisma, { issueAsset }, { confirmFunding: jest.fn() });
     await expect(svc.advance('t1', 'm1')).rejects.toBeInstanceOf(BadRequestException);
     expect(issueAsset).not.toHaveBeenCalled();
+  });
+
+  // §23: reserveConfirmed only proves *this* request's funding landed. It says nothing about
+  // whether the total reserve still covers total supply — so the ratio is re-checked at the
+  // last moment before broadcast.
+  it('refuses to mint when it would breach the reserve target, even with funding confirmed', async () => {
+    const prisma = statefulPrisma({ id: 'm1', tenantId: 't1', assetId: 'a1', amount: '100', status: 'APPROVED', reserveConfirmed: true });
+    const issueAsset = jest.fn();
+    const wouldBreachTarget = jest.fn().mockResolvedValue({
+      breach: true,
+      projectedRatio: '0.500000',
+      targetRatio: '1.0',
+      reserveBalance: '50',
+      projectedSupply: '100',
+    });
+    const svc = deps(prisma, { issueAsset }, { confirmFunding: jest.fn() }, undefined, { wouldBreachTarget });
+
+    await expect(svc.advance('t1', 'm1')).rejects.toThrow(/breach reserve target/i);
+    expect(issueAsset).not.toHaveBeenCalled();
+    expect(wouldBreachTarget).toHaveBeenCalledWith('t1', 'a1', '100');
+  });
+
+  it('mints when the reserve covers the projected supply', async () => {
+    const prisma = statefulPrisma({ id: 'm1', tenantId: 't1', assetId: 'a1', amount: '100', status: 'APPROVED', reserveConfirmed: true });
+    const issueAsset = jest.fn().mockResolvedValue({ transactionHash: 'H', submitted: true });
+    const svc = deps(prisma, { issueAsset, getTransaction: jest.fn() }, { confirmFunding: jest.fn() });
+    await svc.advance('t1', 'm1');
+    expect(issueAsset).toHaveBeenCalled();
   });
 
   it('does not re-mint after a post-submission timeout (idempotent recovery §0.5)', async () => {
