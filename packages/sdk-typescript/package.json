@@ -1,8 +1,25 @@
 {
   "name": "@paychain/sdk",
   "version": "0.1.0",
+  "description": "Hand-written TypeScript SDK for the PayChain public API.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "homepage": "https://developer.paychain.cambobia.com",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/khengleng/PayChain.git",
+    "directory": "packages/sdk-typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/khengleng/PayChain/issues"
+  },
+  "keywords": [
+    "paychain",
+    "sdk",
+    "typescript",
+    "api"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -6,17 +6,20 @@
     <AssemblyName>PayChain.Sdk</AssemblyName>
     <PackageId>PayChain.Sdk</PackageId>
     <OutputType>Library</OutputType>
-    <Authors>OpenAPI</Authors>
-    <Company>OpenAPI</Company>
-    <AssemblyTitle>OpenAPI Library</AssemblyTitle>
-    <Description>A library generated from a OpenAPI doc</Description>
-    <Copyright>No Copyright</Copyright>
+    <Authors>PayChain</Authors>
+    <Company>PayChain</Company>
+    <AssemblyTitle>PayChain SDK</AssemblyTitle>
+    <Description>Generated .NET SDK for the PayChain public API.</Description>
+    <Copyright>Copyright PayChain</Copyright>
     <RootNamespace>PayChain.Sdk</RootNamespace>
     <Version>0.1.0</Version>
     <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\PayChain.Sdk.xml</DocumentationFile>
-    <RepositoryUrl>https://github.com/GIT_USER_ID/GIT_REPO_ID.git</RepositoryUrl>
+    <RepositoryUrl>https://github.com/khengleng/PayChain</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageReleaseNotes>Minor update</PackageReleaseNotes>
+    <PackageProjectUrl>https://developer.paychain.cambobia.com</PackageProjectUrl>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageTags>paychain;api;sdk;openapi</PackageTags>
+    <PackageReleaseNotes>Generated from the PayChain public OpenAPI contract.</PackageReleaseNotes>
     <Nullable>enable</Nullable>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
   </PropertyGroup>

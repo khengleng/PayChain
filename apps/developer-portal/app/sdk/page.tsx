@@ -1,7 +1,7 @@
 const REPO_BASE = 'https://github.com/khengleng/PayChain/tree/main';
 const OPENAPI_URL = 'https://api.paychain.cambobia.com/api/v1/openapi.json';
 
-const TYPESCRIPT_INSTALL = `npm install https://github.com/khengleng/PayChain/releases/download/sdk-v0.1.0/paychain-sdk-0.1.0.tgz`;
+const TYPESCRIPT_INSTALL = `npm install https://github.com/khengleng/PayChain/releases/latest/download/paychain-sdk-latest.tgz`;
 
 const OPENAPI_SNIPPET = `curl -O ${OPENAPI_URL}
 
@@ -116,7 +116,7 @@ export default function Sdk() {
       <h2>TypeScript install</h2>
       <p className="lead" style={{ fontSize: 14 }}>
         The TypeScript SDK is the most complete client today. It is not on the public npm
-        registry yet, so install from the current GitHub release tarball.
+        registry yet, so install from the latest GitHub release tarball.
       </p>
       <pre>
         <code>{TYPESCRIPT_INSTALL}</code>

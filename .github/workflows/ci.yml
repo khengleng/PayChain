@@ -24,6 +24,9 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Verify SDK versions stay aligned
+        run: bash scripts/verify-sdk-versions.sh
+
       - name: Generate Prisma client
         run: pnpm --filter @paychain/database exec prisma generate
 
@@ -39,6 +42,11 @@ jobs:
       - name: Test
         run: pnpm -r test
 
+      - name: Pack TypeScript SDK
+        run: |
+          mkdir -p /tmp/sdk-artifacts
+          npm pack ./packages/sdk-typescript --pack-destination /tmp/sdk-artifacts
+
       # Unit tests and typecheck both pass while the Nest container is unresolvable — a DI cycle
       # or a misplaced provider only appears at boot, and the e2e that would catch it is skipped
       # without RUN_E2E=1. Without this step, production is where we would find out.
@@ -47,6 +55,65 @@ jobs:
 
       - name: Build apps
         run: pnpm -r --filter "./apps/**" build
+
+  sdk-dart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+
+      - name: Validate Dart SDK
+        working-directory: packages/sdk-dart
+        run: |
+          dart pub get
+          dart run build_runner build
+          dart analyze
+
+  sdk-php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Validate PHP SDK
+        working-directory: packages/sdk-php
+        run: |
+          composer validate --strict
+          composer install --no-interaction --prefer-dist
+          composer test
+
+  sdk-kotlin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Validate Kotlin SDK
+        working-directory: packages/sdk-kotlin
+        run: |
+          chmod +x gradlew
+          ./gradlew test
+
+  sdk-dotnet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Validate .NET SDK
+        run: dotnet test packages/sdk-dotnet/PayChain.Sdk.sln --configuration Release
 
   security:
     runs-on: ubuntu-latest
@@ -88,7 +155,7 @@ jobs:
   # matters more than usual here: CI itself was broken (pnpm setup errored before install), so
   # nothing had ever actually been tested before it went out.
   deploy:
-    needs: [build-test, security]
+    needs: [build-test, sdk-dart, sdk-php, sdk-kotlin, sdk-dotnet, security]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     # Serialize deploys: two concurrent runs would race, and the api runs prisma migrate deploy

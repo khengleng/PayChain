@@ -35,3 +35,5 @@ npx @openapitools/openapi-generator-cli generate \
   -o "$ROOT/packages/sdk-dotnet" \
   --skip-validate-spec \
   --additional-properties=packageName=PayChain.Sdk,packageVersion=0.1.0,targetFramework=net8.0,nullableReferenceTypes=true,useDateTimeOffset=true,sourceFolder=src
+
+bash "$ROOT/scripts/apply-sdk-postprocessing.sh"

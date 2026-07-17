@@ -1,8 +1,9 @@
 name: paychain_sdk
 version: 0.1.0
-description: PayChain%20Dart%20SDK
-homepage: homepage
-
+description: PayChain Dart SDK for the public API
+homepage: https://developer.paychain.cambobia.com
+repository: https://github.com/khengleng/PayChain
+issue_tracker: https://github.com/khengleng/PayChain/issues
 
 environment:
   sdk: '>=2.18.0 <4.0.0'
