@@ -119,3 +119,116 @@ export function FlagToggle({
     </span>
   );
 }
+
+const SUSPEND_MODES = ['MINTING_SUSPENDED', 'REDEMPTION_SUSPENDED', 'FULLY_SUSPENDED'] as const;
+const APPROVAL_GATES = ['LEGAL', 'COMPLIANCE', 'TREASURY', 'RESERVE', 'TECHNICAL', 'PILOT'] as const;
+
+export function StablecoinActions({
+  id,
+  lifecycleState,
+  canManage,
+  canApprove,
+}: {
+  id: string;
+  lifecycleState: string;
+  canManage: boolean;
+  canApprove: boolean;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [gate, setGate] = useState<(typeof APPROVAL_GATES)[number]>('LEGAL');
+  const [suspendMode, setSuspendMode] = useState<(typeof SUSPEND_MODES)[number]>('FULLY_SUSPENDED');
+
+  const state = lifecycleState.toUpperCase();
+  const canSubmit = canManage && state === 'DRAFT';
+  const canApproveGate =
+    canApprove &&
+    !['ACTIVE', 'CLOSED', 'WIND_DOWN', 'FULLY_SUSPENDED', 'MINTING_SUSPENDED', 'REDEMPTION_SUSPENDED'].includes(state);
+  const canActivate = canApprove && ['PILOT_APPROVED', 'MINTING_SUSPENDED', 'REDEMPTION_SUSPENDED', 'FULLY_SUSPENDED'].includes(state);
+  const canSuspend = canManage && state === 'ACTIVE';
+
+  async function post(url: string, body?: unknown) {
+    setBusy(true);
+    setErr('');
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setErr(data.error ?? data.message ?? 'Action failed');
+        return;
+      }
+      router.refresh();
+    } catch {
+      setErr('Network error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!canSubmit && !canApproveGate && !canActivate && !canSuspend) {
+    return <span style={{ color: 'var(--muted)' }}>—</span>;
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 8, minWidth: 240 }}>
+      {canSubmit && (
+        <button className="btn-sm" disabled={busy} onClick={() => post(`/api/stablecoins/${id}/submit-for-review`)}>
+          {busy ? '…' : 'Submit For Review'}
+        </button>
+      )}
+
+      {canApproveGate && (
+        <div style={{ display: 'grid', gap: 6 }}>
+          <select
+            className="login-input"
+            style={{ padding: '4px 8px', fontSize: 12 }}
+            value={gate}
+            onChange={(e) => setGate(e.target.value as (typeof APPROVAL_GATES)[number])}
+          >
+            {APPROVAL_GATES.map((value) => (
+              <option key={value} value={value}>
+                Gate: {value}
+              </option>
+            ))}
+          </select>
+          <button className="btn-sm" disabled={busy} onClick={() => post(`/api/stablecoins/${id}/approve-gate`, { gate })}>
+            {busy ? '…' : 'Approve Gate'}
+          </button>
+        </div>
+      )}
+
+      {canActivate && (
+        <button className="btn-sm" disabled={busy} onClick={() => post(`/api/stablecoins/${id}/activate`)}>
+          {busy ? '…' : state === 'PILOT_APPROVED' ? 'Activate' : 'Resume ACTIVE'}
+        </button>
+      )}
+
+      {canSuspend && (
+        <div style={{ display: 'grid', gap: 6 }}>
+          <select
+            className="login-input"
+            style={{ padding: '4px 8px', fontSize: 12 }}
+            value={suspendMode}
+            onChange={(e) => setSuspendMode(e.target.value as (typeof SUSPEND_MODES)[number])}
+          >
+            {SUSPEND_MODES.map((value) => (
+              <option key={value} value={value}>
+                Suspend: {value}
+              </option>
+            ))}
+          </select>
+          <button className="btn-sm" disabled={busy} onClick={() => post(`/api/stablecoins/${id}/suspend`, { mode: suspendMode })}>
+            {busy ? '…' : 'Apply Suspension'}
+          </button>
+        </div>
+      )}
+
+      {err && <span style={{ color: 'var(--err)', fontSize: 11 }}>{err}</span>}
+    </div>
+  );
+}

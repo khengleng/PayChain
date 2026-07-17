@@ -4,7 +4,11 @@ import { AdminAuthGuard } from '../admin-auth/admin-auth.guard';
 import { AdminPermissionGuard, RequireAdminPermission } from '../admin-auth/admin-permission.guard';
 import { CurrentAdmin, type AdminContext } from '../admin-auth/admin-context';
 import { AdminActionsService } from './admin-actions.service';
-import { SetFlagDto } from './dto';
+import {
+  AdminApproveStablecoinGateDto,
+  AdminSuspendStablecoinDto,
+  SetFlagDto,
+} from './dto';
 
 /**
  * Privileged write actions from the admin console (§37). Each is RBAC-permission-gated,
@@ -60,5 +64,47 @@ export class AdminActionsController {
     @Param('movementId') movementId: string,
   ) {
     return this.svc.rejectTreasury(admin, movementId, corr);
+  }
+
+  @Post('stablecoins/:stablecoinId/submit-for-review')
+  @RequireAdminPermission('stablecoin:manage')
+  submitStablecoinForReview(
+    @CurrentAdmin() admin: AdminContext,
+    @CorrelationId() corr: string,
+    @Param('stablecoinId') stablecoinId: string,
+  ) {
+    return this.svc.submitStablecoinForReview(admin, stablecoinId, corr);
+  }
+
+  @Post('stablecoins/:stablecoinId/approve-gate')
+  @RequireAdminPermission('stablecoin:approve')
+  approveStablecoinGate(
+    @CurrentAdmin() admin: AdminContext,
+    @CorrelationId() corr: string,
+    @Param('stablecoinId') stablecoinId: string,
+    @Body() dto: AdminApproveStablecoinGateDto,
+  ) {
+    return this.svc.approveStablecoinGate(admin, stablecoinId, dto, corr);
+  }
+
+  @Post('stablecoins/:stablecoinId/activate')
+  @RequireAdminPermission('stablecoin:approve')
+  activateStablecoin(
+    @CurrentAdmin() admin: AdminContext,
+    @CorrelationId() corr: string,
+    @Param('stablecoinId') stablecoinId: string,
+  ) {
+    return this.svc.activateStablecoin(admin, stablecoinId, corr);
+  }
+
+  @Post('stablecoins/:stablecoinId/suspend')
+  @RequireAdminPermission('stablecoin:manage')
+  suspendStablecoin(
+    @CurrentAdmin() admin: AdminContext,
+    @CorrelationId() corr: string,
+    @Param('stablecoinId') stablecoinId: string,
+    @Body() dto: AdminSuspendStablecoinDto,
+  ) {
+    return this.svc.suspendStablecoin(admin, stablecoinId, dto, corr);
   }
 }

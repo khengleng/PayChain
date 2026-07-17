@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { apiGet } from '../../lib/api';
+import { can, getSession } from '../../lib/session';
 import { DataTable, StatusPill, Unavailable, fmtDate } from '../_components/DataTable';
+import { StablecoinActions } from '../_components/actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +22,9 @@ interface StablecoinRow {
 
 export default async function StablecoinsPage() {
   const data = await apiGet<{ items: StablecoinRow[] }>('/admin/stablecoins');
+  const session = getSession();
+  const canManage = can(session, 'stablecoin:manage');
+  const canApprove = can(session, 'stablecoin:approve');
 
   return (
     <>
@@ -51,6 +56,18 @@ export default async function StablecoinsPage() {
             { header: 'Reserve target', num: true, cell: (s) => s.reserveRatioTarget },
             { header: 'Jurisdiction', cell: (s) => s.jurisdiction ?? '—' },
             { header: 'Created', cell: (s) => fmtDate(s.createdAt) },
+            {
+              header: 'Actions',
+              cell: (s) => (
+                <StablecoinActions
+                  id={s.id}
+                  lifecycleState={s.lifecycleState}
+                  canManage={canManage}
+                  canApprove={canApprove}
+                />
+              ),
+              wrap: true,
+            },
           ]}
         />
       )}

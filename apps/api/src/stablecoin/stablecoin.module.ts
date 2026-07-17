@@ -32,6 +32,6 @@ import { AttestationService } from './attestation.service';
   // redemptions must be screened by the same rules as stablecoin movements, not a second copy.
   // It lives here for historical reasons — it is not stablecoin-specific and would sit better in
   // its own module; noted rather than churned mid-fix.
-  exports: [TreasuryService, ReserveService, MonitoringService],
+  exports: [StablecoinService, TreasuryService, ReserveService, MonitoringService],
 })
 export class StablecoinModule {}

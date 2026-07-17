@@ -13,17 +13,33 @@ function admin(attributes: Record<string, unknown> = {}) {
 describe('AdminActionsService', () => {
   function build(walletStatus = 'ACTIVE') {
     const wallet = { id: 'w1', tenantId: 't1', status: walletStatus };
+    const stablecoinConfig = { tenantId: 't1' };
     const prisma = {
       wallet: {
         findUnique: jest.fn().mockResolvedValue(wallet),
         update: jest.fn().mockImplementation(({ data }: { data: { status: string } }) => Promise.resolve({ id: 'w1', status: data.status })),
       },
+      stablecoinConfig: {
+        findUnique: jest.fn().mockResolvedValue(stablecoinConfig),
+      },
     };
     const audit = { record: jest.fn().mockResolvedValue(undefined) };
     const flags = { set: jest.fn().mockResolvedValue(undefined) };
     const treasury = { adminApprove: jest.fn(), adminReject: jest.fn() };
-    const svc = new AdminActionsService(prisma as never, audit as never, flags as never, treasury as never);
-    return { svc, prisma, audit, flags, wallet };
+    const stablecoin = {
+      submitForReview: jest.fn(),
+      approveGate: jest.fn(),
+      advance: jest.fn(),
+      suspend: jest.fn(),
+    };
+    const svc = new AdminActionsService(
+      prisma as never,
+      audit as never,
+      flags as never,
+      treasury as never,
+      stablecoin as never,
+    );
+    return { svc, prisma, audit, flags, wallet, stablecoin };
   }
 
   it('freezes an active wallet and audits it', async () => {
@@ -70,5 +86,33 @@ describe('AdminActionsService', () => {
     await expect(
       svc.setFlag(admin({ tenants: ['t1'] }), { key: 'stablecoin.minting.enabled', enabled: false }, 'corr'),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('submits a stablecoin for review through the admin path and attributes it to the admin email', async () => {
+    const { svc, stablecoin } = build();
+    await svc.submitStablecoinForReview(admin(), 'sc1', 'corr');
+    expect(stablecoin.submitForReview).toHaveBeenCalledWith(
+      { tenantId: 't1', clientId: 'ops@paychain', scopes: [] },
+      'sc1',
+      'corr',
+    );
+  });
+
+  it('enforces ABAC on stablecoin actions', async () => {
+    const { svc } = build();
+    await expect(
+      svc.activateStablecoin(admin({ tenants: ['other'] }), 'sc1', 'corr'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('approves a stablecoin gate and forwards the validated payload', async () => {
+    const { svc, stablecoin } = build();
+    await svc.approveStablecoinGate(admin(), 'sc1', { gate: 'LEGAL', note: 'signed off' } as never, 'corr');
+    expect(stablecoin.approveGate).toHaveBeenCalledWith(
+      { tenantId: 't1', clientId: 'ops@paychain', scopes: [] },
+      'sc1',
+      { gate: 'LEGAL', note: 'signed off' },
+      'corr',
+    );
   });
 });

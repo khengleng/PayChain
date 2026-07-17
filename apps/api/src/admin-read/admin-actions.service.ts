@@ -4,8 +4,11 @@ import { AuditService } from '../audit/audit.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { STABLECOIN_FLAGS, GLOBAL_TENANT } from '../feature-flags/feature-flags.constants';
 import { TreasuryService } from '../stablecoin/treasury.service';
+import { StablecoinService } from '../stablecoin/stablecoin.service';
 import { assertPermittedByAttributes } from '../admin-auth/abac';
 import type { AdminContext } from '../admin-auth/admin-context';
+import type { ApproveGateDto, SuspendDto } from '../stablecoin/dto';
+import type { AuthContext } from '../auth/auth-context';
 
 /**
  * Privileged write actions from the admin console (§37). Read visibility lives in
@@ -20,11 +23,13 @@ export class AdminActionsService {
     private readonly audit: AuditService,
     private readonly flags: FeatureFlagsService,
     private readonly treasury: TreasuryService,
+    private readonly stablecoin: StablecoinService,
   ) {}
 
   /** Freeze a wallet (routine ops control — distinct from the emergency break-glass path). */
   async setWalletFrozen(admin: AdminContext, walletId: string, frozen: boolean, correlationId: string) {
-    const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId } });
+    const prisma = this.prisma as any;
+    const wallet = await prisma.wallet.findUnique({ where: { id: walletId } });
     if (!wallet) throw new NotFoundException('Wallet not found');
     assertPermittedByAttributes(admin, { tenantId: wallet.tenantId });
 
@@ -36,7 +41,7 @@ export class AdminActionsService {
     const nextStatus = frozen ? 'FROZEN' : 'ACTIVE';
     if (wallet.status === nextStatus) return { id: wallet.id, status: wallet.status };
 
-    const updated = await this.prisma.wallet.update({
+    const updated = await prisma.wallet.update({
       where: { id: walletId },
       data: { status: nextStatus },
       select: { id: true, status: true },
@@ -100,5 +105,46 @@ export class AdminActionsService {
 
   rejectTreasury(admin: AdminContext, movementId: string, correlationId: string) {
     return this.treasury.adminReject(admin, movementId, correlationId);
+  }
+
+  async submitStablecoinForReview(admin: AdminContext, stablecoinId: string, correlationId: string) {
+    const auth = await this.stablecoinAuth(admin, stablecoinId);
+    return this.stablecoin.submitForReview(auth, stablecoinId, correlationId);
+  }
+
+  async approveStablecoinGate(
+    admin: AdminContext,
+    stablecoinId: string,
+    dto: ApproveGateDto,
+    correlationId: string,
+  ) {
+    const auth = await this.stablecoinAuth(admin, stablecoinId);
+    return this.stablecoin.approveGate(auth, stablecoinId, dto, correlationId);
+  }
+
+  async activateStablecoin(admin: AdminContext, stablecoinId: string, correlationId: string) {
+    const auth = await this.stablecoinAuth(admin, stablecoinId);
+    return this.stablecoin.advance(auth, stablecoinId, 'ACTIVE', correlationId);
+  }
+
+  async suspendStablecoin(
+    admin: AdminContext,
+    stablecoinId: string,
+    dto: SuspendDto,
+    correlationId: string,
+  ) {
+    const auth = await this.stablecoinAuth(admin, stablecoinId);
+    return this.stablecoin.suspend(auth, stablecoinId, dto, correlationId);
+  }
+
+  private async stablecoinAuth(admin: AdminContext, stablecoinId: string): Promise<AuthContext> {
+    const prisma = this.prisma as any;
+    const config = await prisma.stablecoinConfig.findUnique({
+      where: { id: stablecoinId },
+      select: { tenantId: true },
+    });
+    if (!config) throw new NotFoundException('Stablecoin not found');
+    assertPermittedByAttributes(admin, { tenantId: config.tenantId });
+    return { tenantId: config.tenantId, clientId: admin.email, scopes: [] };
   }
 }
