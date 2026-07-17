@@ -27,6 +27,10 @@ import { AttestationService } from './attestation.service';
   ],
   // ReserveService is exported for AdminReserveModule: the console operates the reserve through
   // the same maker-checker service as the tenant API, never a parallel implementation.
-  exports: [TreasuryService, ReserveService],
+  // MonitoringService is exported for the asset value paths (§29): loyalty transfers and
+  // redemptions must be screened by the same rules as stablecoin movements, not a second copy.
+  // It lives here for historical reasons — it is not stablecoin-specific and would sit better in
+  // its own module; noted rather than churned mid-fix.
+  exports: [TreasuryService, ReserveService, MonitoringService],
 })
 export class StablecoinModule {}

@@ -18,6 +18,7 @@ import type { AuthContext } from '../auth/auth-context';
 import { BalanceService } from '../wallets/balance.service';
 import { WalletsService } from '../wallets/wallets.service';
 import { EscrowService } from '../wallets/escrow.service';
+import { MonitoringService } from '../stablecoin/monitoring.service';
 import { WebhookEmitterService } from '../webhooks/webhook-emitter.service';
 import { assertValidAmount } from '../common/money';
 import type { CreateAssetDto } from './dto';
@@ -46,6 +47,7 @@ export class AssetsService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly escrow: EscrowService,
+    private readonly monitoring: MonitoringService,
     private readonly audit: AuditService,
     private readonly wallets: WalletsService,
     private readonly balances: BalanceService,
@@ -210,6 +212,20 @@ export class AssetsService {
       amount,
     });
 
+    // §29: screened BEFORE the value moves, with velocity computed from the ledger. A CRITICAL
+    // hit throws — monitoring that runs after the fact is a report, and a hold that does not stop
+    // the transaction is a log line.
+    await this.monitoring.screenMovement(
+      auth,
+      {
+        walletId: source.wallet.id,
+        subjectType: 'transaction',
+        subjectReference: `transfer:${source.wallet.id}->${dest.wallet.id}`,
+        amount,
+      },
+      correlationId,
+    );
+
     await this.ensureTrustline(asset, dest.wallet.stellarAccountId, dest.secret, correlationId);
 
     const result = await this.chain.transferAsset({
@@ -267,6 +283,16 @@ export class AssetsService {
       issuerPublicKey: asset.issuerPublicKey,
       amount,
     });
+    await this.monitoring.screenMovement(
+      auth,
+      {
+        walletId: source.wallet.id,
+        subjectType: 'transaction',
+        subjectReference: `redeem:${source.wallet.id}`,
+        amount,
+      },
+      correlationId,
+    );
 
     const result = await this.chain.redeemAsset({
       correlationId,
