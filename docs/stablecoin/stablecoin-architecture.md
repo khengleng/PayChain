@@ -73,6 +73,28 @@ minting (§23), and attestations genuinely pin the snapshot they describe. But a
 computation over an asserted input is an asserted output. **Until a bank connection replaces
 `MockReserveFundingProvider`, "100% backed" means "100% of what we entered".**
 
+### The verification path (§31 "bank reserves")
+
+`ReserveVerificationService` checks the reserve ledger against what a bank reports, and
+`GET /api/v1/stablecoins/:id/reserve/verification` exposes the result:
+
+- `VERIFIED` — the bank's figure matches our books.
+- `DRIFT` — they disagree. Reported, never smoothed over.
+- `UNVERIFIABLE` — no bank reference, or the bank could not be reached. **Not** verified.
+  Silence is a mismatch we could not measure, not agreement.
+
+`verifiedTotal` deliberately counts unverified accounts as **zero**, not as their claimed
+figure, because it answers "how much can we prove?".
+
+The bank behind it is currently `SandboxBankBalanceProvider` (mock Bakong), backed by an
+`SandboxBankAccount` table that is an *independent* store rather than a view over
+`ReserveAccount` — a mock bank echoing our own books could never disagree with them, and the
+check would be a tautology that looks green forever. `HttpBankBalanceProvider` is the shape the
+real client takes; the swap is a provider binding.
+
+So `VERIFIED` today means "our books agree with a sandbox bank's independent figure". It proves
+the path, not the funds.
+
 The Bakong account discussed for reserve backing is a phone-linked personal account. That is
 not a reserve account regardless of its balance: reserve must be segregated and held in the
 issuing entity's name.

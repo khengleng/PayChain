@@ -252,6 +252,43 @@ async function main() {
     }
   }
 
+  // --- Sandbox bank (mock Bakong) --------------------------------------------------------
+  // Gives reserve verification something independent to check the ledger against (§31). Seeded
+  // to AGREE with the ledger, so the demo starts VERIFIED and a drift can then be introduced
+  // deliberately via /sandbox/bakong/accounts/:n/simulate-movement. The store is separate from
+  // ReserveAccount, so agreement here is a fact about two figures matching — not a tautology.
+  const reserveAccounts = await prisma.reserveAccount.findMany({
+    where: { bankReference: { not: null } },
+    select: { bankReference: true, balance: true, label: true },
+  });
+  for (const ra of reserveAccounts) {
+    await prisma.sandboxBankAccount.upsert({
+      where: { accountNumber: ra.bankReference! },
+      update: { balance: ra.balance },
+      create: {
+        accountNumber: ra.bankReference!,
+        accountName: `${ra.label} (sandbox bank)`,
+        currency: 'USD',
+        balance: ra.balance,
+      },
+    });
+  }
+  log(`\nsandbox bank: ${reserveAccounts.length} account(s) mirrored — verification has something to check.`);
+
+  // The Bakong account named for the demo. Present so the balance lookup is exercisable end to
+  // end; the figure is simulated and this is NOT a reserve account — a phone-linked personal
+  // account cannot hold reserve at any balance, which no seeding changes.
+  await prisma.sandboxBankAccount.upsert({
+    where: { accountNumber: '012875798' },
+    update: {},
+    create: {
+      accountNumber: '012875798',
+      accountName: 'Bakong demo account (SIMULATED — not a reserve account)',
+      currency: 'KHR',
+      balance: '0',
+    },
+  });
+
   await prisma.adminUser.updateMany({
     where: { email: { in: ['demo-maker@paychain.cambobia.com', 'demo-checker@paychain.cambobia.com'] } },
     data: { status: 'DISABLED' },
