@@ -14,7 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { WalletsService } from '../wallets/wallets.service';
 import { BalanceService } from '../wallets/balance.service';
-import { WebhookEmitterService } from '../webhooks/webhook-emitter.service';
+import { OutboxService } from '../outbox/outbox.service';
 import type { AuthContext } from '../auth/auth-context';
 import { addAmounts, assertValidAmount, compareAmounts, sumAmounts } from '../common/money';
 import type { CompensateDto } from './dto';
@@ -47,7 +47,7 @@ export class CompensationService {
     private readonly wallets: WalletsService,
     private readonly balances: BalanceService,
     private readonly audit: AuditService,
-    private readonly webhooks: WebhookEmitterService,
+    private readonly outbox: OutboxService,
     @Inject(CONFIG) cfg: PayChainConfig,
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
   ) {
@@ -125,15 +125,36 @@ export class CompensationService {
     await this.assertWithinCompensatable(original, comp.amount, comp.id);
     const outcome = await this.performChainReversal(original, comp.amount, correlationId);
 
-    const updated = await this.prisma.transaction.update({
-      where: { id: comp.id },
-      data: {
-        status: outcome.confirmed ? 'CONFIRMED' : 'PENDING_CONFIRMATION',
-        blockchainHash: outcome.hash,
-        approvedBy: auth.clientId,
-        submittedAt: new Date(),
-        confirmedAt: outcome.confirmed ? new Date() : null,
-      },
+    // §0.5: same window as executeReversal — the update and its event must be atomic.
+    const updated = await this.outbox.withOutbox(async (tx) => {
+      const row = await tx.transaction.update({
+        where: { id: comp.id },
+        data: {
+          status: outcome.confirmed ? 'CONFIRMED' : 'PENDING_CONFIRMATION',
+          blockchainHash: outcome.hash,
+          approvedBy: auth.clientId,
+          submittedAt: new Date(),
+          confirmedAt: outcome.confirmed ? new Date() : null,
+        },
+      });
+      return {
+        result: row,
+        events: [
+          {
+            tenantId: auth.tenantId,
+            aggregateType: 'transaction',
+            aggregateId: row.id,
+            eventType: 'transaction.compensated',
+            correlationId,
+            payload: {
+              transactionId: row.id,
+              compensatesTransactionId: row.compensatesTransactionId,
+              amount: row.amount,
+              status: row.status,
+            },
+          },
+        ],
+      };
     });
     await this.audit.record({
       tenantId: auth.tenantId,
@@ -144,7 +165,6 @@ export class CompensationService {
       correlationId,
       metadata: { originalTransactionId: original.id, amount: comp.amount, maker: comp.createdBy },
     });
-    await this.emitCompensated(updated);
     return this.toView(updated);
   }
 
@@ -158,7 +178,13 @@ export class CompensationService {
     maker: string,
   ): Promise<Transaction> {
     const outcome = await this.performChainReversal(original, dto.amount, correlationId);
-    const record = await this.prisma.transaction.create({
+
+    // §0.5: the record and its event are written in ONE transaction. Previously the row was
+    // created here and the webhook emitted several lines later, outside any transaction — a
+    // crash in that window committed the reversal and lost the event permanently, with no trace
+    // and no retry. Either both land or neither does; the worker dispatches from the row.
+    const record = await this.outbox.withOutbox(async (tx) => {
+      const created = await tx.transaction.create({
       data: {
         tenantId: auth.tenantId,
         type: 'COMPENSATING_TRANSACTION',
@@ -174,6 +200,26 @@ export class CompensationService {
         confirmedAt: outcome.confirmed ? new Date() : null,
       },
     });
+      return {
+        result: created,
+        events: [
+          {
+            tenantId: auth.tenantId,
+            aggregateType: 'transaction',
+            aggregateId: created.id,
+            eventType: 'transaction.compensated',
+            correlationId,
+            payload: {
+              transactionId: created.id,
+              compensatesTransactionId: created.compensatesTransactionId,
+              amount: created.amount,
+              status: created.status,
+            },
+          },
+        ],
+      };
+    });
+
     await this.audit.record({
       tenantId: auth.tenantId,
       actor: maker,
@@ -183,7 +229,6 @@ export class CompensationService {
       correlationId,
       metadata: { originalTransactionId: original.id, amount: dto.amount, reason: dto.reason },
     });
-    await this.emitCompensated(record);
     return record;
   }
 
@@ -325,21 +370,6 @@ export class CompensationService {
     const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
     if (!asset) throw new NotFoundException('Asset not found');
     return asset;
-  }
-
-  private async emitCompensated(record: Transaction): Promise<void> {
-    await this.webhooks.emit({
-      tenantId: record.tenantId,
-      eventType: 'transaction.compensated',
-      eventId: record.id,
-      payload: {
-        transactionId: record.id,
-        compensatesTransactionId: record.compensatesTransactionId,
-        amount: record.amount,
-        status: record.status,
-      },
-      correlationId: record.correlationId,
-    });
   }
 
   private toView(t: Transaction): CompensationView {

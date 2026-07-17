@@ -6,6 +6,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { CryptoModule } from './crypto/crypto.module';
 import { BlockchainModule } from './blockchain/blockchain.module';
 import { AuditModule } from './audit/audit.module';
+import { OutboxModule } from './outbox/outbox.module';
 import { AuthModule } from './auth/auth.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
 import { WalletsModule } from './wallets/wallets.module';
@@ -41,6 +42,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
     CryptoModule,
     BlockchainModule,
     AuditModule,
+    OutboxModule,
     AuthModule,
     IdempotencyModule,
     WalletsModule,

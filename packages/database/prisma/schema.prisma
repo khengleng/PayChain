@@ -4,7 +4,8 @@
 //  - Every tenant-owned record carries tenantId + timestamps.
 //  - The blockchain is authoritative for balances; BalanceReadModel is a rebuildable cache.
 //  - Financial records (Transaction) are append-only in practice — never hard-deleted.
-//  - IdempotencyRecord and OutboxEvent are first-class from day one.
+//  - IdempotencyRecord and OutboxEvent are first-class from day one. (OutboxEvent was modelled
+//    from day one but written by nothing until §0.5 was actually implemented — see OutboxService.)
 //  - Migrations are additive; stablecoin-specific fields (§14) arrive as an additive
 //    migration in M3, not by rewriting these tables.
 

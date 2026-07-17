@@ -8,6 +8,7 @@ import { ConfirmationService } from './services/confirmation.service';
 import { ReconciliationService } from './services/reconciliation.service';
 import { WebhookDeliveryService, type HttpPost } from './services/webhook-delivery.service';
 import { ExpiryService } from './services/expiry.service';
+import { OutboxDispatcherService } from './services/outbox-dispatcher.service';
 
 const QUEUE = 'paychain-jobs';
 
@@ -33,12 +34,16 @@ async function main(): Promise<void> {
   const expiry = new ExpiryService(prisma as never, chain, crypto, (entry) =>
     appendAuditLog(prisma, entry),
   );
+  // §0.5: turns outbox rows (written atomically with the business fact) into deliveries.
+  const outbox = new OutboxDispatcherService(prisma as never);
 
   // Schedule the background jobs (§17 confirmation, §35 delivery, §31 reconciliation, §21 expiry).
   const queue = new Queue(QUEUE, { connection });
   await queue.add('confirm', {}, { repeat: { every: 10_000 }, jobId: 'confirm' });
   await queue.add('deliver-webhooks', {}, { repeat: { every: 10_000 }, jobId: 'deliver-webhooks' });
   await queue.add('reconcile', {}, { repeat: { every: 60_000 }, jobId: 'reconcile' });
+  // Frequent: this is the latency between a business fact committing and its event existing.
+  await queue.add('dispatch-outbox', {}, { repeat: { every: 5_000 }, jobId: 'dispatch-outbox' });
   await queue.add('expire', {}, { repeat: { every: 900_000 }, jobId: 'expire' });
 
   const worker = new Worker(
@@ -47,6 +52,8 @@ async function main(): Promise<void> {
       switch (job.name) {
         case 'confirm':
           return confirmation.processPending();
+        case 'dispatch-outbox':
+          return outbox.dispatchPending();
         case 'deliver-webhooks':
           return delivery.processPending();
         case 'reconcile': {
