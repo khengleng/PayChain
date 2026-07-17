@@ -12,12 +12,14 @@ import { ConversionService } from './conversion.service';
 import { ReserveService } from './reserve.service';
 import { TreasuryService } from './treasury.service';
 import { MonitoringService } from './monitoring.service';
+import { AttestationService } from './attestation.service';
 import {
   ConversionQuoteDto,
   MintRequestDto,
   MonitoringEvaluateDto,
   RedemptionRequestDto,
   ExecuteTreasuryDto,
+  PublishAttestationDto,
   RejectMovementDto,
   ReserveAccountDto,
   ReserveMovementDto,
@@ -38,6 +40,7 @@ export class StablecoinWorkflowController {
     private readonly reserve: ReserveService,
     private readonly treasury: TreasuryService,
     private readonly monitoring: MonitoringService,
+    private readonly attestations: AttestationService,
     private readonly idempotency: IdempotencyService,
   ) {}
 
@@ -197,6 +200,47 @@ export class StablecoinWorkflowController {
     @Body() dto: RejectMovementDto,
   ) {
     return this.reserve.rejectMovement(auth, movementId, dto.reason, corr);
+  }
+
+  // --- proof of reserve (§24) ---
+  /**
+   * Records an external attestation. Requires reserve.manage: publishing one asserts a third
+   * party verified the reserve, which is a treasury act, not a read.
+   */
+  @Post('stablecoins/:id/attestations')
+  @RequireScopes('reserve.manage')
+  publishAttestation(
+    @CurrentAuth() auth: AuthContext,
+    @CorrelationId() corr: string,
+    @Param('id') id: string,
+    @Body() dto: PublishAttestationDto,
+  ) {
+    return this.attestations.publish(
+      auth,
+      {
+        assetId: id,
+        identifier: dto.identifier,
+        documentHash: dto.documentHash,
+        auditorReference: dto.auditorReference,
+        reserveSnapshotId: dto.reserveSnapshotId,
+        effectiveAt: new Date(dto.effectiveAt),
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
+      },
+      corr,
+    );
+  }
+
+  @Get('stablecoins/:id/attestations')
+  @RequireScopes('stablecoin.read')
+  listAttestations(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
+    return this.attestations.list(auth.tenantId, id);
+  }
+
+  /** The attestation in force right now, or null. Expiry is evaluated here, not by a sweep. */
+  @Get('stablecoins/:id/attestations/current')
+  @RequireScopes('stablecoin.read')
+  currentAttestation(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
+    return this.attestations.current(auth.tenantId, id);
   }
 
   // --- treasury (§30) ---

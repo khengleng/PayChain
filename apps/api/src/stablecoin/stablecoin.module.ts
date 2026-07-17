@@ -10,6 +10,7 @@ import { RedemptionService } from './redemption.service';
 import { ConversionService } from './conversion.service';
 import { TreasuryService } from './treasury.service';
 import { MonitoringService } from './monitoring.service';
+import { AttestationService } from './attestation.service';
 
 @Module({
   imports: [StablecoinProvidersModule, WalletsModule],
@@ -22,6 +23,7 @@ import { MonitoringService } from './monitoring.service';
     ConversionService,
     TreasuryService,
     MonitoringService,
+    AttestationService,
   ],
   // ReserveService is exported for AdminReserveModule: the console operates the reserve through
   // the same maker-checker service as the tenant API, never a parallel implementation.

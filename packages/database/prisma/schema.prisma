@@ -726,6 +726,13 @@ model ReserveSnapshot {
 // Proof-of-reserve attestation metadata (§24). Only public metadata + a document hash are
 // stored; confidential banking documents are never put on-chain, and the on-chain anchor
 // (if any) references only the hash — it proves existence, not solvency (§0.6).
+// An external attestation (§24). PayChain stores METADATA AND A HASH — never the document.
+//
+// The confidential evidence (bank statements, auditor workpapers) stays with the auditor; what
+// lands here is the public-facing claim plus a digest that lets anyone holding the document prove
+// it is the one attested to. That separation is §24's "public metadata, private evidence", and it
+// is also why "never place confidential bank documents on-chain" is satisfied by construction:
+// the document never enters the system at all.
 model Attestation {
   id               String    @id @default(uuid())
   tenantId         String
@@ -734,10 +741,19 @@ model Attestation {
   version          Int       @default(1)
   reserveRatio     String?
   auditorReference String?
+  /// SHA-256 of the auditor's signed document. Never the document itself.
   documentHash     String?
   status           String    @default("DRAFT")
   effectiveAt      DateTime?
   expiresAt        DateTime?
+  /// The reserve snapshot these figures were taken from, and its hash denormalised so the
+  /// attestation stands alone as evidence. Attesting to a bare ratio with no link to WHICH
+  /// figures is a claim about nothing in particular.
+  reserveSnapshotId String?
+  snapshotHash      String?
+  /// Deliberately never written. §0.6: anchoring proves a hash existed at a time — NOT that
+  /// reserves were sufficient. Writing it would need the issuer key, which is dev-grade
+  /// (key_management gate BLOCKED), and would invite exactly the overstatement §0.6 forbids.
   onChainAnchorTx  String?
   createdAt        DateTime  @default(now())
 

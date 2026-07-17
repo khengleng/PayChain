@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class MintRequestDto {
   @IsString() destinationWalletId!: string;
@@ -45,6 +45,20 @@ export class ReserveMovementDto {
  */
 export class ExecuteTreasuryDto {
   @IsString() @MaxLength(200) externalReference!: string;
+}
+
+/**
+ * §24. documentHash is a digest — the auditor's document never enters PayChain. There is
+ * deliberately no field to upload one.
+ */
+export class PublishAttestationDto {
+  @IsString() @MaxLength(200) identifier!: string;
+  @IsString() @Matches(/^[0-9a-fA-F]{64}$/, { message: 'documentHash must be a SHA-256 hex digest' })
+  documentHash!: string;
+  @IsString() @MaxLength(200) auditorReference!: string;
+  @IsString() reserveSnapshotId!: string;
+  @IsDateString() effectiveAt!: string;
+  @IsOptional() @IsDateString() expiresAt?: string;
 }
 
 export class RejectMovementDto {
