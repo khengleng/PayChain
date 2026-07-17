@@ -30,6 +30,7 @@ import { AdminWalletsModule } from './admin-wallets/admin-wallets.module';
 import { AdminReadModule } from './admin-read/admin-read.module';
 import { MailerModule } from './mailer/mailer.module';
 import { HealthModule } from './health/health.module';
+import { DocsModule } from './docs/docs.module';
 import { CorrelationMiddleware } from './common/correlation.middleware';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 
@@ -67,6 +68,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
     AdminReadModule,
     ReadinessModule,
     HealthModule,
+    DocsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

@@ -61,11 +61,59 @@ const GROUPS: Group[] = [
   },
 ];
 
+const API_BASE = process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
+const OPENAPI_URL = `${API_BASE}/api/v1/openapi.json`;
+
 export default function ApiReference() {
   return (
     <div className="wrap">
       <h1>API Reference</h1>
-      <p className="lead">Base URL is versioned under <span className="mono">/api/v1</span>. All writes require an <span className="mono">Idempotency-Key</span>.</p>
+      <p className="lead">
+        Base URL is versioned under <span className="mono">/api/v1</span>. All replay-safe writes
+        require an <span className="mono">Idempotency-Key</span>.
+      </p>
+
+      <div className="grid">
+        <a className="card" href={OPENAPI_URL} target="_blank" rel="noreferrer">
+          <h3>OpenAPI JSON</h3>
+          <p>Machine-readable contract for generated clients and non-TypeScript integrations.</p>
+        </a>
+        <a className="card" href="/sdk">
+          <h3>TypeScript SDK</h3>
+          <p>Use the official client if your integration is JavaScript or TypeScript.</p>
+        </a>
+      </div>
+
+      <section>
+        <h2>Integration Notes</h2>
+        <div className="table-wrap">
+          <table>
+            <tbody>
+              <tr>
+                <td className="mono" style={{ width: 180 }}>Token URL</td>
+                <td className="mono">{API_BASE}/api/v1/oauth/token</td>
+              </tr>
+              <tr>
+                <td className="mono">Auth</td>
+                <td>OAuth2 client credentials → JWT bearer token</td>
+              </tr>
+              <tr>
+                <td className="mono">Required on writes</td>
+                <td><span className="mono">Idempotency-Key</span> for replay-safe mutations</td>
+              </tr>
+              <tr>
+                <td className="mono">Recommended</td>
+                <td><span className="mono">X-Correlation-Id</span> for tracing and support</td>
+              </tr>
+              <tr>
+                <td className="mono">Stablecoins</td>
+                <td>Documented in the contract, but feature-flag gated and disabled by default until readiness gates pass</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       {GROUPS.map((g) => (
         <section key={g.title}>
           <h2>{g.title}</h2>
