@@ -17,6 +17,7 @@ import {
   MintRequestDto,
   MonitoringEvaluateDto,
   RedemptionRequestDto,
+  ExecuteTreasuryDto,
   RejectMovementDto,
   ReserveAccountDto,
   ReserveMovementDto,
@@ -220,6 +221,21 @@ export class StablecoinWorkflowController {
     @Param('movementId') mid: string,
   ) {
     return this.treasury.approve(auth, mid, corr);
+  }
+
+  /**
+   * Records that an approved movement actually settled (§30). Requires treasury.approve, not
+   * treasury.manage: attesting that money moved is a checker's act, not the requester's.
+   */
+  @Post('treasury/movements/:movementId/execute')
+  @RequireScopes('treasury.approve')
+  executeTreasury(
+    @CurrentAuth() auth: AuthContext,
+    @CorrelationId() corr: string,
+    @Param('movementId') movementId: string,
+    @Body() dto: ExecuteTreasuryDto,
+  ) {
+    return this.treasury.execute(auth, movementId, dto.externalReference, corr);
   }
 
   @Get('treasury/movements')

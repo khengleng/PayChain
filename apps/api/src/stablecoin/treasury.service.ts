@@ -8,9 +8,17 @@ import type { AdminContext } from '../admin-auth/admin-context';
 import { assertPermittedByAttributes } from '../admin-auth/abac';
 
 /**
- * Treasury module (§30). Every treasury movement is maker-checker gated: the same user may
- * not create AND approve a movement. Approval executes the (internal) movement and records
- * an audit trail.
+ * Treasury module (§30). Every movement is maker-checker gated, and deliberately two steps:
+ *
+ *   PENDING_APPROVAL --approve--> APPROVED --execute--> EXECUTED
+ *
+ * PayChain has no bank rails and cannot move fiat. fromAccount/toAccount are free-text, there is
+ * no ledger posting and no reserve link. So APPROVED means "authorised", and EXECUTED means "an
+ * operator recorded that the funds moved, and referenced the proof". approve() previously set
+ * EXECUTED directly and stamped executedAt for a settlement that had not happened.
+ *
+ * This is what §30 asks for minus the parts that need real integrations: liquidity monitoring,
+ * fee balances, forecasting and operational limits are not built.
  */
 @Injectable()
 export class TreasuryService {
@@ -59,9 +67,13 @@ export class TreasuryService {
     if (movement.createdBy === auth.clientId) {
       throw new ForbiddenException('The creator of a treasury movement cannot approve it');
     }
+    // APPROVED, not EXECUTED. This used to jump straight to EXECUTED and stamp executedAt while
+    // moving nothing — fromAccount/toAccount are free-text, there is no ledger posting, no chain
+    // op and no reserve link. PayChain has no bank rails: it cannot move fiat. Authorising a
+    // movement and confirming it settled are different acts, and only the first happens here.
     const updated = await this.prisma.treasuryMovement.update({
       where: { id: movement.id },
-      data: { status: 'EXECUTED', approvedBy: auth.clientId, executedAt: new Date() },
+      data: { status: 'APPROVED', approvedBy: auth.clientId, approvedAt: new Date() },
     });
     await this.audit.record({
       tenantId: auth.tenantId,
@@ -70,7 +82,65 @@ export class TreasuryService {
       resourceType: 'treasury_movement',
       resourceId: movement.id,
       correlationId,
-      metadata: { maker: movement.createdBy, amount: movement.amount },
+      metadata: { maker: movement.createdBy, amount: movement.amount, note: 'authorised — not yet settled' },
+    });
+    return updated;
+  }
+
+  /**
+   * Records that an APPROVED movement actually settled (§30).
+   *
+   * PayChain cannot move fiat, so this does not execute anything — it records that a human did,
+   * and demands the evidence. `externalReference` is required precisely so the terminal state
+   * carries proof (a bank/custodian reference) rather than an assertion. Without it, EXECUTED
+   * would mean no more than "someone clicked a button", which is what it meant before.
+   */
+  async execute(
+    auth: AuthContext,
+    id: string,
+    externalReference: string,
+    correlationId: string,
+  ): Promise<TreasuryMovement> {
+    const movement = await this.load(auth.tenantId, id);
+    if (movement.status !== 'APPROVED') {
+      throw new BadRequestException(
+        `Only an APPROVED movement can be recorded as settled (status=${movement.status})`,
+      );
+    }
+    if (!externalReference?.trim()) {
+      throw new BadRequestException(
+        'An external reference (bank/custodian confirmation) is required to record settlement',
+      );
+    }
+    // The maker must not also attest that their own instruction settled — that would collapse
+    // request and confirmation back into one person, which is what maker-checker exists to stop.
+    if (movement.createdBy === auth.clientId) {
+      throw new ForbiddenException('The creator of a treasury movement cannot record its settlement');
+    }
+
+    const updated = await this.prisma.treasuryMovement.update({
+      where: { id: movement.id },
+      data: {
+        status: 'EXECUTED',
+        executedBy: auth.clientId,
+        executedAt: new Date(),
+        externalReference: externalReference.trim(),
+      },
+    });
+    await this.audit.record({
+      tenantId: auth.tenantId,
+      actor: auth.clientId,
+      action: 'treasury.movement.settled',
+      resourceType: 'treasury_movement',
+      resourceId: movement.id,
+      correlationId,
+      metadata: {
+        maker: movement.createdBy,
+        approver: movement.approvedBy,
+        amount: movement.amount,
+        externalReference: externalReference.trim(),
+        note: 'settlement recorded by an operator — PayChain does not move fiat',
+      },
     });
     return updated;
   }
@@ -158,7 +228,7 @@ export class TreasuryService {
     }
     const updated = await this.prisma.treasuryMovement.update({
       where: { id: movement.id },
-      data: { status: 'EXECUTED', approvedBy: admin.email, executedAt: new Date() },
+      data: { status: 'APPROVED', approvedBy: admin.email, approvedAt: new Date() },
     });
     await this.audit.record({
       tenantId: movement.tenantId,

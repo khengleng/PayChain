@@ -879,6 +879,15 @@ model StablecoinConversion {
 }
 
 // Treasury movement with maker-checker (§30). The same user may not create AND approve.
+// A treasury movement (§30). Maker-checker gated, and deliberately TWO steps:
+//
+//   PENDING_APPROVAL --approve--> APPROVED --execute--> EXECUTED
+//
+// approve() used to jump straight to EXECUTED, skipping the APPROVED state that already existed
+// here, and stamp executedAt for an execution that never happened. PayChain has no bank rails:
+// it cannot move fiat between accounts. So APPROVED means "authorised", and EXECUTED means "an
+// operator recorded that the money actually moved, and referenced the proof" — never "the
+// platform moved it".
 model TreasuryMovement {
   id            String                 @id @default(uuid())
   tenantId      String
@@ -890,7 +899,15 @@ model TreasuryMovement {
   status        TreasuryMovementStatus @default(PENDING_APPROVAL)
   createdBy     String
   approvedBy    String?
+  approvedAt    DateTime?
+  /// Who recorded that the funds actually moved. Distinct from approvedBy: authorising a
+  /// movement and confirming it settled are different acts, often by different people.
+  executedBy    String?
   executedAt    DateTime?
+  /// Evidence the movement settled — a bank/custodian reference. Required to reach EXECUTED, so
+  /// the terminal state carries proof rather than an assertion.
+  externalReference String?
+  rejectedReason String?
   correlationId String
   createdAt     DateTime               @default(now())
   updatedAt     DateTime               @updatedAt

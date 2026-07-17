@@ -39,6 +39,14 @@ export class ReserveMovementDto {
   @IsOptional() @IsString() @MaxLength(200) reference?: string;
 }
 
+/**
+ * Settlement evidence. PayChain cannot move fiat, so recording EXECUTED without a reference
+ * would make the terminal state mean "someone clicked a button".
+ */
+export class ExecuteTreasuryDto {
+  @IsString() @MaxLength(200) externalReference!: string;
+}
+
 export class RejectMovementDto {
   @IsString() @MaxLength(500) reason!: string;
 }
