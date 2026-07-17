@@ -17,6 +17,7 @@ import { COMPLIANCE_PROVIDER } from '../compliance/compliance.module';
 import { assertValidAmount } from '../common/money';
 import type { AuthContext } from '../auth/auth-context';
 import { assertWalletCanTransact } from '../wallets/wallet-status';
+import { WalletPolicyService } from '../wallets/wallet-policy.service';
 import { FIAT_PAYOUT_PROVIDER, type FiatPayoutProvider } from './providers/providers.module';
 
 /**
@@ -35,6 +36,7 @@ export class RedemptionService {
     @Inject(COMPLIANCE_PROVIDER) private readonly compliance: ComplianceProvider,
     @Inject(FIAT_PAYOUT_PROVIDER) private readonly payout: FiatPayoutProvider,
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
+    private readonly walletPolicy: WalletPolicyService,
   ) {}
 
   async request(
@@ -168,6 +170,14 @@ export class RedemptionService {
       throw new NotFoundException('Redeemer wallet not found');
     }
     assertWalletCanTransact(wallet);
+    // §27: redemptionEligible is an explicit grant, not a default.
+    await this.walletPolicy.assertAllowed({
+      tenantId: r.tenantId,
+      walletId: wallet.id,
+      assetId: r.assetId,
+      operation: 'REDEEM',
+      amount: r.amount,
+    });
     if (!wallet.stellarSecretEnc) throw new BadRequestException('Redeemer wallet has no managed key');
     const res = await this.chain.burnAsset({
       correlationId: r.correlationId,

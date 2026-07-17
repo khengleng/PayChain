@@ -45,6 +45,7 @@ const deps = (
   funding: unknown,
   compliance?: unknown,
   reserve?: unknown,
+  walletPolicy?: unknown,
 ) =>
   new MintService(
     prisma as never,
@@ -65,6 +66,9 @@ const deps = (
         projectedSupply: '100',
       }),
     }) as never,
+    // Permissive by default so these tests exercise the saga, not §27. The policy has its own
+    // tests, and the sagas have dedicated §27 tests below.
+    (walletPolicy ?? { assertAllowed: jest.fn().mockResolvedValue(undefined) }) as never,
   );
 
 describe('MintService saga', () => {

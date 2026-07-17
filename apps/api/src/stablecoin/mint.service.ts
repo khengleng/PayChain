@@ -18,6 +18,7 @@ import { addAmounts, assertValidAmount, compareAmounts, sumAmounts } from '../co
 import type { AuthContext } from '../auth/auth-context';
 import { ReserveService } from './reserve.service';
 import { assertWalletCanTransact } from '../wallets/wallet-status';
+import { WalletPolicyService } from '../wallets/wallet-policy.service';
 import {
   RESERVE_FUNDING_PROVIDER,
   type ReserveFundingProvider,
@@ -40,6 +41,7 @@ export class MintService {
     @Inject(RESERVE_FUNDING_PROVIDER) private readonly funding: ReserveFundingProvider,
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
     private readonly reserve: ReserveService,
+    private readonly walletPolicy: WalletPolicyService,
   ) {}
 
   async request(
@@ -205,6 +207,15 @@ export class MintService {
       throw new NotFoundException('Destination wallet not found');
     }
     assertWalletCanTransact(wallet);
+    // §27: a loyalty wallet is not stablecoin-enabled just because it exists. Default-deny —
+    // checked before broadcast so the limit is a control, not a report.
+    await this.walletPolicy.assertAllowed({
+      tenantId: req.tenantId,
+      walletId: wallet.id,
+      assetId: req.assetId,
+      operation: 'RECEIVE',
+      amount: req.amount,
+    });
 
     const result = await this.chain.issueAsset({
       correlationId: req.correlationId,

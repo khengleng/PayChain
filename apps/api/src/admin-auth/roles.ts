@@ -18,6 +18,9 @@ export const PERMISSIONS = [
   'client:write',
   'wallet:read',
   'wallet:freeze',
+  // Granting a wallet stablecoin capability (§27) is a compliance decision, not an ops one —
+  // separated from wallet:freeze so the two cannot be conflated.
+  'wallet:policy',
   'asset:read',
   'asset:write',
   'stablecoin:read',
@@ -81,6 +84,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'compliance:manage',
     'wallet:read',
     'wallet:freeze',
+    'wallet:policy',
     'stablecoin:read',
     'audit:read',
   ],

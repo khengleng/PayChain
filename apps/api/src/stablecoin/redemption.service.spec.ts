@@ -50,6 +50,8 @@ function build(prisma: unknown, payout: unknown, chain: unknown) {
     { screenTransaction: jest.fn().mockResolvedValue({ decision: 'CLEAR' }) } as never,
     payout as never,
     chain as never,
+    // Permissive: these tests are about §0.8 sequencing, not §27. Policy has its own tests.
+    { assertAllowed: jest.fn().mockResolvedValue(undefined) } as never,
   );
 }
 
@@ -155,6 +157,7 @@ describe('RedemptionService — the redeemer wallet is tenant-scoped (§7)', () 
       { screenTransaction: jest.fn().mockResolvedValue({ decision: 'CLEAR' }) } as never,
       { initiatePayout: jest.fn(), getPayoutStatus: jest.fn() } as never,
       { burnAsset: jest.fn().mockResolvedValue({ transactionHash: 'H', submitted: true }) } as never,
+      { assertAllowed: jest.fn().mockResolvedValue(undefined) } as never,
     );
   }
 
