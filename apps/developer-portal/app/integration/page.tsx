@@ -82,6 +82,19 @@ export default function Integration() {
       <pre>
         <code>{AUTH_SNIPPET}</code>
       </pre>
+      <p className="lead" style={{ fontSize: 14 }}>
+        The client needs exactly these scopes for a loyalty integration — a missing one surfaces as
+        a <span className="mono">403</span> on the call that needs it, not at token time:
+      </p>
+      <table style={{ fontSize: 14, marginBottom: 16 }}>
+        <tbody>
+          <Row label="wallet.write" value="Create customer wallets." />
+          <Row label="wallet.read" value="Read a wallet and its balances." />
+          <Row label="asset.read" value="Read the loyalty asset." />
+          <Row label="asset.issue" value="Issue points, and earn via the rules engine." />
+          <Row label="asset.transfer" value="Transfer AND redeem — redeem shares this scope." />
+        </tbody>
+      </table>
 
       <h2>2. Map each customer to a wallet</h2>
       <p className="lead" style={{ fontSize: 14 }}>
