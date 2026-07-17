@@ -10,6 +10,7 @@ import { MintService } from './mint.service';
 import { RedemptionService } from './redemption.service';
 import { ConversionService } from './conversion.service';
 import { ReserveService } from './reserve.service';
+import { ReserveVerificationService } from '../sandbox/reserve-verification.service';
 import { TreasuryService } from './treasury.service';
 import { MonitoringService } from './monitoring.service';
 import { AttestationService } from './attestation.service';
@@ -38,6 +39,7 @@ export class StablecoinWorkflowController {
     private readonly redemption: RedemptionService,
     private readonly conversion: ConversionService,
     private readonly reserve: ReserveService,
+    private readonly verification: ReserveVerificationService,
     private readonly treasury: TreasuryService,
     private readonly monitoring: MonitoringService,
     private readonly attestations: AttestationService,
@@ -159,6 +161,20 @@ export class StablecoinWorkflowController {
   getReserve(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
     // Evaluate against the asset's configured target, not a hardcoded 1.0.
     return this.reserve.getStateForAsset(auth.tenantId, id);
+  }
+
+  /**
+   * What the bank corroborates, versus what our books claim (§31 "bank reserves").
+   *
+   * Separate from GET /reserve on purpose. That endpoint sums the reserve ledger and is the
+   * figure the ratio is computed from; this one asks whether that figure is true. Presenting
+   * them as one number would bury the distinction that matters most — computed exactly, from an
+   * input nobody checked.
+   */
+  @Get('stablecoins/:id/reserve/verification')
+  @RequireScopes('stablecoin.read')
+  verifyReserve(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
+    return this.verification.verifiedTotal(auth.tenantId, id);
   }
 
   @Post('stablecoins/:id/reserve-snapshots')

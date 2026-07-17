@@ -1,3 +1,4 @@
+import { SandboxModule } from '../sandbox/sandbox.module';
 import { Module } from '@nestjs/common';
 import { StablecoinProvidersModule } from './providers/providers.module';
 import { WalletsModule } from '../wallets/wallets.module';
@@ -13,7 +14,7 @@ import { MonitoringService } from './monitoring.service';
 import { AttestationService } from './attestation.service';
 
 @Module({
-  imports: [StablecoinProvidersModule, WalletsModule],
+  imports: [StablecoinProvidersModule, WalletsModule, SandboxModule],
   controllers: [StablecoinController, StablecoinWorkflowController],
   providers: [
     StablecoinService,

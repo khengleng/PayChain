@@ -9,7 +9,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --max-warnings 0",
     "test": "jest --passWithNoTests",
-    "test:e2e": "jest --config test/jest-e2e.json --passWithNoTests"
+    "test:e2e": "jest --config test/jest-e2e.json --passWithNoTests",
+    "test:boot": "jest -c test/jest-boot.json"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.9",

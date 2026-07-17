@@ -1078,3 +1078,27 @@ model ReconciliationException {
   @@index([status, category])
   @@map("reconciliation_exceptions")
 }
+
+// --- M15: sandbox bank (mock Bakong) ------------------------------------------
+
+/// The balance THE BANK believes an account holds, in the sandbox.
+///
+/// This exists to stand in for Bakong until a real API connection is available, and it is
+/// deliberately an INDEPENDENT store rather than a view over ReserveAccount. A mock bank that
+/// echoed our own books back to us could never disagree with them, so reserve verification
+/// would be a tautology that proves nothing while looking green. Ops writes ReserveAccount;
+/// this table is written only by the sandbox bank endpoints. When they disagree, that is a
+/// real finding — which is the entire point.
+///
+/// Replaced wholesale by the real Bakong API. Nothing outside the sandbox module may read it.
+model SandboxBankAccount {
+  id            String   @id @default(uuid())
+  accountNumber String   @unique
+  accountName   String
+  currency      String   @default("KHR")
+  balance       String   @default("0")
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  @@map("sandbox_bank_accounts")
+}

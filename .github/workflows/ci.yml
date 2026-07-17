@@ -39,6 +39,12 @@ jobs:
       - name: Test
         run: pnpm -r test
 
+      # Unit tests and typecheck both pass while the Nest container is unresolvable — a DI cycle
+      # or a misplaced provider only appears at boot, and the e2e that would catch it is skipped
+      # without RUN_E2E=1. Without this step, production is where we would find out.
+      - name: Boot module graph
+        run: pnpm --filter @paychain/api test:boot
+
       - name: Build apps
         run: pnpm -r --filter "./apps/**" build
 

@@ -17,6 +17,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { StablecoinProvidersModule } from './stablecoin/providers/providers.module';
+import { SandboxModule } from './sandbox/sandbox.module';
 import { StablecoinModule } from './stablecoin/stablecoin.module';
 import { ReadinessModule } from './readiness/readiness.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
@@ -54,6 +55,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
     ComplianceModule,
     StablecoinProvidersModule,
     StablecoinModule,
+    SandboxModule,
     MailerModule,
     AdminAuthModule,
     AdminUsersModule,
