@@ -278,3 +278,101 @@ describe('ReserveService.assertFresh (§23)', () => {
     await expect(withSnapshot(hoursAgo(2), 24).assertFresh('t1', 'a1')).resolves.toBeUndefined();
   });
 });
+
+describe('§23 liabilities — figures that were declared and never computed', () => {
+  const prismaFor = (opts: {
+    accounts?: string[];
+    minted?: Array<{ amount: string; status: string }>;
+    redemptions?: Array<{ amount: string; status: string }>;
+  }) =>
+    ({
+      reserveAccount: {
+        findMany: async () => (opts.accounts ?? []).map((balance) => ({ balance })),
+      },
+      stablecoinMintRequest: {
+        findMany: async ({ where }: any) =>
+          (opts.minted ?? []).filter((m) => where.status.in.includes(m.status)),
+      },
+      stablecoinRedemption: {
+        findMany: async ({ where }: any) =>
+          (opts.redemptions ?? []).filter((r) => where.status.in.includes(r.status)),
+      },
+    }) as never;
+
+  const svc = (prisma: never) => new ReserveService(prisma, { record: jest.fn() } as never, {} as never);
+
+  it('counts unburned tokens as unredeemed liability', async () => {
+    const state = await svc(
+      prismaFor({
+        accounts: ['1000'],
+        minted: [{ amount: '500', status: 'CONFIRMED' }],
+        redemptions: [{ amount: '200', status: 'COMPLETED' }],
+      }),
+    ).getState('t1', 'a1');
+    expect(state.outstandingSupply).toBe('300');
+    expect(state.unredeemedLiability).toBe('300');
+  });
+
+  it('counts in-flight mints as pending mint liability, and excludes ones that will never land', async () => {
+    const state = await svc(
+      prismaFor({
+        accounts: ['1000'],
+        minted: [
+          { amount: '100', status: 'APPROVED' },
+          { amount: '50', status: 'SUBMITTED' },
+          { amount: '999', status: 'REJECTED' }, // never becomes supply
+          { amount: '777', status: 'CONFIRMED' }, // already IS supply — would double count
+        ],
+      }),
+    ).getState('t1', 'a1');
+    expect(state.pendingMintLiability).toBe('150');
+  });
+
+  it('counts escrowed redemptions as pending, and stops once the burn confirms', async () => {
+    const state = await svc(
+      prismaFor({
+        accounts: ['1000'],
+        minted: [{ amount: '1000', status: 'CONFIRMED' }],
+        redemptions: [
+          { amount: '10', status: 'ESCROW_HELD' },
+          { amount: '20', status: 'FIAT_PAYOUT_PENDING' },
+          { amount: '30', status: 'BURN_CONFIRMED' }, // tokens gone, obligation discharged
+          { amount: '40', status: 'REQUESTED' }, // nothing committed yet
+        ],
+      }),
+    ).getState('t1', 'a1');
+    expect(state.pendingRedemptionLiability).toBe('30');
+  });
+
+  it('seals the liabilities into snapshotHash, not merely alongside it', async () => {
+    // Takes two real snapshots differing ONLY in a liability figure and compares the hashes.
+    // The earlier version of this test asserted the two STATES differed, which would have passed
+    // just as happily with the liabilities left out of the hash entirely — it tested nothing it
+    // was named for.
+    const hashFor = async (redemptions: Array<{ amount: string; status: string }>) => {
+      let captured: any;
+      const prisma = {
+        ...(prismaFor({ accounts: ['1000'], minted: [{ amount: '100', status: 'CONFIRMED' }], redemptions }) as any),
+        stablecoinConfig: { findFirst: async () => ({ reserveRatioTarget: '1.0' }) },
+        reserveSnapshot: {
+          create: async ({ data }: any) => {
+            captured = data;
+            return data;
+          },
+        },
+      } as never;
+      await svc(prisma).snapshot('t1', 'a1', { targetRatio: '1.0' });
+      return captured;
+    };
+
+    const clean = await hashFor([]);
+    const owing = await hashFor([{ amount: '10', status: 'ESCROW_HELD' }]);
+
+    expect(clean.pendingRedemptionLiability).toBe('0');
+    expect(owing.pendingRedemptionLiability).toBe('10');
+    // Same balance, same supply, same ratio — different obligations. The seal must notice.
+    expect(clean.reserveBalance).toBe(owing.reserveBalance);
+    expect(clean.outstandingSupply).toBe(owing.outstandingSupply);
+    expect(clean.snapshotHash).not.toBe(owing.snapshotHash);
+  });
+});

@@ -7,6 +7,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { MintStatus, RedemptionStatus } from '@paychain/database';
 import type { PayChainConfig } from '@paychain/config';
 import { CONFIG } from '../config/config.module';
 import { stableStringify } from '@paychain/database';
@@ -44,7 +45,46 @@ export interface ReserveState {
   reserveRatio: string; // reserveBalance / outstandingSupply (or "N/A" when supply is 0)
   targetRatio: string;
   shortfall: boolean;
+  /**
+   * Tokens issued and not burned — the claims the reserve must answer today. Equal to
+   * outstandingSupply by construction, and named separately because §23 asks for the
+   * LIABILITY view: supply is what exists, unredeemed liability is what we owe against it.
+   */
+  unredeemedLiability: string;
+  /** Mints not yet on chain that will become supply unless they fail. */
+  pendingMintLiability: string;
+  /** Redemptions where fiat is committed or owed and the tokens are not yet burned. */
+  pendingRedemptionLiability: string;
 }
+
+/**
+ * Mint states that have not landed on chain but are still going to, absent a failure.
+ * Excludes CONFIRMED/RECONCILED (already counted in supply) and REJECTED/FAILED (never will be).
+ */
+const PENDING_MINT_STATUSES: MintStatus[] = [
+  'REQUESTED',
+  'RESERVE_PENDING',
+  'RESERVE_CONFIRMED',
+  'COMPLIANCE_REVIEW',
+  'APPROVAL_REQUIRED',
+  'APPROVED',
+  'SIGNING',
+  'SUBMITTED',
+];
+
+/**
+ * Redemption states where PayChain owes fiat, or has paid it, but the tokens still exist.
+ *
+ * Starts at ESCROW_HELD, not REQUESTED: before escrow nothing is committed and the request can
+ * be refused for free. Ends at BURN_PENDING — once BURN_CONFIRMED the tokens are gone and the
+ * obligation is discharged.
+ */
+const PENDING_REDEMPTION_STATUSES: RedemptionStatus[] = [
+  'ESCROW_HELD',
+  'FIAT_PAYOUT_PENDING',
+  'FIAT_PAYOUT_CONFIRMED',
+  'BURN_PENDING',
+];
 
 /**
  * Reserve management (§23). Tracks reserve accounts (references only — never banking
@@ -329,7 +369,7 @@ export class ReserveService {
     });
     const reserveBalance = sumAmounts(accounts.map((a) => a.balance));
 
-    const [minted, redeemed] = await Promise.all([
+    const [minted, redeemed, pendingMints, pendingRedemptions] = await Promise.all([
       this.prisma.stablecoinMintRequest.findMany({
         where: { tenantId, assetId, status: { in: ['CONFIRMED', 'RECONCILED'] } },
         select: { amount: true },
@@ -339,6 +379,18 @@ export class ReserveService {
         // in FIAT_PAYOUT_PENDING/CONFIRMED are still circulating — counting them early would
         // understate supply and hide a real shortfall.
         where: { tenantId, assetId, status: { in: ['BURN_CONFIRMED', 'COMPLETED'] } },
+        select: { amount: true },
+      }),
+      // §23 liabilities. These columns existed on ReserveSnapshot from the start and nothing
+      // ever wrote them — they were declared, exposed in API responses, and always null. A
+      // column that names a calculation nobody performs is the same failure as a status that
+      // names a control nobody implements.
+      this.prisma.stablecoinMintRequest.findMany({
+        where: { tenantId, assetId, status: { in: PENDING_MINT_STATUSES } },
+        select: { amount: true },
+      }),
+      this.prisma.stablecoinRedemption.findMany({
+        where: { tenantId, assetId, status: { in: PENDING_REDEMPTION_STATUSES } },
         select: { amount: true },
       }),
     ]);
@@ -354,6 +406,12 @@ export class ReserveService {
       reserveRatio: hasSupply ? displayRatio(reserveBalance, outstandingSupply) : 'N/A',
       targetRatio,
       shortfall: hasSupply && !meetsRatio(reserveBalance, outstandingSupply, targetRatio),
+      // Equal to outstandingSupply, deliberately: every unburned token is a claim. Kept as a
+      // named field because §23 asks for the liability view, and because if the two ever stop
+      // being equal that is a fact worth seeing rather than hiding behind one number.
+      unredeemedLiability: outstandingSupply,
+      pendingMintLiability: sumAmounts(pendingMints.map((m) => m.amount)),
+      pendingRedemptionLiability: sumAmounts(pendingRedemptions.map((r) => r.amount)),
     };
   }
 
@@ -389,6 +447,12 @@ export class ReserveService {
           reserveRatio,
           targetRatio,
           shortfall: state.shortfall,
+          // In the hash, not merely beside it. A hash that seals the balance but leaves the
+          // liabilities loose lets someone restate what we owe without breaking the seal, while
+          // the snapshot still looks committed.
+          unredeemedLiability: state.unredeemedLiability,
+          pendingMintLiability: state.pendingMintLiability,
+          pendingRedemptionLiability: state.pendingRedemptionLiability,
           takenAt: takenAt.toISOString(),
         }),
         'utf8',
@@ -402,6 +466,9 @@ export class ReserveService {
         reserveBalance: state.reserveBalance,
         outstandingSupply: state.outstandingSupply,
         reserveRatio,
+        unredeemedLiability: state.unredeemedLiability,
+        pendingMintLiability: state.pendingMintLiability,
+        pendingRedemptionLiability: state.pendingRedemptionLiability,
         snapshotHash,
         source: opts.source ?? 'manual',
         takenAt,
