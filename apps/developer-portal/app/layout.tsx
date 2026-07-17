@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 
 const LINKS = [
   { label: 'Quickstart', href: '/' },
+  { label: 'Integration', href: '/integration' },
   { label: 'API', href: '/api-reference' },
   { label: 'Webhooks', href: '/webhooks' },
   { label: 'SDK', href: '/sdk' },

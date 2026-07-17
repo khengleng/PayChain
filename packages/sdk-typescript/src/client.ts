@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { verifyWebhook } from '@paychain/security';
+import { verifyWebhook } from './webhook-signature';
 
 export interface PayChainClientOptions {
   baseUrl: string;
