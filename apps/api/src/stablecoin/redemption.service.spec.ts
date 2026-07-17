@@ -27,7 +27,17 @@ function statefulPrisma(initial: Record<string, unknown>) {
       },
     },
     asset: { findUnique: async () => ({ ...ASSET }) },
-    wallet: { findUnique: async () => ({ id: 'w1', stellarAccountId: 'GHOLDER', stellarSecretEnc: 'enc' }) },
+    // tenantId and status are required by the service: a redeemer wallet is now tenant-scoped
+    // and status-checked, so a fixture without them is not a realistic wallet.
+    wallet: {
+      findUnique: async () => ({
+        id: 'w1',
+        tenantId: 't1',
+        status: 'ACTIVE',
+        stellarAccountId: 'GHOLDER',
+        stellarSecretEnc: 'enc',
+      }),
+    },
   };
 }
 
@@ -103,5 +113,60 @@ describe('RedemptionService saga (§25, §0.8)', () => {
     const r = await svc.advance('t1', 'r2');
     expect(r.status).toBe('FAILED');
     expect(burnAsset).not.toHaveBeenCalled(); // funds not burned when payout fails
+  });
+});
+
+/**
+ * Tenant isolation on the value paths. mint.service and redemption.service loaded the wallet by
+ * raw id with no tenant scope, while loadActive() on the adjacent line scoped the asset
+ * correctly — so the two paths that move stablecoin value could name any wallet on the platform,
+ * including another tenant's. Cross-tenant is NotFound, never 403: a 403 confirms the wallet
+ * exists (§7 — no existence oracle).
+ */
+describe('RedemptionService — the redeemer wallet is tenant-scoped (§7)', () => {
+  function build(wallet: Record<string, unknown> | null) {
+    const r = {
+      id: 'r1', tenantId: 't1', assetId: 'a1', walletId: 'w1', amount: '10',
+      status: 'FIAT_PAYOUT_CONFIRMED', correlationId: 'c', bankAccountReference: 'BANK-1',
+    };
+    const prisma = {
+      stablecoinRedemption: {
+        findUnique: async () => r,
+        update: async ({ data }: { data: Record<string, unknown> }) => ({ ...r, ...data }),
+        updateMany: async () => ({ count: 1 }),
+        findMany: async () => [],
+      },
+      // loadActive() include:s the config on the asset — a fixture with a separate
+      // stablecoinConfig.findFirst never reaches the wallet check, which made an earlier
+      // version of these tests pass on a coincidentally-matching "not found" message.
+      asset: {
+        findUnique: async () => ({
+          id: 'a1', tenantId: 't1', assetCode: 'DKHR', status: 'ACTIVE', issuerPublicKey: 'GI',
+          stablecoinConfig: { assetId: 'a1', lifecycleState: 'ACTIVE' },
+        }),
+      },
+      wallet: { findUnique: async () => wallet },
+    } as never;
+    return new RedemptionService(
+      prisma,
+      { decrypt: () => 'S' } as never,
+      { record: jest.fn() } as never,
+      { requireEnabled: jest.fn() } as never,
+      { screenTransaction: jest.fn().mockResolvedValue({ decision: 'CLEAR' }) } as never,
+      { initiatePayout: jest.fn(), getPayoutStatus: jest.fn() } as never,
+      { burnAsset: jest.fn().mockResolvedValue({ transactionHash: 'H', submitted: true }) } as never,
+    );
+  }
+
+  it("REFUSES to burn from another tenant's wallet", async () => {
+    const svc = build({ id: 'w1', tenantId: 'OTHER-TENANT', status: 'ACTIVE', stellarSecretEnc: 'enc' });
+    // Specifically the REDEEMER wallet message: /not found/i alone also matches "Stablecoin not
+    // found", which is how this test previously passed without reaching the check at all.
+    await expect(svc.advance('t1', 'r1')).rejects.toThrow(/Redeemer wallet not found/);
+  });
+
+  it('REFUSES to burn from a FROZEN wallet — freeze must reach this path too', async () => {
+    const svc = build({ id: 'w1', tenantId: 't1', status: 'FROZEN', stellarSecretEnc: 'enc' });
+    await expect(svc.advance('t1', 'r1')).rejects.toThrow(/FROZEN/);
   });
 });

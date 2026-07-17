@@ -72,8 +72,11 @@ export function sameAmount(a: string, b: string): boolean {
  * does not open a duplicate exception for an already-open (tx, category) pair.
  *
  * Known limits, stated because the schema implies more than this does:
- * - ReconciliationCategory declares 9 categories; only MISSING_CONFIRMATION is produced.
- *   SUPPLY_MISMATCH, BALANCE_DRIFT, ORPHAN_BLOCKCHAIN_TRANSACTION and the rest are unbuilt.
+ * - ReconciliationCategory declares 14 categories; three are produced: MISSING_CONFIRMATION,
+ *   BALANCE_DRIFT and ORPHAN_BLOCKCHAIN_TRANSACTION. §31 names 11 and expects reconciliation
+ *   across 15 subjects; every stablecoin subject (mints, redemptions, payouts, treasury,
+ *   custodian records) is unreconciled — the sagas write no Transaction rows, and this job reads
+ *   only transaction/wallet/balanceReadModel.
  * - run() scans the most recent `limit` transactions THAT CARRY A HASH. Records without one are
  *   never examined, and older records fall out of the window entirely.
  * - reconcileBalances() and findOrphanTransactions() sample recent wallets, not the whole estate.

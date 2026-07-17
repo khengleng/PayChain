@@ -9,7 +9,29 @@ import { stableStringify } from '@paychain/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { AuthContext } from '../auth/auth-context';
-import { addAmounts, assertValidAmount, subAmounts, sumAmounts } from '../common/money';
+import { addAmounts, assertValidAmount, compareAmounts, subAmounts, sumAmounts, toScaled } from '../common/money';
+
+/**
+ * Is `reserve / supply >= target`, decided exactly (§47).
+ *
+ * Rearranged to `reserve >= supply * target` so it is integer arithmetic on scaled BigInts — no
+ * division, no rounding, no float. This decides whether tokens are backed; the earlier version
+ * used `Number(reserve) / Number(supply) < Number(target)`, which is the exact arithmetic the
+ * money helpers exist to prevent, in the one place it matters most.
+ */
+export function meetsRatio(reserve: string, supply: string, target: string): boolean {
+  const SCALE = 10_000_000n; // money.ts fixed-point scale (7dp)
+  // reserve * SCALE >= supply * target, both sides scaled identically.
+  return toScaled(reserve) * SCALE >= toScaled(supply) * toScaled(target);
+}
+
+/** Human-readable ratio. Display only — never used for a decision. */
+export function displayRatio(reserve: string, supply: string): string {
+  const s = toScaled(supply);
+  if (s === 0n) return 'N/A';
+  // Fixed-point division to 6dp for presentation.
+  return (Number((toScaled(reserve) * 1_000_000n) / s) / 1_000_000).toFixed(6);
+}
 
 export interface ReserveState {
   assetId: string;
@@ -124,7 +146,9 @@ export class ReserveService {
         : subAmounts(account.balance, movement.amount);
 
     // A reserve cannot go negative: that would mean claiming to hold assets we do not.
-    if (Number(next) < 0) {
+    // Fixed-point: this file's own comment says never float the authoritative balance, and the
+    // first version of this guard did exactly that.
+    if (compareAmounts(next, '0') < 0) {
       throw new ConflictException(
         `Refusing to apply movement: would take reserve balance negative (${account.balance} - ${movement.amount})`,
       );
@@ -238,11 +262,11 @@ export class ReserveService {
     const targetRatio = await this.targetRatioFor(tenantId, assetId);
     const state = await this.getState(tenantId, assetId, targetRatio);
     const projectedSupply = addAmounts(state.outstandingSupply, additionalAmount);
-    const projected = Number(projectedSupply);
-    const ratio = projected > 0 ? Number(state.reserveBalance) / projected : Number.POSITIVE_INFINITY;
+    const hasSupply = compareAmounts(projectedSupply, '0') > 0;
     return {
-      breach: projected > 0 && ratio < Number(targetRatio),
-      projectedRatio: projected > 0 ? ratio.toFixed(6) : 'N/A',
+      // The comparison itself is exact — see meetsRatio. Only the DISPLAY ratio is fractional.
+      breach: hasSupply && !meetsRatio(state.reserveBalance, projectedSupply, targetRatio),
+      projectedRatio: hasSupply ? displayRatio(state.reserveBalance, projectedSupply) : 'N/A',
       targetRatio,
       reserveBalance: state.reserveBalance,
       projectedSupply,
@@ -270,17 +294,18 @@ export class ReserveService {
         select: { amount: true },
       }),
     ]);
-    // Exact fixed-point supply; ratio is an inherently-fractional display value.
+    // Exact fixed-point supply; the ratio is an inherently-fractional DISPLAY value, but the
+    // shortfall DECISION is made exactly — a float comparison here decides whether tokens are
+    // backed, which is not a place for rounding.
     const outstandingSupply = subAmounts(sumAmounts(minted.map((m) => m.amount)), sumAmounts(redeemed.map((r) => r.amount)));
-    const supplyNum = Number(outstandingSupply);
-    const ratio = supplyNum > 0 ? Number(reserveBalance) / supplyNum : Number.POSITIVE_INFINITY;
+    const hasSupply = compareAmounts(outstandingSupply, '0') > 0;
     return {
       assetId,
       reserveBalance,
       outstandingSupply,
-      reserveRatio: supplyNum > 0 ? ratio.toFixed(6) : 'N/A',
+      reserveRatio: hasSupply ? displayRatio(reserveBalance, outstandingSupply) : 'N/A',
       targetRatio,
-      shortfall: supplyNum > 0 && ratio < Number(targetRatio),
+      shortfall: hasSupply && !meetsRatio(reserveBalance, outstandingSupply, targetRatio),
     };
   }
 

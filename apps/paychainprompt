@@ -1,0 +1,1175 @@
+# AI Coder Master Prompt — Build PayChain
+
+You are a principal fintech architect, blockchain engineer, Stellar engineer, security engineer, backend engineer, SRE, QA lead, treasury-system designer, and compliance-aware product engineer.
+
+Build a new platform named **PayChain**.
+
+PayChain is a multi-tenant blockchain-backed digital value infrastructure platform.
+
+PayChain must be built independently from PayKH.
+
+Do not rename PayKH to PayChain.
+
+Do not merge PayKH and PayChain into one codebase.
+
+PayKH will later consume PayChain through secure APIs and SDKs.
+
+---
+
+# 1. Product Vision
+
+PayChain enables banks, fintechs, merchants, government programs, enterprises, and applications to:
+
+* Create digital wallets
+* Create digital assets
+* Issue loyalty points
+* Issue cashback
+* Issue merchant credits
+* Issue gift-card balances
+* Transfer digital value
+* Redeem digital value
+* Burn digital assets
+* Freeze wallets
+* Restrict assets
+* Sponsor Stellar reserves
+* Sponsor transaction fees
+* Reconcile blockchain transactions
+* Monitor asset supply
+* Integrate through APIs and SDKs
+* Prepare for controlled fiat-backed stablecoin issuance
+* Prepare for tokenized deposits
+* Prepare for future cross-border settlement
+
+PayChain must be:
+
+* Stellar-first
+* Stablecoin-ready
+* Loyalty-ready
+* Multi-tenant
+* API-first
+* SDK-ready
+* Modular
+* Secure
+* Auditable
+* Railway-deployable
+* Designed for 10,000 to 1,000,000 transactions per day
+
+---
+
+# 2. Product Boundary
+
+Use this model:
+
+```text
+PayKH
+Biz Cambodia
+Merchant applications
+Bank applications
+Government applications
+ERP systems
+Third-party wallets
+        |
+        v
+PayChain API and SDK
+        |
+        v
+Stellar Network
+```
+
+Applications must never connect directly to Stellar.
+
+Applications must communicate only with PayChain.
+
+PayChain must not contain:
+
+* Customer-facing campaign pages
+* Scratch-game UX
+* Referral UX
+* Marketing content
+* Merchant marketplace UX
+* Promotion banners
+* Social sharing UX
+* PayKH-specific presentation logic
+
+Those belong to PayKH.
+
+---
+
+# 3. Stablecoin Readiness
+
+PayChain must support stablecoin-ready architecture from Phase 1.
+
+However:
+
+* Stablecoin production features must be disabled by default.
+* Mainnet stablecoin minting must require explicit activation.
+* Public redemption must remain disabled until approved.
+* Stablecoin conversion must remain disabled until approved.
+* Cross-border stablecoin transfers must remain disabled until approved.
+* Stablecoin features must use separate permissions, workflows, limits, reconciliation, and monitoring.
+* Stablecoins must not be treated as normal loyalty points.
+* Algorithmic stablecoins must not be implemented.
+
+Supported future stable-value models:
+
+* Stable-value credit
+* Fiat-backed stablecoin
+* Tokenized deposit
+
+Initial reference currencies:
+
+* USD
+* KHR
+
+---
+
+# 4. Technology Stack
+
+Use a modular monolith for the initial release.
+
+## Backend
+
+* TypeScript
+* NestJS
+* REST API
+* OpenAPI 3
+* Prisma ORM
+* PostgreSQL
+* Redis
+* BullMQ
+* Stellar JavaScript SDK
+* Stellar RPC
+* Horizon only where required
+* OpenTelemetry
+* Structured JSON logging
+* Prometheus-compatible metrics
+
+## Portals
+
+* Next.js
+* TypeScript
+* Tailwind CSS
+* shadcn/ui
+* TanStack Query
+* React Hook Form
+* Zod
+* Khmer and English localization
+
+## Infrastructure
+
+* Railway
+* Docker
+* GitHub Actions
+* Cloudflare
+* S3-compatible object storage
+* Managed PostgreSQL
+* Managed Redis
+
+Do not run a Stellar validator during the MVP.
+
+Use managed Stellar infrastructure with provider abstraction and failover.
+
+---
+
+# 5. Repository Structure
+
+Create a monorepo:
+
+```text
+apps/
+  api/
+  worker/
+  admin-portal/
+  developer-portal/
+
+packages/
+  blockchain/
+  stellar/
+  database/
+  auth/
+  security/
+  compliance/
+  treasury/
+  reserve/
+  sdk-typescript/
+  sdk-flutter-spec/
+  validation/
+  observability/
+  config/
+  testing/
+  ui/
+
+docs/
+  architecture/
+  api/
+  blockchain/
+  security/
+  compliance/
+  stablecoin/
+  deployment/
+  operations/
+  testing/
+  integration/
+```
+
+Use strict TypeScript.
+
+Avoid `any`.
+
+---
+
+# 6. Core Modules
+
+Build these modules:
+
+* Tenant
+* Organization
+* Application
+* API client
+* Identity
+* Roles and permissions
+* Wallet
+* Stellar account
+* Asset
+* Stablecoin
+* Issuance
+* Transfer
+* Redemption
+* Burn
+* Compensating transaction
+* Sponsorship
+* Fees
+* Transaction
+* Blockchain submission
+* Blockchain confirmation
+* Idempotency
+* Webhook
+* Reconciliation
+* Reserve management
+* Treasury
+* Proof of reserve
+* Attestation
+* Compliance
+* Transaction monitoring
+* Conversion
+* Limits
+* Fraud controls
+* Audit log
+* Reporting
+* Feature flags
+* Provider management
+* System health
+
+Do not allow direct cross-module database access.
+
+---
+
+# 7. Multi-Tenancy
+
+Every client organization must be isolated by tenant.
+
+Every tenant-owned record must include:
+
+* tenant_id
+* created_at
+* updated_at
+* created_by where applicable
+
+Validate tenant identity from credentials.
+
+Never trust a tenant ID supplied directly by the client.
+
+Apply tenant isolation to:
+
+* API requests
+* Database queries
+* Background jobs
+* Webhooks
+* Audit logs
+* Reports
+* Metrics
+* Reconciliation
+
+Add tests proving cross-tenant access is blocked.
+
+---
+
+# 8. Roles and Permissions
+
+Support platform roles:
+
+* Platform super administrator
+* Security administrator
+* Operations administrator
+* Compliance administrator
+* Treasury administrator
+* Support administrator
+* Auditor
+
+Support tenant roles:
+
+* Tenant owner
+* Tenant administrator
+* Developer
+* Finance operator
+* Treasury operator
+* Compliance operator
+* Operations operator
+* Auditor
+* Read-only analyst
+
+Use permission-based authorization.
+
+Example permissions:
+
+```text
+wallet:create
+wallet:read
+wallet:freeze
+asset:create
+asset:issue
+asset:transfer
+asset:redeem
+asset:burn
+stablecoin:create
+stablecoin:mint
+stablecoin:redeem
+stablecoin:convert
+reserve:manage
+treasury:initiate
+treasury:approve
+compliance:review
+transaction:read
+transaction:compensate
+reconciliation:run
+webhook:manage
+api-client:rotate
+audit:read
+```
+
+---
+
+# 9. Blockchain Abstraction
+
+The business layer must not import Stellar SDKs directly.
+
+Create:
+
+```typescript
+interface BlockchainProvider {
+  createWallet(input: CreateWalletInput): Promise<CreateWalletResult>;
+  createAsset(input: CreateAssetInput): Promise<CreateAssetResult>;
+  establishTrustline(input: TrustlineInput): Promise<TrustlineResult>;
+  issueAsset(input: IssueAssetInput): Promise<BlockchainTransactionResult>;
+  transferAsset(input: TransferAssetInput): Promise<BlockchainTransactionResult>;
+  redeemAsset(input: RedeemAssetInput): Promise<BlockchainTransactionResult>;
+  burnAsset(input: BurnAssetInput): Promise<BlockchainTransactionResult>;
+  freezeWallet(input: FreezeWalletInput): Promise<BlockchainTransactionResult>;
+  unfreezeWallet(input: UnfreezeWalletInput): Promise<BlockchainTransactionResult>;
+  getBalance(input: GetBalanceInput): Promise<AssetBalance[]>;
+  getTransaction(input: GetTransactionInput): Promise<BlockchainTransaction>;
+  getTransactionHistory(input: GetHistoryInput): Promise<BlockchainTransaction[]>;
+  estimateFee(input: EstimateFeeInput): Promise<FeeEstimate>;
+  healthCheck(): Promise<ProviderHealth>;
+}
+```
+
+Only the Stellar package may depend on Stellar-specific libraries.
+
+---
+
+# 10. Stellar Account Strategy
+
+Support one sponsored Stellar account per wallet.
+
+Manage:
+
+* Account creation
+* Reserve sponsorship
+* Trustline sponsorship
+* Fee-bump transactions
+* Sequence coordination
+* Source-account partitioning
+* Account recovery
+* Account suspension
+* Trustline management
+* Wallet closure where possible
+
+Users must not need to buy XLM.
+
+Create configurable fee and sponsorship policies.
+
+---
+
+# 11. Key Management
+
+Never store plaintext private keys.
+
+Create a key-management abstraction supporting:
+
+* Development-only encrypted keys
+* Cloud KMS
+* HSM integration
+* MPC integration
+* Key rotation
+* Key version tracking
+* Signing policies
+* Emergency disablement
+* Dual approval
+
+Separate:
+
+* Issuer keys
+* Distribution keys
+* Treasury keys
+* Sponsorship keys
+* Redemption keys
+* Wallet keys
+* Operational signing keys
+
+Do not use the issuer account for routine activity.
+
+---
+
+# 12. Source-Account Partitioning
+
+Do not submit all transactions from one source account.
+
+Partition by:
+
+* Tenant
+* Merchant
+* Transaction type
+* Wallet shard
+* Region
+
+Create per-source queues.
+
+Prevent:
+
+* Sequence collisions
+* Duplicate submission
+* Expired transaction replay
+* Unbounded queue growth
+
+Support queue draining and account replacement.
+
+---
+
+# 13. Asset Model
+
+Support:
+
+```text
+LOYALTY_POINT
+CASHBACK
+PROMOTIONAL_CREDIT
+MERCHANT_CREDIT
+GIFT_CARD
+VOUCHER
+COUPON
+MEMBERSHIP_CREDIT
+TICKET
+CARBON_CREDIT
+STABLE_VALUE_CREDIT
+FIAT_BACKED_STABLECOIN
+TOKENIZED_DEPOSIT
+```
+
+Asset fields must include:
+
+* asset_code
+* asset_name
+* asset_type
+* asset_classification
+* issuer_account
+* distribution_account
+* treasury_account
+* redemption_account
+* status
+* decimals
+* total_supply
+* max_supply
+* transferability
+* redeemability
+* expiry_policy
+* clawback_enabled
+* authorization_required
+* authorization_revocable
+* freeze_enabled
+* metadata
+
+Not every asset is transferable.
+
+Not every asset is redeemable.
+
+---
+
+# 14. Stablecoin Model
+
+Add:
+
+* reference_currency
+* reserve_model
+* reserve_account_reference
+* reserve_ratio
+* redemption_enabled
+* minting_model
+* burning_model
+* issuer_legal_entity
+* regulated_status
+* jurisdiction
+* license_reference
+* attestation_required
+* attestation_frequency
+* proof_of_reserve_enabled
+* minimum_redemption_amount
+* maximum_redemption_amount
+* mint_fee
+* redemption_fee
+* transfer_fee
+* daily_mint_limit
+* daily_redeem_limit
+* wallet_holding_limit
+* travel_rule_required
+* kyc_level_required
+* aml_screening_required
+* sanctions_screening_required
+* activation_status
+
+Stablecoin states:
+
+```text
+DRAFT
+LEGAL_REVIEW
+COMPLIANCE_REVIEW
+TREASURY_REVIEW
+RESERVE_PENDING
+TECHNICAL_TESTING
+PILOT_APPROVED
+ACTIVE
+MINTING_SUSPENDED
+REDEMPTION_SUSPENDED
+FULLY_SUSPENDED
+WIND_DOWN
+CLOSED
+```
+
+---
+
+# 15. Wallet Model
+
+Support wallet owners:
+
+* Customer
+* Merchant
+* Organization
+* Treasury
+* Campaign
+* System
+* Redemption
+* Settlement
+
+Wallet statuses:
+
+* Pending
+* Active
+* Restricted
+* Frozen
+* Suspended
+* Closing
+* Closed
+
+The blockchain is authoritative for balances.
+
+PostgreSQL may contain rebuildable read models only.
+
+---
+
+# 16. Transaction Model
+
+Support:
+
+* Wallet creation
+* Trustline creation
+* Asset issuance
+* Transfer
+* Redemption
+* Burn
+* Expiry
+* Refund
+* Compensation
+* Reserve sponsorship
+* Fee sponsorship
+* Stablecoin mint
+* Stablecoin redemption
+* Fiat payout
+* Conversion
+* Freeze
+* Unfreeze
+* Reconciliation
+
+Transaction statuses:
+
+```text
+RECEIVED
+VALIDATING
+COMPLIANCE_REVIEW
+APPROVAL_REQUIRED
+REJECTED
+QUEUED
+SIGNING
+SUBMITTED
+PENDING_CONFIRMATION
+CONFIRMED
+FAILED
+EXPIRED
+REVERSED_BY_COMPENSATION
+RECONCILIATION_REQUIRED
+MANUAL_REVIEW
+```
+
+Never delete financial transaction records.
+
+---
+
+# 17. Idempotency
+
+All write APIs must support idempotency.
+
+Rules:
+
+* Same key and same payload returns the original result.
+* Same key and different payload returns a conflict.
+* Keys are tenant-scoped.
+* Records survive restarts.
+* Duplicate blockchain submissions are blocked.
+* Duplicate minting is blocked.
+* Duplicate payouts are blocked.
+* Duplicate webhook processing is blocked.
+
+---
+
+# 18. Reserve Management
+
+Build a reserve module supporting:
+
+* Reserve account registration
+* Bank account references
+* Custodian references
+* Reserve balance records
+* Reserve reconciliation
+* Reserve ratio calculation
+* Shortfall alerts
+* Attestation records
+* Proof-of-reserve records
+* Reserve movement approvals
+* Reserve reporting
+
+Do not store online banking credentials.
+
+Default fiat-backed reserve target: configurable, initially 100%.
+
+Never mint if reserve information is stale, missing, or unreconciled.
+
+---
+
+# 19. Stablecoin Minting
+
+Mint only when:
+
+* Funding is confirmed
+* Reserve is confirmed
+* Compliance passes
+* Limits pass
+* Approval passes
+* Idempotency passes
+* Signing policy passes
+* Stellar confirms
+* Reconciliation succeeds
+
+Never mint based only on an API request.
+
+---
+
+# 20. Stablecoin Redemption
+
+Support:
+
+* Redemption request
+* Eligibility validation
+* KYC
+* AML
+* Sanctions
+* Wallet ownership
+* Approval
+* Burn
+* Fiat payout
+* Payout confirmation
+* Reconciliation
+* Failure handling
+
+Do not mark redemption complete until:
+
+* The burn is confirmed.
+* The fiat payout is confirmed.
+
+---
+
+# 21. Compliance Abstraction
+
+Create:
+
+```typescript
+interface ComplianceProvider {
+  screenCustomer(input: CustomerScreeningInput): Promise<ScreeningResult>;
+  screenBusiness(input: BusinessScreeningInput): Promise<ScreeningResult>;
+  screenTransaction(input: TransactionScreeningInput): Promise<ScreeningResult>;
+  screenWallet(input: WalletScreeningInput): Promise<ScreeningResult>;
+  createCase(input: CreateComplianceCaseInput): Promise<ComplianceCaseResult>;
+  getCase(input: GetComplianceCaseInput): Promise<ComplianceCaseResult>;
+}
+```
+
+Support future integrations for:
+
+* KYC
+* KYB
+* AML
+* Sanctions
+* PEP
+* Adverse media
+* Travel Rule
+* Fraud scoring
+* Case management
+
+---
+
+# 22. Reconciliation
+
+Reconcile:
+
+* PayChain transaction records
+* Stellar transactions
+* Wallet balances
+* Asset supply
+* Stablecoin supply
+* Treasury balances
+* Distribution balances
+* Redemption balances
+* Reserve balances
+* Pending mint requests
+* Pending redemptions
+* Fiat payouts
+* Conversion records
+
+Run:
+
+* Near real time
+* Hourly
+* Daily
+* On demand
+* Before and after stablecoin batches
+
+Never silently overwrite mismatches.
+
+---
+
+# 23. APIs
+
+Base path:
+
+```text
+/api/v1
+```
+
+Create APIs for:
+
+* Wallets
+* Assets
+* Transactions
+* Stablecoins
+* Mint requests
+* Redemption requests
+* Conversions
+* Reserve snapshots
+* Attestations
+* Webhooks
+* Health
+* Reconciliation
+
+All write APIs must support idempotency.
+
+---
+
+# 24. Webhooks
+
+Support signed events:
+
+* wallet.created
+* wallet.frozen
+* asset.created
+* asset.issued
+* asset.transferred
+* asset.redeemed
+* asset.burned
+* transaction.confirmed
+* transaction.failed
+* stablecoin.minted
+* stablecoin.redemption.requested
+* stablecoin.redemption.completed
+* reserve.shortfall
+* compliance.hold
+* reconciliation.required
+
+Use:
+
+* HMAC signatures
+* Replay protection
+* Retry
+* Dead-letter queues
+* Delivery logs
+* Manual replay
+* Secret rotation
+
+---
+
+# 25. Stablecoin Feature Flags
+
+Create:
+
+```text
+stablecoin.module.enabled
+stablecoin.creation.enabled
+stablecoin.minting.enabled
+stablecoin.redemption.enabled
+stablecoin.transfer.enabled
+stablecoin.conversion.enabled
+stablecoin.mainnet.enabled
+stablecoin.public-wallets.enabled
+stablecoin.cross-border.enabled
+stablecoin.travel-rule.enabled
+```
+
+Default all production stablecoin flags to disabled.
+
+---
+
+# 26. Admin Portal
+
+Create screens for:
+
+* Tenants
+* Applications
+* API clients
+* Wallets
+* Assets
+* Stablecoins
+* Transactions
+* Mint requests
+* Redemptions
+* Reserve monitoring
+* Treasury
+* Compliance alerts
+* Reconciliation
+* Provider health
+* Queue health
+* Audit logs
+* Feature flags
+* Emergency controls
+
+Emergency controls must include:
+
+* Suspend minting
+* Suspend redemption
+* Suspend conversion
+* Suspend transfers
+* Freeze wallet
+* Freeze asset
+* Disable tenant
+* Disable application
+* Disable mainnet writes
+
+---
+
+# 27. Developer Portal
+
+Support:
+
+* Sandbox credentials
+* API documentation
+* SDK downloads
+* Webhook configuration
+* Usage dashboard
+* Transaction explorer
+* Test wallet creation
+* Test asset creation
+* Testnet stablecoin flows
+
+---
+
+# 28. SDK
+
+Create a TypeScript SDK supporting:
+
+* Authentication
+* Idempotency
+* Retries
+* Timeouts
+* Correlation IDs
+* Typed errors
+* Webhook verification
+* Wallets
+* Assets
+* Transactions
+* Stablecoin testnet operations
+
+Create a Flutter SDK specification.
+
+---
+
+# 29. Railway Deployment
+
+Create services:
+
+```text
+paychain-api
+paychain-worker
+paychain-admin
+paychain-developer-portal
+paychain-postgres
+paychain-redis
+```
+
+Suggested domains:
+
+```text
+api.paychain.cambobia.com
+admin.paychain.cambobia.com
+developer.paychain.cambobia.com
+```
+
+Provide:
+
+* Dockerfiles
+* Railway configuration
+* Health checks
+* Migrations
+* Seed scripts
+* Backup procedures
+* Rollback procedures
+* Secret rotation
+* Scaling guidance
+
+---
+
+# 30. Performance
+
+Design for:
+
+* 10,000 to 1,000,000 transactions per day
+* 300 TPS sustained testing
+* 1,000 TPS burst testing
+* Asynchronous acknowledgement under 300 ms
+* No confirmed duplicates
+* No sequence collisions
+* No cross-tenant leakage
+
+Test the complete flow, not only mocked endpoints.
+
+---
+
+# 31. Security
+
+Implement:
+
+* OWASP API Security controls
+* Rate limiting
+* Input validation
+* Secure headers
+* CSRF protection
+* Secure cookies
+* Content Security Policy
+* Dependency scanning
+* Secret scanning
+* Container scanning
+* Static analysis
+* Audit logs
+* Privileged-action approval
+* Session revocation
+* IP restrictions
+
+Never log or expose:
+
+* Private keys
+* Seed phrases
+* Passwords
+* Tokens
+* Signing material
+* KYC documents
+* Bank credentials
+* Sensitive personal data
+
+---
+
+# 32. Testing
+
+Create:
+
+* Unit tests
+* Integration tests
+* Contract tests
+* End-to-end tests
+* Stellar testnet tests
+* Load tests
+* Security tests
+* Reconciliation tests
+* Failure-recovery tests
+* Stablecoin workflow tests
+
+Critical tests must cover:
+
+* Wallet creation
+* Sponsorship
+* Trustlines
+* Loyalty issuance
+* Transfers
+* Redemption
+* Burn
+* Idempotency
+* Provider failover
+* Sequence collision
+* Cross-tenant attacks
+* Stablecoin mint
+* Reserve validation
+* Stablecoin redemption
+* Duplicate payout protection
+* Emergency suspension
+* Supply reconciliation
+* Reserve reconciliation
+
+---
+
+# 33. Phase 1 Scope
+
+Build:
+
+* Core monorepo
+* API and worker
+* Stellar testnet integration
+* Tenant management
+* Wallets
+* Sponsorship
+* Trustlines
+* Generic asset engine
+* Loyalty issuance
+* Transfer
+* Redemption
+* Burn
+* Idempotency
+* Webhooks
+* Reconciliation
+* Audit logs
+* Admin portal foundation
+* Developer portal foundation
+* TypeScript SDK
+* Railway deployment
+* Stablecoin data model
+* Stablecoin lifecycle
+* Reserve foundation
+* Treasury foundation
+* Compliance abstraction
+* Mint workflow
+* Redemption workflow foundation
+* Conversion interface
+* Proof-of-reserve model
+* Stablecoin feature flags
+* Stablecoin testnet tests
+
+Do not enable:
+
+* Public mainnet stablecoin minting
+* Public stablecoin redemption
+* Open conversion
+* Cross-border stablecoin transfers
+* DEX trading
+* Algorithmic stablecoins
+
+---
+
+# 34. PayKH Integration Boundary
+
+Do not modify PayKH.
+
+Create only:
+
+```text
+docs/integration/paykh-integration-guide.md
+packages/sdk-typescript/
+examples/paykh-adapter/
+```
+
+Future PayKH migration:
+
+1. Shadow integration
+2. Read-only balance
+3. Loyalty issuance dual-run
+4. Redemption dual-run
+5. Reconciliation comparison
+6. Limited customer pilot
+7. Merchant pilot
+8. Gradual migration
+9. Legacy wallet retirement after approval
+
+---
+
+# 35. Execution Order
+
+Execute in this order:
+
+1. Inspect repository.
+2. Create architecture documents.
+3. Create monorepo.
+4. Create schema and migrations.
+5. Implement blockchain abstraction.
+6. Implement Stellar provider.
+7. Implement tenant security.
+8. Implement wallets and sponsorship.
+9. Implement assets and loyalty flows.
+10. Implement transaction states.
+11. Implement idempotency.
+12. Implement confirmation processing.
+13. Implement webhooks.
+14. Implement reconciliation.
+15. Implement audit logs.
+16. Implement stablecoin model.
+17. Implement feature flags.
+18. Implement reserve, treasury, and compliance abstractions.
+19. Implement mint workflow.
+20. Implement redemption workflow foundation.
+21. Implement SDK.
+22. Implement portals.
+23. Add deployment files.
+24. Run linting.
+25. Run type checking.
+26. Run tests.
+27. Run production builds.
+28. Fix all failures.
+29. Produce a completion report.
+
+The final report must include:
+
+* Completed features
+* Files created
+* Files modified
+* APIs
+* Migrations
+* Test results
+* Build results
+* Security controls
+* Stablecoin readiness
+* Known limitations
+* Deferred work
+* Mainnet risks
+* Stablecoin activation risks
+* Recommended next phase

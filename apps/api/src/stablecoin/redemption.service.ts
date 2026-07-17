@@ -16,6 +16,7 @@ import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { COMPLIANCE_PROVIDER } from '../compliance/compliance.module';
 import { assertValidAmount } from '../common/money';
 import type { AuthContext } from '../auth/auth-context';
+import { assertWalletCanTransact } from '../wallets/wallet-status';
 import { FIAT_PAYOUT_PROVIDER, type FiatPayoutProvider } from './providers/providers.module';
 
 /**
@@ -159,8 +160,15 @@ export class RedemptionService {
     if (!claimed) return this.load(r.tenantId, r.id);
 
     const { asset } = await this.loadActive(r.tenantId, r.assetId);
+    // Tenant-scoped, and status-checked: burning from a wallet loaded by raw id meant a
+    // redemption could name any wallet on the platform, and a FROZEN wallet could still be
+    // burned from — the freeze control does not reach code that bypasses requireSecret.
     const wallet = await this.prisma.wallet.findUnique({ where: { id: r.walletId } });
-    if (!wallet?.stellarSecretEnc) throw new BadRequestException('Redeemer wallet has no managed key');
+    if (!wallet || wallet.tenantId !== r.tenantId) {
+      throw new NotFoundException('Redeemer wallet not found');
+    }
+    assertWalletCanTransact(wallet);
+    if (!wallet.stellarSecretEnc) throw new BadRequestException('Redeemer wallet has no managed key');
     const res = await this.chain.burnAsset({
       correlationId: r.correlationId,
       assetCode: asset.assetCode,

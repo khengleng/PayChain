@@ -31,7 +31,11 @@ function statefulPrisma(initial: Record<string, unknown>) {
       },
     },
     asset: { findUnique: async () => ({ ...ASSET }) },
-    wallet: { findUnique: async () => ({ id: 'w1', stellarAccountId: 'GDEST' }) },
+    // tenantId and status are required: the destination is now tenant-scoped and
+    // status-checked, so a wallet without them is not a realistic row.
+    wallet: {
+      findUnique: async () => ({ id: 'w1', tenantId: 't1', status: 'ACTIVE', stellarAccountId: 'GDEST' }),
+    },
   };
 }
 
@@ -144,5 +148,33 @@ describe('MintService saga', () => {
     const approved = await checkerSvc.approve({ tenantId: 't1', clientId: 'checker', scopes: [] }, 'm1');
     expect(approved.status).toBe('APPROVED');
     expect(approved.approvedBy).toBe('checker');
+  });
+});
+
+/**
+ * §7 tenant isolation on the mint path. The destination wallet was loaded by raw id with no
+ * tenant scope, while loadActive() scoped the asset on the adjacent line — so the one path that
+ * CREATES stablecoin value could deliver it into another tenant's wallet.
+ */
+describe('MintService — the destination wallet is tenant-scoped (§7)', () => {
+  function build(wallet: Record<string, unknown> | null) {
+    const prisma = statefulPrisma({
+      id: 'm1', tenantId: 't1', assetId: 'a1', amount: '100', status: 'APPROVED', reserveConfirmed: true,
+    }) as Record<string, any>;
+    prisma.wallet = { findUnique: async () => wallet };
+    const issueAsset = jest.fn().mockResolvedValue({ transactionHash: 'H', submitted: true });
+    return { svc: deps(prisma, { issueAsset, getTransaction: jest.fn() }, { confirmFunding: jest.fn() }), issueAsset };
+  }
+
+  it("REFUSES to mint into another tenant's wallet", async () => {
+    const { svc, issueAsset } = build({ id: 'w1', tenantId: 'OTHER', status: 'ACTIVE', stellarAccountId: 'GDEST' });
+    await expect(svc.advance('t1', 'm1')).rejects.toThrow(/Destination wallet not found/);
+    expect(issueAsset).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES to mint into a FROZEN wallet', async () => {
+    const { svc, issueAsset } = build({ id: 'w1', tenantId: 't1', status: 'FROZEN', stellarAccountId: 'GDEST' });
+    await expect(svc.advance('t1', 'm1')).rejects.toThrow(/FROZEN/);
+    expect(issueAsset).not.toHaveBeenCalled();
   });
 });

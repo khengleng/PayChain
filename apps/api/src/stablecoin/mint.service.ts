@@ -17,6 +17,7 @@ import { COMPLIANCE_PROVIDER } from '../compliance/compliance.module';
 import { addAmounts, assertValidAmount, compareAmounts, sumAmounts } from '../common/money';
 import type { AuthContext } from '../auth/auth-context';
 import { ReserveService } from './reserve.service';
+import { assertWalletCanTransact } from '../wallets/wallet-status';
 import {
   RESERVE_FUNDING_PROVIDER,
   type ReserveFundingProvider,
@@ -195,8 +196,15 @@ export class MintService {
 
     const { asset } = await this.loadActive(req.tenantId, req.assetId);
     const issuerSecret = this.requireIssuerSecret(asset);
+    // Tenant-scoped: loading by raw id let a mint request name ANY wallet on the platform,
+    // including another tenant's. loadActive() on the line above scopes the asset correctly —
+    // the destination did not, so the one path that creates stablecoin value could deliver it
+    // across a tenant boundary. Cross-tenant reads are NotFound, never 403 (§7 — no existence oracle).
     const wallet = await this.prisma.wallet.findUnique({ where: { id: req.destinationWalletId } });
-    if (!wallet) throw new NotFoundException('Destination wallet not found');
+    if (!wallet || wallet.tenantId !== req.tenantId) {
+      throw new NotFoundException('Destination wallet not found');
+    }
+    assertWalletCanTransact(wallet);
 
     const result = await this.chain.issueAsset({
       correlationId: req.correlationId,
