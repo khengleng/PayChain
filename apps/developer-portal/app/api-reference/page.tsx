@@ -79,8 +79,8 @@ export default function ApiReference() {
           <p>Machine-readable contract for generated clients and non-TypeScript integrations.</p>
         </a>
         <a className="card" href="/sdk">
-          <h3>TypeScript SDK</h3>
-          <p>Use the official client if your integration is JavaScript or TypeScript.</p>
+          <h3>SDKs</h3>
+          <p>TypeScript plus generated Dart, PHP, Kotlin, and .NET packages.</p>
         </a>
       </div>
 

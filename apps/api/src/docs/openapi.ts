@@ -463,6 +463,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/openapi.json`]: {
     get: {
       tags: ['Docs'],
+      operationId: 'getOpenApiContract',
       summary: 'Get the machine-readable OpenAPI contract',
       responses: {
         200: {
@@ -479,6 +480,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/oauth/token`]: {
     post: {
       tags: ['Auth'],
+      operationId: 'issueAccessToken',
       summary: 'Exchange client credentials for a bearer token',
       requestBody: jsonBody('#/components/schemas/TokenRequest'),
       responses: {
@@ -491,6 +493,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/wallets`]: {
     post: withStandardHeaders({
       tags: ['Wallets'],
+      operationId: 'createWallet',
       summary: 'Create a managed custodial wallet',
       description: 'Creates the Stellar account and records the wallet under the caller tenant.',
       security: bearer(['wallet.write']),
@@ -506,6 +509,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/wallets/{walletId}`]: {
     get: withStandardHeaders({
       tags: ['Wallets'],
+      operationId: 'getWallet',
       summary: 'Get a wallet',
       security: bearer(['wallet.read']),
       parameters: [{ $ref: '#/components/parameters/WalletId' }],
@@ -518,6 +522,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/wallets/{walletId}/balances`]: {
     get: withStandardHeaders({
       tags: ['Wallets'],
+      operationId: 'listWalletBalances',
       summary: 'List wallet balances',
       description: 'Refreshes the rebuildable balance read model from chain before returning balances.',
       security: bearer(['wallet.read']),
@@ -531,6 +536,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/assets`]: {
     get: withStandardHeaders({
       tags: ['Assets'],
+      operationId: 'listAssets',
       summary: 'List assets',
       security: bearer(['asset.read']),
       responses: {
@@ -539,6 +545,7 @@ const paths: Record<string, Record<string, Operation>> = {
     }),
     post: withStandardHeaders({
       tags: ['Assets'],
+      operationId: 'createAsset',
       summary: 'Create an asset',
       security: bearer(['asset.create']),
       requestBody: jsonBody('#/components/schemas/CreateAssetRequest'),
@@ -551,6 +558,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/assets/{assetId}`]: {
     get: withStandardHeaders({
       tags: ['Assets'],
+      operationId: 'getAsset',
       summary: 'Get an asset',
       security: bearer(['asset.read']),
       parameters: [{ $ref: '#/components/parameters/AssetId' }],
@@ -563,6 +571,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/assets/{assetId}/activate`]: {
     post: withStandardHeaders({
       tags: ['Assets'],
+      operationId: 'activateAsset',
       summary: 'Activate an asset',
       security: bearer(['asset.create']),
       parameters: [{ $ref: '#/components/parameters/AssetId' }],
@@ -574,6 +583,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/assets/{assetId}/issue`]: {
     post: withStandardHeaders({
       tags: ['Assets'],
+      operationId: 'issueAsset',
       summary: 'Issue loyalty value',
       security: bearer(['asset.issue']),
       parameters: [{ $ref: '#/components/parameters/AssetId' }],
@@ -586,6 +596,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/assets/{assetId}/transfer`]: {
     post: withStandardHeaders({
       tags: ['Assets'],
+      operationId: 'transferAsset',
       summary: 'Transfer loyalty value',
       security: bearer(['asset.transfer']),
       parameters: [{ $ref: '#/components/parameters/AssetId' }],
@@ -598,6 +609,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/assets/{assetId}/redeem`]: {
     post: withStandardHeaders({
       tags: ['Assets'],
+      operationId: 'redeemAsset',
       summary: 'Redeem loyalty value',
       security: bearer(['asset.transfer']),
       parameters: [{ $ref: '#/components/parameters/AssetId' }],
@@ -610,6 +622,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/assets/{assetId}/burn`]: {
     post: withStandardHeaders({
       tags: ['Assets'],
+      operationId: 'burnAsset',
       summary: 'Burn loyalty value',
       security: bearer(['asset.burn']),
       parameters: [{ $ref: '#/components/parameters/AssetId' }],
@@ -622,6 +635,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/assets/{assetId}/earn`]: {
     post: withStandardHeaders({
       tags: ['Assets'],
+      operationId: 'earnAsset',
       summary: 'Evaluate earn rules and award points',
       security: bearer(['asset.issue']),
       parameters: [{ $ref: '#/components/parameters/AssetId' }],
@@ -634,6 +648,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/transactions`]: {
     get: withStandardHeaders({
       tags: ['Transactions'],
+      operationId: 'listTransactions',
       summary: 'List transactions',
       security: bearer(['transaction.read']),
       parameters: [{ $ref: '#/components/parameters/Limit' }],
@@ -645,6 +660,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/transactions/{transactionId}`]: {
     get: withStandardHeaders({
       tags: ['Transactions'],
+      operationId: 'getTransaction',
       summary: 'Get a transaction',
       security: bearer(['transaction.read']),
       parameters: [{ $ref: '#/components/parameters/TransactionId' }],
@@ -657,6 +673,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/transactions/{transactionId}/compensate`]: {
     post: withStandardHeaders({
       tags: ['Transactions'],
+      operationId: 'createCompensation',
       summary: 'Create a compensating transaction',
       security: bearer(['transaction.compensate']),
       parameters: [{ $ref: '#/components/parameters/TransactionId' }],
@@ -669,6 +686,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/transactions/compensations/{compensationId}/approve`]: {
     post: withStandardHeaders({
       tags: ['Transactions'],
+      operationId: 'approveCompensation',
       summary: 'Approve a pending compensation',
       security: bearer(['transaction.approve']),
       parameters: [{ $ref: '#/components/parameters/CompensationId' }],
@@ -680,6 +698,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/webhooks`]: {
     get: withStandardHeaders({
       tags: ['Webhooks'],
+      operationId: 'listWebhooks',
       summary: 'List webhook endpoints',
       security: bearer(['webhook.manage']),
       responses: {
@@ -688,6 +707,7 @@ const paths: Record<string, Record<string, Operation>> = {
     }),
     post: withStandardHeaders({
       tags: ['Webhooks'],
+      operationId: 'createWebhook',
       summary: 'Register a webhook endpoint',
       security: bearer(['webhook.manage']),
       requestBody: jsonBody('#/components/schemas/WebhookCreateRequest'),
@@ -699,6 +719,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/webhooks/{id}`]: {
     delete: withStandardHeaders({
       tags: ['Webhooks'],
+      operationId: 'disableWebhook',
       summary: 'Disable a webhook endpoint',
       security: bearer(['webhook.manage']),
       parameters: [{ $ref: '#/components/parameters/WebhookId' }],
@@ -710,6 +731,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/webhooks/{id}/rotate-secret`]: {
     post: withStandardHeaders({
       tags: ['Webhooks'],
+      operationId: 'rotateWebhookSecret',
       summary: 'Rotate webhook signing secret',
       security: bearer(['webhook.manage']),
       parameters: [{ $ref: '#/components/parameters/WebhookId' }],
@@ -721,6 +743,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/health`]: {
     get: {
       tags: ['Health'],
+      operationId: 'getHealth',
       summary: 'Liveness probe',
       responses: {
         200: jsonResponse('API live', '#/components/schemas/Health'),
@@ -730,6 +753,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/health/ready`]: {
     get: {
       tags: ['Health'],
+      operationId: 'getReadiness',
       summary: 'Readiness probe',
       responses: {
         200: jsonResponse('Readiness state', '#/components/schemas/HealthReady'),
@@ -739,6 +763,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/health/blockchain`]: {
     get: {
       tags: ['Health'],
+      operationId: 'getBlockchainHealth',
       summary: 'Blockchain provider health',
       responses: {
         200: jsonResponse('Blockchain provider state', '#/components/schemas/BlockchainHealth'),
@@ -748,6 +773,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/stablecoins`]: {
     get: withStandardHeaders({
       tags: ['Stablecoins'],
+      operationId: 'listStablecoins',
       summary: 'List stablecoins',
       description: 'Stablecoin features are disabled by default until readiness gates pass.',
       security: bearer(['stablecoin.read']),
@@ -757,6 +783,7 @@ const paths: Record<string, Record<string, Operation>> = {
     }),
     post: withStandardHeaders({
       tags: ['Stablecoins'],
+      operationId: 'createStablecoin',
       summary: 'Create a stablecoin control-plane record',
       description: 'Feature-flag gated; public issuance remains disabled until readiness gates pass.',
       security: bearer(['stablecoin.manage']),
@@ -769,6 +796,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/stablecoins/{stablecoinId}`]: {
     get: withStandardHeaders({
       tags: ['Stablecoins'],
+      operationId: 'getStablecoin',
       summary: 'Get a stablecoin',
       security: bearer(['stablecoin.read']),
       parameters: [{ $ref: '#/components/parameters/StablecoinId' }],
@@ -780,6 +808,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/stablecoins/{stablecoinId}/submit-for-review`]: {
     post: withStandardHeaders({
       tags: ['Stablecoins'],
+      operationId: 'submitStablecoinForReview',
       summary: 'Submit a stablecoin for review',
       security: bearer(['stablecoin.manage']),
       parameters: [{ $ref: '#/components/parameters/StablecoinId' }],
@@ -791,6 +820,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/stablecoins/{stablecoinId}/approve-gate`]: {
     post: withStandardHeaders({
       tags: ['Stablecoins'],
+      operationId: 'approveStablecoinGate',
       summary: 'Approve a stablecoin gate',
       security: bearer(['stablecoin.approve']),
       parameters: [{ $ref: '#/components/parameters/StablecoinId' }],
@@ -803,6 +833,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/stablecoins/{stablecoinId}/activate`]: {
     post: withStandardHeaders({
       tags: ['Stablecoins'],
+      operationId: 'activateStablecoin',
       summary: 'Activate a stablecoin',
       security: bearer(['stablecoin.approve']),
       parameters: [{ $ref: '#/components/parameters/StablecoinId' }],
@@ -814,6 +845,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/stablecoins/{stablecoinId}/suspend`]: {
     post: withStandardHeaders({
       tags: ['Stablecoins'],
+      operationId: 'suspendStablecoin',
       summary: 'Suspend stablecoin minting, redemption, or both',
       security: bearer(['stablecoin.manage']),
       parameters: [{ $ref: '#/components/parameters/StablecoinId' }],
@@ -826,6 +858,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/stablecoins/{id}/mint-requests`]: {
     post: withStandardHeaders({
       tags: ['Stablecoin Workflows'],
+      operationId: 'createMintRequest',
       summary: 'Create a mint request',
       security: bearer(['stablecoin.manage']),
       parameters: [{ $ref: '#/components/parameters/StablecoinWorkflowId' }],
@@ -841,6 +874,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/stablecoins/{id}/redemptions`]: {
     post: withStandardHeaders({
       tags: ['Stablecoin Workflows'],
+      operationId: 'createRedemptionRequest',
       summary: 'Create a redemption request',
       security: bearer(['stablecoin.manage']),
       parameters: [{ $ref: '#/components/parameters/StablecoinWorkflowId' }],
@@ -856,6 +890,7 @@ const paths: Record<string, Record<string, Operation>> = {
   [`${API_PREFIX}/conversions/quote`]: {
     post: withStandardHeaders({
       tags: ['Stablecoin Workflows'],
+      operationId: 'quoteConversion',
       summary: 'Quote a loyalty to stablecoin conversion',
       security: bearer(['stablecoin.manage']),
       requestBody: jsonBody('#/components/schemas/ConversionQuoteRequest'),

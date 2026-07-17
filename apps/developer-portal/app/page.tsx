@@ -28,7 +28,7 @@ export default function Page() {
       <p className="lead" style={{ fontSize: 14 }}>
         Every write takes an <span className="mono">Idempotency-Key</span> so retries never
         double-apply. See the <a href="/api-reference">API reference</a> and the{' '}
-        <a href="/sdk">TypeScript SDK</a>.
+        <a href="/sdk">SDKs</a>.
       </p>
       <pre>
         <code>{FLOW_SNIPPET}</code>
@@ -45,8 +45,8 @@ export default function Page() {
           <p>Signed events with replay protection</p>
         </a>
         <a className="card" href="/sdk">
-          <h3>TypeScript SDK</h3>
-          <p>Auth, idempotency, retries, webhook verify</p>
+          <h3>SDKs</h3>
+          <p>TypeScript plus Dart, PHP, Kotlin, and .NET integration packages</p>
         </a>
         <a className="card" href="/status">
           <h3>Status</h3>

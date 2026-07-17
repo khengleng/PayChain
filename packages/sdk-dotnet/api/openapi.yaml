@@ -1,0 +1,1674 @@
+openapi: 3.1.0
+info:
+  description: Tenant-facing API for loyalty integrations today and stablecoin workflows
+    once readiness gates pass. The TypeScript SDK is published separately; other platforms
+    can integrate directly from this contract.
+  title: PayChain Public API
+  version: 0.1.0
+externalDocs:
+  description: Developer portal integration guide
+  url: https://paychain.cambobia.com/integration
+servers:
+- description: Production API base
+  url: https://api.paychain.cambobia.com
+tags:
+- name: Docs
+- name: Auth
+- name: Wallets
+- name: Assets
+- name: Transactions
+- name: Webhooks
+- name: Health
+- name: Stablecoins
+- name: Stablecoin Workflows
+paths:
+  /api/v1/openapi.json:
+    get:
+      operationId: getOpenApiContract
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties: {}
+          description: OpenAPI document
+      summary: Get the machine-readable OpenAPI contract
+      tags:
+      - Docs
+  /api/v1/oauth/token:
+    post:
+      operationId: issueAccessToken
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+          description: Issued access token
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Validation error
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Invalid credentials
+      summary: Exchange client credentials for a bearer token
+      tags:
+      - Auth
+  /api/v1/wallets:
+    post:
+      description: Creates the Stellar account and records the wallet under the caller
+        tenant.
+      operationId: createWallet
+      parameters:
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWalletRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+          description: Created wallet
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Validation error
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Missing scope
+      security:
+      - oauth2ClientCredentials:
+        - wallet.write
+      summary: Create a managed custodial wallet
+      tags:
+      - Wallets
+  /api/v1/wallets/{walletId}:
+    get:
+      operationId: getWallet
+      parameters:
+      - $ref: "#/components/parameters/WalletId"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+          description: Wallet
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Wallet not found
+      security:
+      - oauth2ClientCredentials:
+        - wallet.read
+      summary: Get a wallet
+      tags:
+      - Wallets
+  /api/v1/wallets/{walletId}/balances:
+    get:
+      description: Refreshes the rebuildable balance read model from chain before
+        returning balances.
+      operationId: listWalletBalances
+      parameters:
+      - $ref: "#/components/parameters/WalletId"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/Balance"
+                type: array
+                default: null
+          description: Balances
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Wallet not found
+      security:
+      - oauth2ClientCredentials:
+        - wallet.read
+      summary: List wallet balances
+      tags:
+      - Wallets
+  /api/v1/assets:
+    get:
+      operationId: listAssets
+      parameters:
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/Asset"
+                type: array
+                default: null
+          description: Assets
+      security:
+      - oauth2ClientCredentials:
+        - asset.read
+      summary: List assets
+      tags:
+      - Assets
+    post:
+      operationId: createAsset
+      parameters:
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAssetRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+          description: Created asset
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Asset code conflict
+      security:
+      - oauth2ClientCredentials:
+        - asset.create
+      summary: Create an asset
+      tags:
+      - Assets
+  /api/v1/assets/{assetId}:
+    get:
+      operationId: getAsset
+      parameters:
+      - $ref: "#/components/parameters/AssetId"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+          description: Asset
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Asset not found
+      security:
+      - oauth2ClientCredentials:
+        - asset.read
+      summary: Get an asset
+      tags:
+      - Assets
+  /api/v1/assets/{assetId}/activate:
+    post:
+      operationId: activateAsset
+      parameters:
+      - $ref: "#/components/parameters/AssetId"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+          description: Activated asset
+      security:
+      - oauth2ClientCredentials:
+        - asset.create
+      summary: Activate an asset
+      tags:
+      - Assets
+  /api/v1/assets/{assetId}/issue:
+    post:
+      operationId: issueAsset
+      parameters:
+      - $ref: "#/components/parameters/AssetId"
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionRecord"
+          description: Issued transaction
+      security:
+      - oauth2ClientCredentials:
+        - asset.issue
+      summary: Issue loyalty value
+      tags:
+      - Assets
+  /api/v1/assets/{assetId}/transfer:
+    post:
+      operationId: transferAsset
+      parameters:
+      - $ref: "#/components/parameters/AssetId"
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionRecord"
+          description: Transfer transaction
+      security:
+      - oauth2ClientCredentials:
+        - asset.transfer
+      summary: Transfer loyalty value
+      tags:
+      - Assets
+  /api/v1/assets/{assetId}/redeem:
+    post:
+      operationId: redeemAsset
+      parameters:
+      - $ref: "#/components/parameters/AssetId"
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedeemRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionRecord"
+          description: Redemption transaction
+      security:
+      - oauth2ClientCredentials:
+        - asset.transfer
+      summary: Redeem loyalty value
+      tags:
+      - Assets
+  /api/v1/assets/{assetId}/burn:
+    post:
+      operationId: burnAsset
+      parameters:
+      - $ref: "#/components/parameters/AssetId"
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BurnRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionRecord"
+          description: Burn transaction
+      security:
+      - oauth2ClientCredentials:
+        - asset.burn
+      summary: Burn loyalty value
+      tags:
+      - Assets
+  /api/v1/assets/{assetId}/earn:
+    post:
+      operationId: earnAsset
+      parameters:
+      - $ref: "#/components/parameters/AssetId"
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EarnRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionRecord"
+          description: Earn transaction
+      security:
+      - oauth2ClientCredentials:
+        - asset.issue
+      summary: Evaluate earn rules and award points
+      tags:
+      - Assets
+  /api/v1/transactions:
+    get:
+      operationId: listTransactions
+      parameters:
+      - $ref: "#/components/parameters/Limit"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/Transaction"
+                type: array
+                default: null
+          description: Transactions
+      security:
+      - oauth2ClientCredentials:
+        - transaction.read
+      summary: List transactions
+      tags:
+      - Transactions
+  /api/v1/transactions/{transactionId}:
+    get:
+      operationId: getTransaction
+      parameters:
+      - $ref: "#/components/parameters/TransactionId"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+          description: Transaction
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Transaction not found
+      security:
+      - oauth2ClientCredentials:
+        - transaction.read
+      summary: Get a transaction
+      tags:
+      - Transactions
+  /api/v1/transactions/{transactionId}/compensate:
+    post:
+      operationId: createCompensation
+      parameters:
+      - $ref: "#/components/parameters/TransactionId"
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompensationRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Compensation"
+          description: Compensation record
+      security:
+      - oauth2ClientCredentials:
+        - transaction.compensate
+      summary: Create a compensating transaction
+      tags:
+      - Transactions
+  /api/v1/transactions/compensations/{compensationId}/approve:
+    post:
+      operationId: approveCompensation
+      parameters:
+      - $ref: "#/components/parameters/CompensationId"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Compensation"
+          description: Approved compensation
+      security:
+      - oauth2ClientCredentials:
+        - transaction.approve
+      summary: Approve a pending compensation
+      tags:
+      - Transactions
+  /api/v1/webhooks:
+    get:
+      operationId: listWebhooks
+      parameters:
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/WebhookEndpoint"
+                type: array
+                default: null
+          description: Webhook endpoints
+      security:
+      - oauth2ClientCredentials:
+        - webhook.manage
+      summary: List webhook endpoints
+      tags:
+      - Webhooks
+    post:
+      operationId: createWebhook
+      parameters:
+      - $ref: "#/components/parameters/CorrelationId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookCreateRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpointWithSecret"
+          description: Created endpoint plus one-time secret
+      security:
+      - oauth2ClientCredentials:
+        - webhook.manage
+      summary: Register a webhook endpoint
+      tags:
+      - Webhooks
+  /api/v1/webhooks/{id}:
+    delete:
+      operationId: disableWebhook
+      parameters:
+      - $ref: "#/components/parameters/WebhookId"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "204":
+          description: Webhook disabled
+      security:
+      - oauth2ClientCredentials:
+        - webhook.manage
+      summary: Disable a webhook endpoint
+      tags:
+      - Webhooks
+  /api/v1/webhooks/{id}/rotate-secret:
+    post:
+      operationId: rotateWebhookSecret
+      parameters:
+      - $ref: "#/components/parameters/WebhookId"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpointWithSecret"
+          description: Endpoint plus new one-time secret
+      security:
+      - oauth2ClientCredentials:
+        - webhook.manage
+      summary: Rotate webhook signing secret
+      tags:
+      - Webhooks
+  /api/v1/health:
+    get:
+      operationId: getHealth
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+          description: API live
+      summary: Liveness probe
+      tags:
+      - Health
+  /api/v1/health/ready:
+    get:
+      operationId: getReadiness
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthReady"
+          description: Readiness state
+      summary: Readiness probe
+      tags:
+      - Health
+  /api/v1/health/blockchain:
+    get:
+      operationId: getBlockchainHealth
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockchainHealth"
+          description: Blockchain provider state
+      summary: Blockchain provider health
+      tags:
+      - Health
+  /api/v1/stablecoins:
+    get:
+      description: Stablecoin features are disabled by default until readiness gates
+        pass.
+      operationId: listStablecoins
+      parameters:
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/Stablecoin"
+                type: array
+                default: null
+          description: Stablecoins
+      security:
+      - oauth2ClientCredentials:
+        - stablecoin.read
+      summary: List stablecoins
+      tags:
+      - Stablecoins
+    post:
+      description: Feature-flag gated; public issuance remains disabled until readiness
+        gates pass.
+      operationId: createStablecoin
+      parameters:
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStablecoinRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stablecoin"
+          description: Created stablecoin
+      security:
+      - oauth2ClientCredentials:
+        - stablecoin.manage
+      summary: Create a stablecoin control-plane record
+      tags:
+      - Stablecoins
+  /api/v1/stablecoins/{stablecoinId}:
+    get:
+      operationId: getStablecoin
+      parameters:
+      - $ref: "#/components/parameters/StablecoinId"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stablecoin"
+          description: Stablecoin
+      security:
+      - oauth2ClientCredentials:
+        - stablecoin.read
+      summary: Get a stablecoin
+      tags:
+      - Stablecoins
+  /api/v1/stablecoins/{stablecoinId}/submit-for-review:
+    post:
+      operationId: submitStablecoinForReview
+      parameters:
+      - $ref: "#/components/parameters/StablecoinId"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stablecoin"
+          description: Updated stablecoin
+      security:
+      - oauth2ClientCredentials:
+        - stablecoin.manage
+      summary: Submit a stablecoin for review
+      tags:
+      - Stablecoins
+  /api/v1/stablecoins/{stablecoinId}/approve-gate:
+    post:
+      operationId: approveStablecoinGate
+      parameters:
+      - $ref: "#/components/parameters/StablecoinId"
+      - $ref: "#/components/parameters/CorrelationId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveStablecoinGateRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stablecoin"
+          description: Updated stablecoin
+      security:
+      - oauth2ClientCredentials:
+        - stablecoin.approve
+      summary: Approve a stablecoin gate
+      tags:
+      - Stablecoins
+  /api/v1/stablecoins/{stablecoinId}/activate:
+    post:
+      operationId: activateStablecoin
+      parameters:
+      - $ref: "#/components/parameters/StablecoinId"
+      - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stablecoin"
+          description: Updated stablecoin
+      security:
+      - oauth2ClientCredentials:
+        - stablecoin.approve
+      summary: Activate a stablecoin
+      tags:
+      - Stablecoins
+  /api/v1/stablecoins/{stablecoinId}/suspend:
+    post:
+      operationId: suspendStablecoin
+      parameters:
+      - $ref: "#/components/parameters/StablecoinId"
+      - $ref: "#/components/parameters/CorrelationId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuspendStablecoinRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stablecoin"
+          description: Updated stablecoin
+      security:
+      - oauth2ClientCredentials:
+        - stablecoin.manage
+      summary: "Suspend stablecoin minting, redemption, or both"
+      tags:
+      - Stablecoins
+  /api/v1/stablecoins/{id}/mint-requests:
+    post:
+      operationId: createMintRequest
+      parameters:
+      - $ref: "#/components/parameters/StablecoinWorkflowId"
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MintRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties: {}
+          description: Mint workflow record
+      security:
+      - oauth2ClientCredentials:
+        - stablecoin.manage
+      summary: Create a mint request
+      tags:
+      - Stablecoin Workflows
+  /api/v1/stablecoins/{id}/redemptions:
+    post:
+      operationId: createRedemptionRequest
+      parameters:
+      - $ref: "#/components/parameters/StablecoinWorkflowId"
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedemptionRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties: {}
+          description: Redemption workflow record
+      security:
+      - oauth2ClientCredentials:
+        - stablecoin.manage
+      summary: Create a redemption request
+      tags:
+      - Stablecoin Workflows
+  /api/v1/conversions/quote:
+    post:
+      operationId: quoteConversion
+      parameters:
+      - $ref: "#/components/parameters/CorrelationId"
+      - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversionQuoteRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties: {}
+          description: Conversion quote
+      security:
+      - oauth2ClientCredentials:
+        - stablecoin.manage
+      summary: Quote a loyalty to stablecoin conversion
+      tags:
+      - Stablecoin Workflows
+components:
+  parameters:
+    CorrelationId:
+      description: Optional caller-supplied correlation id echoed through logs and
+        audit records.
+      explode: false
+      in: header
+      name: X-Correlation-Id
+      required: false
+      schema:
+        format: uuid
+        type: string
+      style: simple
+    IdempotencyKey:
+      description: Required on replay-safe writes so retries cannot double-apply.
+      explode: false
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema:
+        maxLength: 200
+        minLength: 1
+        type: string
+      style: simple
+    WalletId:
+      explode: false
+      in: path
+      name: walletId
+      required: true
+      schema:
+        type: string
+      style: simple
+    AssetId:
+      explode: false
+      in: path
+      name: assetId
+      required: true
+      schema:
+        type: string
+      style: simple
+    TransactionId:
+      explode: false
+      in: path
+      name: transactionId
+      required: true
+      schema:
+        type: string
+      style: simple
+    CompensationId:
+      explode: false
+      in: path
+      name: compensationId
+      required: true
+      schema:
+        type: string
+      style: simple
+    WebhookId:
+      explode: false
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+      style: simple
+    StablecoinId:
+      explode: false
+      in: path
+      name: stablecoinId
+      required: true
+      schema:
+        type: string
+      style: simple
+    StablecoinWorkflowId:
+      explode: false
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+      style: simple
+    Limit:
+      description: Maximum number of rows to return. The API caps this at 200.
+      explode: true
+      in: query
+      name: limit
+      required: false
+      schema:
+        default: 50
+        maximum: 200
+        minimum: 1
+        type: integer
+      style: form
+  schemas:
+    TokenRequest:
+      example:
+        grant_type: client_credentials
+        client_id: client_id
+        client_secret: client_secret
+      properties:
+        grant_type:
+          enum:
+          - client_credentials
+          type: string
+        client_id:
+          minLength: 1
+          type: string
+        client_secret:
+          minLength: 1
+          type: string
+      required:
+      - client_id
+      - client_secret
+      - grant_type
+    TokenResponse:
+      example:
+        access_token: access_token
+        token_type: Bearer
+        expires_in: 3600
+      properties:
+        access_token:
+          type: string
+        token_type:
+          example: Bearer
+          type: string
+        expires_in:
+          example: 3600
+          type: integer
+      required:
+      - access_token
+      - expires_in
+      - token_type
+    ErrorResponse:
+      example:
+        statusCode: 400
+        message: ErrorResponse_message
+        error: Bad Request
+        correlationId: 046b6c7f-0b8a-43b9-b35d-6489e6daee91
+      properties:
+        statusCode:
+          example: 400
+          type: integer
+        message:
+          $ref: "#/components/schemas/ErrorResponse_message"
+        error:
+          example: Bad Request
+          type: string
+        correlationId:
+          format: uuid
+          type: string
+      required:
+      - message
+      - statusCode
+    Wallet:
+      example:
+        id: id
+        ownerType: CUSTOMER
+        ownerReference: ownerReference
+        stellarAccountId: stellarAccountId
+        status: ACTIVE
+        createdAt: 2000-01-23T04:56:07.000+00:00
+      properties:
+        id:
+          type: string
+        ownerType:
+          enum:
+          - CUSTOMER
+          - MERCHANT
+          - ORGANIZATION
+          - TREASURY
+          - CAMPAIGN
+          - SYSTEM
+          - REDEMPTION
+          - SETTLEMENT
+          type: string
+        ownerReference:
+          type: string
+        stellarAccountId:
+          type: string
+        status:
+          example: ACTIVE
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+      required:
+      - createdAt
+      - id
+      - ownerReference
+      - ownerType
+      - status
+      - stellarAccountId
+    CreateWalletRequest:
+      example:
+        ownerType: CUSTOMER
+        ownerReference: ownerReference
+        externalReference: externalReference
+      properties:
+        ownerType:
+          enum:
+          - CUSTOMER
+          - MERCHANT
+          - ORGANIZATION
+          - TREASURY
+          - CAMPAIGN
+          - SYSTEM
+          - REDEMPTION
+          - SETTLEMENT
+          type: string
+        ownerReference:
+          maxLength: 200
+          minLength: 1
+          type: string
+        externalReference:
+          type: string
+      required:
+      - ownerReference
+      - ownerType
+    Balance:
+      example:
+        assetCode: assetCode
+        issuerPublicKey: issuerPublicKey
+        balance: balance
+        updatedAt: 2000-01-23T04:56:07.000+00:00
+      properties:
+        assetCode:
+          type: string
+        issuerPublicKey:
+          description: Empty string for native/no-issuer assets.
+          type: string
+        balance:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+      - assetCode
+      - balance
+      - issuerPublicKey
+      - updatedAt
+    Asset:
+      example:
+        id: id
+        assetCode: assetCode
+        assetName: assetName
+        assetType: LOYALTY_POINT
+        status: ACTIVE
+        issuerPublicKey: issuerPublicKey
+        createdAt: 2000-01-23T04:56:07.000+00:00
+      properties:
+        id:
+          type: string
+        assetCode:
+          type: string
+        assetName:
+          type: string
+        assetType:
+          example: LOYALTY_POINT
+          type: string
+        status:
+          example: ACTIVE
+          type: string
+        issuerPublicKey:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+      required:
+      - assetCode
+      - assetName
+      - assetType
+      - createdAt
+      - id
+      - issuerPublicKey
+      - status
+    CreateAssetRequest:
+      example:
+        assetCode: assetCode
+        assetName: assetName
+        assetType: LOYALTY_POINT
+        expiryPolicy: NONE
+        expiryDays: 1
+      properties:
+        assetCode:
+          pattern: "^[A-Za-z0-9]{1,12}$"
+          type: string
+        assetName:
+          maxLength: 200
+          minLength: 1
+          type: string
+        assetType:
+          default: LOYALTY_POINT
+          enum:
+          - LOYALTY_POINT
+          type: string
+        expiryPolicy:
+          default: NONE
+          enum:
+          - NONE
+          - FIXED
+          - ROLLING
+          type: string
+        expiryDays:
+          minimum: 1
+          type: integer
+      required:
+      - assetCode
+      - assetName
+    IssueRequest:
+      example:
+        destinationWalletId: destinationWalletId
+        amount: "100"
+      properties:
+        destinationWalletId:
+          type: string
+        amount:
+          example: "100"
+          type: string
+      required:
+      - amount
+      - destinationWalletId
+    TransferRequest:
+      example:
+        sourceWalletId: sourceWalletId
+        destinationWalletId: destinationWalletId
+        amount: "25"
+      properties:
+        sourceWalletId:
+          type: string
+        destinationWalletId:
+          type: string
+        amount:
+          example: "25"
+          type: string
+      required:
+      - amount
+      - destinationWalletId
+      - sourceWalletId
+    RedeemRequest:
+      example:
+        sourceWalletId: sourceWalletId
+        amount: "25"
+      properties:
+        sourceWalletId:
+          type: string
+        amount:
+          example: "25"
+          type: string
+      required:
+      - amount
+      - sourceWalletId
+    BurnRequest:
+      example:
+        walletId: walletId
+        amount: "25"
+      properties:
+        walletId:
+          type: string
+        amount:
+          example: "25"
+          type: string
+      required:
+      - amount
+      - walletId
+    EarnRequest:
+      example:
+        walletId: walletId
+        spendAmount: "5.00"
+        currency: USD
+        merchantId: merchantId
+      properties:
+        walletId:
+          type: string
+        spendAmount:
+          example: "5.00"
+          type: string
+        currency:
+          example: USD
+          maxLength: 8
+          type: string
+        merchantId:
+          type: string
+      required:
+      - currency
+      - spendAmount
+      - walletId
+    TransactionRecord:
+      example:
+        id: id
+        type: type
+        status: status
+        blockchainHash: blockchainHash
+        amount: amount
+        correlationId: 046b6c7f-0b8a-43b9-b35d-6489e6daee91
+        createdAt: 2000-01-23T04:56:07.000+00:00
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+        blockchainHash:
+          type: string
+          nullable: true
+        amount:
+          type: string
+          nullable: true
+        correlationId:
+          format: uuid
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+      required:
+      - correlationId
+      - createdAt
+      - id
+      - status
+      - type
+    Transaction:
+      example:
+        id: id
+        tenantId: tenantId
+        type: type
+        status: status
+        assetId: assetId
+        sourceWalletId: sourceWalletId
+        destinationWalletId: destinationWalletId
+        amount: amount
+        blockchainHash: blockchainHash
+        compensatesTransactionId: compensatesTransactionId
+        businessReason: businessReason
+        correlationId: 046b6c7f-0b8a-43b9-b35d-6489e6daee91
+        createdAt: 2000-01-23T04:56:07.000+00:00
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+        assetId:
+          type: string
+          nullable: true
+        sourceWalletId:
+          type: string
+          nullable: true
+        destinationWalletId:
+          type: string
+          nullable: true
+        amount:
+          type: string
+          nullable: true
+        blockchainHash:
+          type: string
+          nullable: true
+        compensatesTransactionId:
+          type: string
+          nullable: true
+        businessReason:
+          type: string
+          nullable: true
+        correlationId:
+          format: uuid
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+      required:
+      - correlationId
+      - createdAt
+      - id
+      - status
+      - tenantId
+      - type
+    CompensationRequest:
+      example:
+        amount: "10"
+        reason: MERCHANT_ERROR
+      properties:
+        amount:
+          example: "10"
+          type: string
+        reason:
+          enum:
+          - MERCHANT_ERROR
+          - REFUND
+          - FRAUD
+          - DUPLICATE_REWARD
+          - CAMPAIGN_CANCELLATION
+          - DISPUTE
+          - MANUAL_CORRECTION
+          - EXPIRY_CORRECTION
+          type: string
+      required:
+      - amount
+      - reason
+    Compensation:
+      example:
+        id: id
+        status: status
+        amount: amount
+        reason: reason
+        compensatesTransactionId: compensatesTransactionId
+        blockchainHash: blockchainHash
+        createdAt: 2000-01-23T04:56:07.000+00:00
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        amount:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        compensatesTransactionId:
+          type: string
+          nullable: true
+        blockchainHash:
+          type: string
+          nullable: true
+        createdAt:
+          format: date-time
+          type: string
+      required:
+      - createdAt
+      - id
+      - status
+    WebhookCreateRequest:
+      example:
+        url: https://openapi-generator.tech
+        events:
+        - events
+        - events
+      properties:
+        url:
+          format: uri
+          type: string
+        events:
+          items:
+            type: string
+          minItems: 1
+          type: array
+          default: null
+      required:
+      - events
+      - url
+    WebhookEndpoint:
+      example:
+        id: id
+        url: https://openapi-generator.tech
+        events:
+        - events
+        - events
+        status: status
+        createdAt: 2000-01-23T04:56:07.000+00:00
+      properties:
+        id:
+          type: string
+        url:
+          format: uri
+          type: string
+        events:
+          items:
+            type: string
+          type: array
+          default: null
+        status:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+      required:
+      - createdAt
+      - events
+      - id
+      - status
+      - url
+    WebhookEndpointWithSecret:
+      allOf:
+      - $ref: "#/components/schemas/WebhookEndpoint"
+      - properties:
+          secret:
+            description: Returned only at create/rotate time.
+            type: string
+        required:
+        - secret
+      example:
+        id: id
+        url: https://openapi-generator.tech
+        events:
+        - events
+        - events
+        status: status
+        createdAt: 2000-01-23T04:56:07.000+00:00
+        secret: secret
+    Health:
+      example:
+        status: ok
+      properties:
+        status:
+          example: ok
+          type: string
+      required:
+      - status
+    HealthReady:
+      example:
+        status: ok
+        database: true
+      properties:
+        status:
+          enum:
+          - ok
+          - degraded
+          type: string
+        database:
+          type: boolean
+      required:
+      - database
+      - status
+    BlockchainHealth:
+      additionalProperties: true
+      description: Provider-specific blockchain health response.
+      type: object
+    Stablecoin:
+      example:
+        id: id
+        assetId: assetId
+        assetCode: assetCode
+        classification: classification
+        referenceCurrency: USD
+        lifecycleState: lifecycleState
+        activationStatus: activationStatus
+        reserveRatioTarget: reserveRatioTarget
+        jurisdiction: jurisdiction
+        createdAt: 2000-01-23T04:56:07.000+00:00
+      properties:
+        id:
+          type: string
+        assetId:
+          type: string
+        assetCode:
+          type: string
+        classification:
+          type: string
+        referenceCurrency:
+          enum:
+          - USD
+          - KHR
+          type: string
+        lifecycleState:
+          type: string
+        activationStatus:
+          type: string
+        reserveRatioTarget:
+          type: string
+        jurisdiction:
+          type: string
+          nullable: true
+        createdAt:
+          format: date-time
+          type: string
+      required:
+      - activationStatus
+      - assetCode
+      - assetId
+      - classification
+      - createdAt
+      - id
+      - lifecycleState
+      - referenceCurrency
+      - reserveRatioTarget
+    CreateStablecoinRequest:
+      example:
+        assetCode: assetCode
+        assetName: assetName
+        classification: FIAT_BACKED_STABLECOIN
+        referenceCurrency: USD
+        issuerLegalEntity: issuerLegalEntity
+        jurisdiction: jurisdiction
+        reserveRatioTarget: "1.0"
+      properties:
+        assetCode:
+          pattern: "^[A-Za-z0-9]{1,12}$"
+          type: string
+        assetName:
+          maxLength: 200
+          minLength: 1
+          type: string
+        classification:
+          enum:
+          - FIAT_BACKED_STABLECOIN
+          - TOKENIZED_DEPOSIT
+          - STABLE_VALUE_CREDIT
+          type: string
+        referenceCurrency:
+          enum:
+          - USD
+          - KHR
+          type: string
+        issuerLegalEntity:
+          type: string
+        jurisdiction:
+          type: string
+        reserveRatioTarget:
+          example: "1.0"
+          type: string
+      required:
+      - assetCode
+      - assetName
+      - classification
+      - referenceCurrency
+    ApproveStablecoinGateRequest:
+      example:
+        gate: LEGAL
+        note: note
+      properties:
+        gate:
+          enum:
+          - LEGAL
+          - COMPLIANCE
+          - TREASURY
+          - RESERVE
+          - TECHNICAL
+          - PILOT
+          type: string
+        note:
+          maxLength: 500
+          type: string
+      required:
+      - gate
+    SuspendStablecoinRequest:
+      example:
+        mode: MINTING_SUSPENDED
+      properties:
+        mode:
+          enum:
+          - MINTING_SUSPENDED
+          - REDEMPTION_SUSPENDED
+          - FULLY_SUSPENDED
+          type: string
+      required:
+      - mode
+    MintRequest:
+      example:
+        destinationWalletId: destinationWalletId
+        amount: "1000"
+        fundingReference: fundingReference
+      properties:
+        destinationWalletId:
+          type: string
+        amount:
+          example: "1000"
+          type: string
+        fundingReference:
+          type: string
+      required:
+      - amount
+      - destinationWalletId
+    RedemptionRequest:
+      example:
+        walletId: walletId
+        amount: "1000"
+        bankAccountReference: bankAccountReference
+      properties:
+        walletId:
+          type: string
+        amount:
+          example: "1000"
+          type: string
+        bankAccountReference:
+          type: string
+      required:
+      - amount
+      - bankAccountReference
+      - walletId
+    ConversionQuoteRequest:
+      example:
+        fromAssetId: fromAssetId
+        toAssetId: toAssetId
+        walletId: walletId
+        pointsAmount: "500"
+        rate: rate
+        spread: spread
+        fee: fee
+      properties:
+        fromAssetId:
+          type: string
+        toAssetId:
+          type: string
+        walletId:
+          type: string
+        pointsAmount:
+          example: "500"
+          type: string
+        rate:
+          type: string
+        spread:
+          type: string
+        fee:
+          type: string
+      required:
+      - fromAssetId
+      - pointsAmount
+      - toAssetId
+      - walletId
+    ErrorResponse_message:
+      oneOf:
+      - type: string
+      - items:
+          type: string
+        type: array
+        default: null
+  securitySchemes:
+    oauth2ClientCredentials:
+      flows:
+        clientCredentials:
+          scopes:
+            wallet.write: Create managed wallets
+            wallet.read: Read wallet details and balances
+            asset.create: Create and activate loyalty assets
+            asset.read: Read assets
+            asset.issue: Issue loyalty value and run earn rules
+            asset.transfer: Transfer and redeem loyalty value
+            asset.burn: Burn loyalty value
+            transaction.read: Read transaction history
+            transaction.compensate: Create business compensations
+            transaction.approve: Approve compensations requiring maker-checker
+            webhook.manage: Manage webhook endpoints
+            stablecoin.manage: Manage stablecoin lifecycle and workflows
+            stablecoin.read: Read stablecoin state and workflow records
+            stablecoin.approve: Approve stablecoin lifecycle gates
+          tokenUrl: https://api.paychain.cambobia.com/api/v1/oauth/token
+      type: oauth2
+
