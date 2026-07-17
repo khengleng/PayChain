@@ -23,7 +23,11 @@ function statefulPrisma(initial: Record<string, unknown>) {
       },
     },
     asset: { findUnique: async ({ where }: { where: { id: string } }) => assets[where.id] },
-    wallet: { findUnique: async () => ({ id: 'w1', stellarAccountId: 'GW', stellarSecretEnc: 'encw' }) },
+    wallet: { findUnique: async () => ({ id: 'w1', tenantId: 't1', status: 'ACTIVE', stellarAccountId: 'GW', stellarSecretEnc: 'encw' }) },
+    // Conversion now records its mint so the supply is visible to the reserve calculation.
+    stablecoinMintRequest: {
+      create: async ({ data }: { data: Record<string, unknown> }) => ({ id: 'mr1', ...data }),
+    },
   };
 }
 
@@ -34,6 +38,10 @@ function build(prisma: unknown, chain: unknown) {
     { record: jest.fn() } as never,
     { requireEnabled: jest.fn() } as never,
     chain as never,
+    // Permissive: these tests cover conversion's own saga. The mint guards and §27
+    // policy have their own tests; a conversion-specific test for each is below.
+    { assertMintAllowed: jest.fn().mockResolvedValue(undefined) } as never,
+    { assertAllowed: jest.fn().mockResolvedValue(undefined) } as never,
   );
 }
 
@@ -80,5 +88,92 @@ describe('ConversionService saga (§26)', () => {
     const res = await svc.confirm({ tenantId: 't1', clientId: 'x', scopes: [] }, 'c3');
     expect(res.status).toBe('FAILED');
     expect(res.failureReason).toContain('expired');
+  });
+});
+
+/**
+ * §22/§23/§26. Conversion used to call chain.issueAsset directly, skipping every control the
+ * mint saga applies — a second, uncontrolled way to create stablecoin, contained only by a
+ * disabled flag. Burning loyalty points creates no reserve, so a converted token still has to be
+ * backed like any other.
+ */
+describe('ConversionService — cannot mint around the mint controls (§26)', () => {
+  const QUOTE = {
+    id: 'c1', tenantId: 't1', fromAssetId: 'pts', toAssetId: 'sc', walletId: 'w1',
+    pointsAmount: '100', stablecoinAmount: '10', status: 'POINTS_BURNED',
+    correlationId: 'corr', expiresAt: new Date(Date.now() + 60_000),
+  };
+
+  function build(overrides: { assertMintAllowed?: jest.Mock; assertAllowed?: jest.Mock; issueAsset?: jest.Mock }) {
+    let rec: Record<string, unknown> = { ...QUOTE };
+    const createMint = jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'mr1', ...data }));
+    const prisma = {
+      stablecoinConversion: {
+        findUnique: async () => ({ ...rec }),
+        update: async ({ data }: { data: Record<string, unknown> }) => { rec = { ...rec, ...data }; return { ...rec }; },
+        updateMany: async ({ where, data }: { where: { status: string }; data: Record<string, unknown> }) => {
+          if (rec.status === where.status) { rec = { ...rec, ...data }; return { count: 1 }; }
+          return { count: 0 };
+        },
+      },
+      asset: {
+        findUnique: async () => ({
+          id: 'sc', tenantId: 't1', assetCode: 'DKHR', status: 'ACTIVE',
+          issuerPublicKey: 'GI', issuerSecretEnc: 'enc',
+        }),
+      },
+      wallet: { findUnique: async () => ({ id: 'w1', tenantId: 't1', status: 'ACTIVE', stellarAccountId: 'GW' }) },
+      stablecoinMintRequest: { create: createMint },
+    } as never;
+
+    const issueAsset = overrides.issueAsset ?? jest.fn().mockResolvedValue({ transactionHash: 'H', submitted: true });
+    const svc = new ConversionService(
+      prisma,
+      { decrypt: () => 'S' } as never,
+      { record: jest.fn() } as never,
+      { requireEnabled: jest.fn() } as never,
+      { issueAsset } as never,
+      { assertMintAllowed: overrides.assertMintAllowed ?? jest.fn().mockResolvedValue(undefined) } as never,
+      { assertAllowed: overrides.assertAllowed ?? jest.fn().mockResolvedValue(undefined) } as never,
+    );
+    return { svc, issueAsset, createMint, store: () => rec };
+  }
+
+  it('REFUSES to convert when the mint would breach the reserve target', async () => {
+    const assertMintAllowed = jest.fn().mockRejectedValue(new Error('would breach reserve target'));
+    const { svc, issueAsset } = build({ assertMintAllowed });
+    // The compensation path catches the throw, so assert on the effect: no tokens were created.
+    await svc.advance('t1', 'c1').catch(() => undefined);
+    expect(issueAsset).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES to convert into a wallet that is not stablecoin-enabled (§27)', async () => {
+    const assertAllowed = jest.fn().mockRejectedValue(new Error('not stablecoin-enabled'));
+    const { svc, issueAsset } = build({ assertAllowed });
+    await svc.advance('t1', 'c1').catch(() => undefined);
+    expect(issueAsset).not.toHaveBeenCalled();
+  });
+
+  it('applies the SAME guard the mint saga uses, with the conversion as the subject', async () => {
+    const assertMintAllowed = jest.fn().mockResolvedValue(undefined);
+    const { svc } = build({ assertMintAllowed });
+    await svc.advance('t1', 'c1');
+    expect(assertMintAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 't1', assetId: 'sc', amount: '10', resourceType: 'stablecoin_conversion' }),
+    );
+  });
+
+  it('records the mint so converted supply is VISIBLE to the reserve ratio', async () => {
+    // Without this row, ReserveService.getState sums no supply for converted tokens and the
+    // reserve silently over-reports its own coverage.
+    const { svc, createMint, store } = build({});
+    await svc.advance('t1', 'c1');
+    expect(createMint).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        assetId: 'sc', amount: '10', status: 'CONFIRMED',
+        blockchainHash: 'H', fundingReference: 'conversion:c1',
+      }),
+    }));
+    expect(store().mintRequestId).toBe('mr1'); // the link field that was never written
   });
 });

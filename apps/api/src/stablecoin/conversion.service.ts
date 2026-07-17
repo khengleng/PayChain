@@ -13,6 +13,8 @@ import { AuditService } from '../audit/audit.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { assertValidAmount, isValidAmount, normalizeAmount } from '../common/money';
 import type { AuthContext } from '../auth/auth-context';
+import { WalletPolicyService } from '../wallets/wallet-policy.service';
+import { MintService } from './mint.service';
 
 const QUOTE_TTL_MS = 5 * 60 * 1000;
 
@@ -30,6 +32,8 @@ export class ConversionService {
     private readonly audit: AuditService,
     private readonly flags: FeatureFlagsService,
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
+    private readonly mint: MintService,
+    private readonly walletPolicy: WalletPolicyService,
   ) {}
 
   async quote(
@@ -144,8 +148,32 @@ export class ConversionService {
     const wallet = await this.prisma.wallet.findUnique({ where: { id: c.walletId } });
     if (!wallet) throw new NotFoundException('Wallet not found');
     if (!to.issuerSecretEnc) throw new BadRequestException('Stablecoin issuer has no managed key');
+
+    // §22/§23: conversion used to call chain.issueAsset directly, skipping every control the
+    // mint saga applies — reserve sufficiency, the daily mint limit, the approval gate. Burning
+    // loyalty points creates no reserve, so a conversion still has to be backed like any other
+    // mint. This is the same guard stepMint uses, not a second copy of it.
+    await this.mint.assertMintAllowed({
+      tenantId: c.tenantId,
+      assetId: c.toAssetId,
+      amount: c.stablecoinAmount,
+      resourceId: c.id,
+      resourceType: 'stablecoin_conversion',
+      correlationId: c.correlationId,
+    });
+
+    // §27: the destination must be stablecoin-enabled. Converting into a wallet that may not
+    // hold stablecoin would be a side door around the wallet controls.
+    await this.walletPolicy.assertAllowed({
+      tenantId: c.tenantId,
+      walletId: wallet.id,
+      assetId: c.toAssetId,
+      operation: 'RECEIVE',
+      amount: c.stablecoinAmount,
+    });
+
     try {
-      await this.chain.issueAsset({
+      const result = await this.chain.issueAsset({
         correlationId: c.correlationId,
         assetCode: to.assetCode,
         issuerPublicKey: to.issuerPublicKey,
@@ -153,7 +181,29 @@ export class ConversionService {
         destinationPublicKey: wallet.stellarAccountId,
         amount: c.stablecoinAmount,
       });
-      return this.set(c.id, { status: 'COMPLETED' });
+
+      // Record the mint so this supply is VISIBLE. ReserveService.getState sums
+      // StablecoinMintRequest rows to compute outstanding supply — conversion created none, so
+      // every converted token was invisible supply and the reserve ratio silently over-reported
+      // its own coverage. `mintRequestId` has existed on the model for exactly this and was
+      // never written.
+      const mintRecord = await this.prisma.stablecoinMintRequest.create({
+        data: {
+          tenantId: c.tenantId,
+          assetId: c.toAssetId,
+          destinationWalletId: c.walletId,
+          amount: c.stablecoinAmount,
+          status: 'CONFIRMED',
+          // The burned points are the funding event; naming the conversion keeps the trail whole.
+          fundingReference: `conversion:${c.id}`,
+          reserveConfirmed: true,
+          requestedBy: 'system:conversion',
+          blockchainHash: result.transactionHash,
+          correlationId: c.correlationId,
+        },
+      });
+
+      return this.set(c.id, { status: 'COMPLETED', mintRequestId: mintRecord.id });
     } catch (err) {
       // Mint failed AFTER points were burned → must compensate (re-issue points).
       await this.audit.record({

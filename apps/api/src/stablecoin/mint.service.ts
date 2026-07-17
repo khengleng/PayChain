@@ -163,26 +163,35 @@ export class MintService {
     return this.set(req.id, { status: 'APPROVAL_REQUIRED', complianceResult: 'CLEAR' });
   }
 
-  private async stepMint(req: StablecoinMintRequest): Promise<StablecoinMintRequest> {
-    // Hard guard (§22): never mint before reserve confirmation, even if state was forced.
-    if (!req.reserveConfirmed) {
-      throw new BadRequestException('Refusing to mint: reserve not confirmed');
-    }
+  /**
+   * The guards every mint must pass, wherever it originates (§22, §23, §47).
+   *
+   * Extracted because conversion had its own minting path that called chain.issueAsset directly,
+   * skipping all of this — a second, uncontrolled way to create stablecoin, held back only by a
+   * disabled flag. Any future minting path must call this rather than reimplement it; a guard
+   * that has to be remembered is a guard that will be forgotten.
+   */
+  async assertMintAllowed(input: {
+    tenantId: string;
+    assetId: string;
+    amount: string;
+    resourceId: string;
+    resourceType: string;
+    correlationId?: string;
+  }): Promise<void> {
+    const { config } = await this.loadActive(input.tenantId, input.assetId);
+    await this.assertWithinDailyMintLimit(input.tenantId, input.assetId, config, input.amount);
 
-    // Hard guard (§23): never mint tokens the reserve cannot back. reserveConfirmed only says
-    // *this* request's funding landed; it says nothing about whether total reserve still covers
-    // total supply. Checked here, immediately before broadcast, so a reserve that drained after
-    // approval still stops the mint.
-    const projection = await this.reserve.wouldBreachTarget(req.tenantId, req.assetId, req.amount);
+    const projection = await this.reserve.wouldBreachTarget(input.tenantId, input.assetId, input.amount);
     if (projection.breach) {
       await this.audit.record({
-        tenantId: req.tenantId,
+        tenantId: input.tenantId,
         actor: 'system:mint',
         action: 'mint.blocked.reserve_shortfall',
-        resourceType: 'stablecoin_mint_request',
-        resourceId: req.id,
-        correlationId: req.correlationId ?? undefined,
-        metadata: { ...projection, amount: req.amount },
+        resourceType: input.resourceType,
+        resourceId: input.resourceId,
+        correlationId: input.correlationId,
+        metadata: { ...projection, amount: input.amount },
       });
       throw new BadRequestException(
         `Refusing to mint: would breach reserve target. Reserve ${projection.reserveBalance} ` +
@@ -190,6 +199,22 @@ export class MintService {
           `${projection.projectedRatio}, below target ${projection.targetRatio}.`,
       );
     }
+  }
+
+  private async stepMint(req: StablecoinMintRequest): Promise<StablecoinMintRequest> {
+    // Hard guard (§22): never mint before reserve confirmation, even if state was forced.
+    if (!req.reserveConfirmed) {
+      throw new BadRequestException('Refusing to mint: reserve not confirmed');
+    }
+
+    await this.assertMintAllowed({
+      tenantId: req.tenantId,
+      assetId: req.assetId,
+      amount: req.amount,
+      resourceId: req.id,
+      resourceType: 'stablecoin_mint_request',
+      correlationId: req.correlationId ?? undefined,
+    });
     // Concurrency guard: atomically claim APPROVED → SIGNING. Only the caller that wins this
     // compare-and-set issues on-chain; a racing advance() (poller vs manual, or two workers)
     // sees 0 rows updated and backs off — so the mint is broadcast at most once.
