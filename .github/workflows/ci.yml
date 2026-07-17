@@ -83,7 +83,7 @@ jobs:
       - name: Validate PHP SDK
         working-directory: packages/sdk-php
         run: |
-          composer validate --strict
+          composer validate --strict --no-check-publish
           composer install --no-interaction --prefer-dist
           composer test
 

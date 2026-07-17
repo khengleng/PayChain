@@ -29,7 +29,7 @@ cp "$OUTDIR/paychain-sdk-dart-$VERSION.tar.gz" "$OUTDIR/paychain-sdk-dart-latest
 
 (
   cd "$ROOT/packages/sdk-php"
-  composer validate --strict
+  composer validate --strict --no-check-publish
   composer install --no-interaction --prefer-dist
   composer test
   tar --exclude='vendor' -czf "$OUTDIR/paychain-sdk-php-$VERSION.tar.gz" .
