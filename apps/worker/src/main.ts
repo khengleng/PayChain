@@ -49,8 +49,20 @@ async function main(): Promise<void> {
           return confirmation.processPending();
         case 'deliver-webhooks':
           return delivery.processPending();
-        case 'reconcile':
-          return reconciliation.run();
+        case 'reconcile': {
+          // Three independent questions, run together so one job answers all of them:
+          //  - do our confirmed records match the chain?          (record → chain)
+          //  - do the balances we serve match the chain?          (aggregate truth)
+          //  - did anything move on-chain that we have no record of? (chain → record)
+          // The third is the one that catches value moving outside the platform; without it we
+          // are only ever confirming our own bookkeeping.
+          const [records, balances, orphans] = await Promise.all([
+            reconciliation.run(),
+            reconciliation.reconcileBalances(),
+            reconciliation.findOrphanTransactions(),
+          ]);
+          return { records, balances, orphans };
+        }
         case 'expire':
           return expiry.processExpired(new Date());
         default:
