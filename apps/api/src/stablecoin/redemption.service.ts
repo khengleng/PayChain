@@ -247,6 +247,21 @@ export class RedemptionService {
       holderSecretKey: this.crypto.decrypt(wallet.stellarSecretEnc),
       amount: r.amount,
     });
+    await this.prisma.transaction.create({
+      data: {
+        tenantId: r.tenantId,
+        type: 'ASSET_BURNED',
+        status: 'PENDING_CONFIRMATION',
+        blockchainHash: res.transactionHash,
+        assetId: r.assetId,
+        amount: r.amount,
+        correlationId: r.correlationId,
+        sourceWalletId: wallet.id,
+        createdBy: r.requestedBy,
+        approvedBy: r.approvedBy ?? null,
+        submittedAt: new Date(),
+      },
+    });
     return this.set(r.id, { burnHash: res.transactionHash });
   }
 
@@ -261,8 +276,20 @@ export class RedemptionService {
   private async stepConfirmBurn(r: StablecoinRedemption): Promise<StablecoinRedemption> {
     if (!r.burnHash) return this.set(r.id, { status: 'MANUAL_REVIEW', failureReason: 'missing burn hash' });
     const onChain = await this.chain.getTransaction({ transactionHash: r.burnHash });
-    if (onChain.status === 'confirmed') return this.set(r.id, { status: 'BURN_CONFIRMED' });
-    if (onChain.status === 'failed') return this.set(r.id, { status: 'FAILED', failureReason: 'burn failed' });
+    if (onChain.status === 'confirmed') {
+      await this.prisma.transaction.updateMany({
+        where: { blockchainHash: r.burnHash, type: 'ASSET_BURNED' },
+        data: { status: 'CONFIRMED', confirmedAt: new Date(), failureReason: null, failureCode: null },
+      });
+      return this.set(r.id, { status: 'BURN_CONFIRMED' });
+    }
+    if (onChain.status === 'failed') {
+      await this.prisma.transaction.updateMany({
+        where: { blockchainHash: r.burnHash, type: 'ASSET_BURNED' },
+        data: { status: 'FAILED', failureReason: 'burn failed', failureCode: 'CHAIN_FAILED' },
+      });
+      return this.set(r.id, { status: 'FAILED', failureReason: 'burn failed' });
+    }
     return r; // pending → stay BURN_PENDING, do not re-burn
   }
 

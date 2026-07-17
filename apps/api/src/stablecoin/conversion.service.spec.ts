@@ -24,6 +24,10 @@ function statefulPrisma(initial: Record<string, unknown>) {
     },
     asset: { findUnique: async ({ where }: { where: { id: string } }) => assets[where.id] },
     wallet: { findUnique: async () => ({ id: 'w1', tenantId: 't1', status: 'ACTIVE', stellarAccountId: 'GW', stellarSecretEnc: 'encw' }) },
+    transaction: {
+      create: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     // Conversion now records its mint so the supply is visible to the reserve calculation.
     stablecoinMintRequest: {
       create: async ({ data }: { data: Record<string, unknown> }) => ({ id: 'mr1', ...data }),
@@ -123,6 +127,10 @@ describe('ConversionService — cannot mint around the mint controls (§26)', ()
         }),
       },
       wallet: { findUnique: async () => ({ id: 'w1', tenantId: 't1', status: 'ACTIVE', stellarAccountId: 'GW' }) },
+      transaction: {
+        create: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       stablecoinMintRequest: { create: createMint },
     } as never;
 

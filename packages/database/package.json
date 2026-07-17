@@ -13,6 +13,7 @@
     "migrate:deploy": "prisma migrate deploy",
     "seed": "prisma db seed",
     "rebuild:wallet-balances": "tsx scripts/rebuild-wallet-balances.ts",
+    "rebuild:transaction-statuses": "tsx scripts/rebuild-transaction-statuses.ts",
     "test": "jest"
   },
   "prisma": {

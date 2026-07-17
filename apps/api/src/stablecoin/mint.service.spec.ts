@@ -36,6 +36,10 @@ function statefulPrisma(initial: Record<string, unknown>) {
     wallet: {
       findUnique: async () => ({ id: 'w1', tenantId: 't1', status: 'ACTIVE', stellarAccountId: 'GDEST' }),
     },
+    transaction: {
+      create: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   };
 }
 

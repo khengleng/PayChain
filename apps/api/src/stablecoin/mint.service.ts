@@ -255,6 +255,21 @@ export class MintService {
       destinationPublicKey: wallet.stellarAccountId,
       amount: req.amount,
     });
+    await this.prisma.transaction.create({
+      data: {
+        tenantId: req.tenantId,
+        type: 'ASSET_ISSUED',
+        status: 'PENDING_CONFIRMATION',
+        blockchainHash: result.transactionHash,
+        assetId: req.assetId,
+        amount: req.amount,
+        correlationId: req.correlationId,
+        destinationWalletId: wallet.id,
+        createdBy: req.requestedBy,
+        approvedBy: req.approvedBy ?? null,
+        submittedAt: new Date(),
+      },
+    });
     return this.set(req.id, { status: 'SUBMITTED', blockchainHash: result.transactionHash });
   }
 
@@ -274,9 +289,17 @@ export class MintService {
     }
     const onChain = await this.chain.getTransaction({ transactionHash: req.blockchainHash });
     if (onChain.status === 'confirmed') {
+      await this.prisma.transaction.updateMany({
+        where: { blockchainHash: req.blockchainHash, type: 'ASSET_ISSUED' },
+        data: { status: 'CONFIRMED', confirmedAt: new Date(), failureReason: null, failureCode: null },
+      });
       return this.set(req.id, { status: 'CONFIRMED', failureReason: null });
     }
     if (onChain.status === 'failed') {
+      await this.prisma.transaction.updateMany({
+        where: { blockchainHash: req.blockchainHash, type: 'ASSET_ISSUED' },
+        data: { status: 'FAILED', failureReason: 'chain reported mint failure', failureCode: 'CHAIN_FAILED' },
+      });
       return this.set(req.id, { status: 'FAILED', failureReason: 'chain reported mint failure' });
     }
     // pending/not_found → stay SUBMITTED (recoverable), do NOT re-submit.

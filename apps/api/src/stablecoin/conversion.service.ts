@@ -122,6 +122,21 @@ export class ConversionService {
       holderSecretKey: wallet.secret,
       amount: c.pointsAmount,
     });
+    await this.prisma.transaction.create({
+      data: {
+        tenantId: c.tenantId,
+        type: 'ASSET_BURNED',
+        status: 'PENDING_CONFIRMATION',
+        blockchainHash: res.transactionHash,
+        assetId: c.fromAssetId,
+        amount: c.pointsAmount,
+        correlationId: c.correlationId,
+        sourceWalletId: c.walletId,
+        createdBy: 'system:conversion',
+        businessReason: 'loyalty->stablecoin conversion burn',
+        submittedAt: new Date(),
+      },
+    });
     return this.set(c.id, { pointsBurnHash: res.transactionHash });
   }
 
@@ -136,8 +151,20 @@ export class ConversionService {
   private async stepConfirmBurn(c: StablecoinConversion): Promise<StablecoinConversion> {
     if (!c.pointsBurnHash) return this.set(c.id, { status: 'FAILED', failureReason: 'missing burn hash' });
     const onChain = await this.chain.getTransaction({ transactionHash: c.pointsBurnHash });
-    if (onChain.status === 'confirmed') return this.set(c.id, { status: 'POINTS_BURNED' });
-    if (onChain.status === 'failed') return this.set(c.id, { status: 'FAILED', failureReason: 'points burn failed' });
+    if (onChain.status === 'confirmed') {
+      await this.prisma.transaction.updateMany({
+        where: { blockchainHash: c.pointsBurnHash, type: 'ASSET_BURNED' },
+        data: { status: 'CONFIRMED', confirmedAt: new Date(), failureReason: null, failureCode: null },
+      });
+      return this.set(c.id, { status: 'POINTS_BURNED' });
+    }
+    if (onChain.status === 'failed') {
+      await this.prisma.transaction.updateMany({
+        where: { blockchainHash: c.pointsBurnHash, type: 'ASSET_BURNED' },
+        data: { status: 'FAILED', failureReason: 'points burn failed', failureCode: 'CHAIN_FAILED' },
+      });
+      return this.set(c.id, { status: 'FAILED', failureReason: 'points burn failed' });
+    }
     return c; // pending → retry
   }
 
@@ -180,6 +207,21 @@ export class ConversionService {
         issuerSecretKey: this.crypto.decrypt(to.issuerSecretEnc),
         destinationPublicKey: wallet.stellarAccountId,
         amount: c.stablecoinAmount,
+      });
+      await this.prisma.transaction.create({
+        data: {
+          tenantId: c.tenantId,
+          type: 'ASSET_ISSUED',
+          status: 'PENDING_CONFIRMATION',
+          blockchainHash: result.transactionHash,
+          assetId: c.toAssetId,
+          amount: c.stablecoinAmount,
+          correlationId: c.correlationId,
+          destinationWalletId: wallet.id,
+          createdBy: 'system:conversion',
+          businessReason: 'loyalty->stablecoin conversion mint',
+          submittedAt: new Date(),
+        },
       });
 
       // Record the mint so this supply is VISIBLE. ReserveService.getState sums

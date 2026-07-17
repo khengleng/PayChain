@@ -38,6 +38,10 @@ function statefulPrisma(initial: Record<string, unknown>) {
         stellarSecretEnc: 'enc',
       }),
     },
+    transaction: {
+      create: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   };
 }
 
@@ -148,6 +152,10 @@ describe('RedemptionService — the redeemer wallet is tenant-scoped (§7)', () 
         }),
       },
       wallet: { findUnique: async () => wallet },
+      transaction: {
+        create: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
     } as never;
     return new RedemptionService(
       prisma,
@@ -197,6 +205,10 @@ describe('RedemptionService — KYC is validated, not asserted (§25)', () => {
           opts.wallet === undefined
             ? { id: 'w1', tenantId: 't1', status: 'ACTIVE', stellarSecretEnc: 'enc' }
             : opts.wallet,
+      },
+      transaction: {
+        create: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     } as never;
     const walletPolicy = {
