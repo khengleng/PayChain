@@ -6,5 +6,10 @@
     "lib": ["ES2021", "DOM"],
     "types": ["node", "jest"]
   },
-  "include": ["src/**/*.ts"]
+  // Tests are not part of the published package, and must not be compiled into dist.
+  // They also import @paychain/security (a dev-only workspace dep) whose dist does not exist
+  // during a clean `pnpm install` — so compiling them made `prepare` fail and took every
+  // Docker build down with it.
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.spec.ts"]
 }
