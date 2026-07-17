@@ -12,9 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` — pnpm/action-setup errors when it is set AND package.json has
+      # packageManager. The lockfile's packageManager (pnpm@9.0.0) is the single source of truth.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
@@ -49,9 +49,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      # No `version:` — pnpm/action-setup errors when it is set AND package.json has
+      # packageManager. The lockfile's packageManager (pnpm@9.0.0) is the single source of truth.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
@@ -71,3 +71,62 @@ jobs:
       # Secret scan (§41): reject committed private keys / obvious credentials.
       - name: Secret scan
         run: bash scripts/secret-scan.sh
+
+  # Deploy to Railway (§39).
+  #
+  # Railway's GitHub integration was not deploying: for weeks every push landed on main and
+  # nothing shipped, and a manual `railway up` could silently no-op. Deploying from CI instead
+  # makes it explicit and auditable — you can see in the Actions log exactly what shipped and when.
+  #
+  # `needs` gates this on the build/test and security jobs, so a red build cannot deploy. That
+  # matters more than usual here: CI itself was broken (pnpm setup errored before install), so
+  # nothing had ever actually been tested before it went out.
+  deploy:
+    needs: [build-test, security]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # Serialize deploys: two concurrent runs would race, and the api runs prisma migrate deploy
+    # on start. cancel-in-progress is deliberately false — cancelling a half-finished migration
+    # is worse than queueing behind it.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+
+      # The api goes first and alone: its container runs `prisma migrate deploy` before serving,
+      # so schema changes must land before the worker and portals start talking to the database.
+      - name: Deploy api (runs migrations)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service paychain-api --ci
+
+      - name: Deploy worker
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service paychain-worker --ci
+
+      - name: Deploy admin portal
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service paychain-admin --ci
+
+      - name: Deploy developer portal
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service paychain-developer --ci
+
+      # A deploy that "succeeded" but did not land is the failure mode we actually hit, twice.
+      # Verifying the running service is the only way to know the push shipped.
+      - name: Verify production is healthy
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+              https://api.paychain.cambobia.com/api/v1/health/ready || true)
+            if [ "$code" = "200" ]; then echo "api healthy"; exit 0; fi
+            echo "waiting for api (got $code)…"; sleep 10
+          done
+          echo "::error::api did not become healthy after deploy"; exit 1
