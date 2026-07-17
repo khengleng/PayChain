@@ -21,12 +21,19 @@ interface ReadinessResponse {
   };
   gates: Gate[];
 }
+interface FlagsResponse {
+  global: Array<{ key: string; enabled: boolean }>;
+}
 
 const STATUSES = ['PENDING', 'IN_PROGRESS', 'PASSED', 'FAILED', 'BLOCKED', 'WAIVED'];
 
 export default function ReadinessPage() {
   const [data, setData] = useState<ReadinessResponse | null>(null);
   const [canWrite, setCanWrite] = useState(false);
+  const [canEnableMainnet, setCanEnableMainnet] = useState(false);
+  const [mainnetEnabled, setMainnetEnabled] = useState(false);
+  const [mainnetBusy, setMainnetBusy] = useState(false);
+  const [mainnetNotice, setMainnetNotice] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [status, setStatus] = useState('IN_PROGRESS');
   const [evidence, setEvidence] = useState('');
@@ -34,8 +41,17 @@ export default function ReadinessPage() {
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await fetch('/api/readiness');
-    if (res.ok) setData(await res.json());
+    const [readinessRes, flagsRes] = await Promise.all([
+      fetch('/api/readiness'),
+      fetch('/api/flags'),
+    ]);
+    if (readinessRes.ok) {
+      setData(await readinessRes.json());
+    }
+    if (flagsRes.ok) {
+      const flags = (await flagsRes.json()) as FlagsResponse;
+      setMainnetEnabled(Boolean(flags.global.find((f) => f.key === 'stablecoin.mainnet.enabled')?.enabled));
+    }
     setLoaded(true);
   }, []);
 
@@ -43,7 +59,11 @@ export default function ReadinessPage() {
     void load();
     void fetch('/api/access-model')
       .then((r) => (r.ok ? r.json() : null))
-      .then((m) => setCanWrite(Boolean(m?.me?.permissions?.includes('readiness:write'))))
+      .then((m) => {
+        const permissions: string[] = m?.me?.permissions ?? [];
+        setCanWrite(permissions.includes('readiness:write'));
+        setCanEnableMainnet(permissions.includes('mainnet:enable'));
+      })
       .catch(() => undefined);
   }, [load]);
 
@@ -67,6 +87,21 @@ export default function ReadinessPage() {
     } else {
       setError((await res.json().catch(() => ({}))).message ?? 'Could not update gate');
     }
+  }
+
+  async function enableMainnet() {
+    setMainnetBusy(true);
+    setMainnetNotice('');
+    setError('');
+    const res = await fetch('/api/mainnet/enable', { method: 'POST' });
+    const payload = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setMainnetNotice('Mainnet writes enabled and recorded in the audit chain.');
+      await load();
+    } else {
+      setError(payload.message ?? payload.error ?? 'Could not enable mainnet writes');
+    }
+    setMainnetBusy(false);
   }
 
   if (!loaded) return <><h1>Production Readiness</h1><p className="subtitle">Loading…</p></>;
@@ -97,6 +132,37 @@ export default function ReadinessPage() {
           {summary.blockedBy.length > 0 && <> · blocked by: {summary.blockedBy.join(', ')}</>}
         </div>
       </div>
+
+      {(canEnableMainnet || mainnetEnabled) && (
+        <div className="form-card" style={{ maxWidth: 780, marginBottom: 20 }}>
+          <div className="section-title" style={{ marginTop: 0 }}>Mainnet writes</div>
+          <p className="subtitle" style={{ marginTop: 0 }}>
+            This is the only path that can turn <code>stablecoin.mainnet.enabled</code> on. It
+            stays blocked until every mandatory readiness gate passes.
+          </p>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span className={`pill ${mainnetEnabled ? 'PASSED' : 'BLOCKED'}`}>
+              {mainnetEnabled ? 'ENABLED' : 'DISABLED'}
+            </span>
+            {canEnableMainnet && (
+              <button
+                className="btn-sm"
+                disabled={mainnetBusy || mainnetEnabled || !summary.productionReady}
+                onClick={enableMainnet}
+                title={!summary.productionReady ? 'Every mandatory readiness gate must pass first' : undefined}
+              >
+                {mainnetBusy ? 'Enabling…' : mainnetEnabled ? 'Mainnet enabled' : 'Enable mainnet writes'}
+              </button>
+            )}
+          </div>
+          {!summary.productionReady && canEnableMainnet && (
+            <div style={{ marginTop: 8, color: 'var(--muted)', fontSize: 12 }}>
+              This action remains locked until the blocked mandatory gates are resolved.
+            </div>
+          )}
+          {mainnetNotice && <div className="ok-note" style={{ marginTop: 12 }}>{mainnetNotice}</div>}
+        </div>
+      )}
 
       {error && <div className="login-error" style={{ maxWidth: 700 }}>{error}</div>}
 
