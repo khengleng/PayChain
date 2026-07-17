@@ -90,7 +90,7 @@ export class RedemptionService {
     const r = await this.load(tenantId, id);
     switch (r.status) {
       case 'REQUESTED':
-        return this.set(r.id, { status: 'VALIDATING', kycValidated: true });
+        return this.stepValidate(r);
       case 'VALIDATING':
         return this.stepCompliance(r);
       case 'COMPLIANCE_REVIEW':
@@ -117,6 +117,66 @@ export class RedemptionService {
   }
 
   // --- saga steps ----------------------------------------------------------
+
+  /**
+   * Eligibility and KYC (§25).
+   *
+   * This step used to be `set(VALIDATING, { kycValidated: true })` — an unconditional pass. The
+   * field name asserted a check that did not exist, which is worse than having no field: a
+   * reviewer reading the record sees "kycValidated: true" and reasonably concludes someone
+   * verified something.
+   *
+   * It now resolves the wallet's §27 policy, which is where a KYC level, sanctions status, EDD
+   * flag and redemption eligibility are actually recorded. kycValidated becomes true only if that
+   * passes, and carries the level that was relied on.
+   *
+   * Ownership is checked HERE rather than only at burn: §25 lists it under eligibility, and
+   * finding out at burn time means the fiat has already gone out.
+   */
+  private async stepValidate(r: StablecoinRedemption): Promise<StablecoinRedemption> {
+    const wallet = await this.prisma.wallet.findUnique({ where: { id: r.walletId } });
+    if (!wallet || wallet.tenantId !== r.tenantId) {
+      return this.set(r.id, {
+        status: 'REJECTED',
+        failureReason: 'redeemer wallet not found for this tenant',
+      });
+    }
+
+    try {
+      // Reuses the §27 guard rather than a second copy of the rules: kycLevel !== NONE,
+      // sanctions CLEAR, no outstanding EDD, redemptionEligible, and the daily send limit.
+      await this.walletPolicy.assertAllowed({
+        tenantId: r.tenantId,
+        walletId: wallet.id,
+        assetId: r.assetId,
+        operation: 'REDEEM',
+        amount: r.amount,
+      });
+    } catch (err) {
+      // A failed eligibility check is a REJECTION with its reason, not a crash: the customer and
+      // an auditor both need to know which control refused.
+      return this.set(r.id, {
+        status: 'REJECTED',
+        kycValidated: false,
+        failureReason: err instanceof Error ? err.message : 'redemption not permitted',
+      });
+    }
+
+    const policy = await this.walletPolicy.resolve(wallet.id, r.assetId);
+    await this.audit.record({
+      tenantId: r.tenantId,
+      actor: 'system:redemption',
+      action: 'redemption.eligibility.validated',
+      resourceType: 'stablecoin_redemption',
+      resourceId: r.id,
+      correlationId: r.correlationId,
+      // Records WHICH level was relied on. "kycValidated: true" alone tells a reviewer nothing
+      // about what was actually verified.
+      metadata: { kycLevel: policy?.kycLevel ?? null, redemptionEligible: policy?.redemptionEligible ?? null },
+    });
+
+    return this.set(r.id, { status: 'VALIDATING', kycValidated: true });
+  }
 
   private async stepCompliance(r: StablecoinRedemption): Promise<StablecoinRedemption> {
     const screen = await this.compliance.screenTransaction({

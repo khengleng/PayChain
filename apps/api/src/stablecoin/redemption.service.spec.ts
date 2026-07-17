@@ -173,3 +173,87 @@ describe('RedemptionService — the redeemer wallet is tenant-scoped (§7)', () 
     await expect(svc.advance('t1', 'r1')).rejects.toThrow(/FROZEN/);
   });
 });
+
+/**
+ * §25 eligibility/KYC. `REQUESTED -> VALIDATING` used to set kycValidated: true unconditionally —
+ * a field name asserting a check that did not exist. Worse than no field: a reviewer reading
+ * "kycValidated: true" reasonably concludes someone verified something.
+ */
+describe('RedemptionService — KYC is validated, not asserted (§25)', () => {
+  function build(opts: { wallet?: Record<string, unknown> | null; policyErr?: Error; policy?: Record<string, unknown> }) {
+    const r = {
+      id: 'r1', tenantId: 't1', assetId: 'a1', walletId: 'w1', amount: '10',
+      status: 'REQUESTED', correlationId: 'c', bankAccountReference: 'BANK-1',
+    };
+    let rec: Record<string, unknown> = { ...r };
+    const audit = { record: jest.fn() };
+    const prisma = {
+      stablecoinRedemption: {
+        findUnique: async () => ({ ...rec }),
+        update: async ({ data }: { data: Record<string, unknown> }) => { rec = { ...rec, ...data }; return { ...rec }; },
+      },
+      wallet: {
+        findUnique: async () =>
+          opts.wallet === undefined
+            ? { id: 'w1', tenantId: 't1', status: 'ACTIVE', stellarSecretEnc: 'enc' }
+            : opts.wallet,
+      },
+    } as never;
+    const walletPolicy = {
+      assertAllowed: opts.policyErr ? jest.fn().mockRejectedValue(opts.policyErr) : jest.fn().mockResolvedValue(undefined),
+      resolve: jest.fn().mockResolvedValue(opts.policy ?? { kycLevel: 'STANDARD', redemptionEligible: true }),
+    };
+    const svc = new RedemptionService(
+      prisma,
+      { decrypt: () => 'S' } as never,
+      audit as never,
+      { requireEnabled: jest.fn() } as never,
+      { screenTransaction: jest.fn().mockResolvedValue({ decision: 'CLEAR' }) } as never,
+      { initiatePayout: jest.fn(), getPayoutStatus: jest.fn() } as never,
+      { burnAsset: jest.fn() } as never,
+      walletPolicy as never,
+    );
+    return { svc, audit, walletPolicy };
+  }
+
+  it('REJECTS rather than validating when the wallet has no KYC level (§27 policy refuses)', async () => {
+    const { svc } = build({ policyErr: new Error('has no KYC level recorded') });
+    const r = await svc.advance('t1', 'r1');
+    expect(r.status).toBe('REJECTED');
+    expect(r.kycValidated).toBe(false);
+    // The reason survives, so the customer and an auditor know WHICH control refused.
+    expect(r.failureReason).toMatch(/KYC/);
+  });
+
+  it('REJECTS a wallet belonging to another tenant at eligibility, not at burn', async () => {
+    // Finding out at burn time means the fiat has already gone out.
+    const { svc } = build({ wallet: { id: 'w1', tenantId: 'OTHER', status: 'ACTIVE' } });
+    const r = await svc.advance('t1', 'r1');
+    expect(r.status).toBe('REJECTED');
+    expect(r.failureReason).toMatch(/not found for this tenant/);
+  });
+
+  it('REJECTS when the wallet is not redemption-eligible', async () => {
+    const { svc } = build({ policyErr: new Error('not eligible for redemption') });
+    const r = await svc.advance('t1', 'r1');
+    expect(r.status).toBe('REJECTED');
+  });
+
+  it('validates only after the policy passes, and records WHICH level was relied on', async () => {
+    const { svc, audit } = build({ policy: { kycLevel: 'ENHANCED', redemptionEligible: true } });
+    const r = await svc.advance('t1', 'r1');
+    expect(r.status).toBe('VALIDATING');
+    expect(r.kycValidated).toBe(true);
+    const entry = audit.record.mock.calls.find((c) => c[0].action === 'redemption.eligibility.validated');
+    // "kycValidated: true" alone tells a reviewer nothing about what was verified.
+    expect(entry?.[0].metadata).toMatchObject({ kycLevel: 'ENHANCED' });
+  });
+
+  it('actually consults the §27 policy for the REDEEM operation', async () => {
+    const { svc, walletPolicy } = build({});
+    await svc.advance('t1', 'r1');
+    expect(walletPolicy.assertAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: 'REDEEM', walletId: 'w1', amount: '10' }),
+    );
+  });
+});
