@@ -89,7 +89,11 @@ export class MonitoringService {
   ): Promise<void> {
     const [velocityCount, sanctionsMatch] = await Promise.all([
       this.recentMovementCount(auth.tenantId, input.walletId),
-      this.sanctionsSignal(auth, input.amount),
+      this.sanctionsSignal(auth, {
+        amount: input.amount,
+        subjectReference: input.subjectReference,
+        country: input.country,
+      }),
     ]);
 
     const { alerts } = await this.evaluate(
@@ -127,12 +131,21 @@ export class MonitoringService {
    * path is real, the signal behind it is not. Swapping in a vendor makes the hold live with no
    * further change here — which is the point of the abstraction.
    */
-  private async sanctionsSignal(auth: AuthContext, amount: string): Promise<boolean> {
+  private async sanctionsSignal(
+    auth: AuthContext,
+    input: { amount: string; subjectReference: string; country?: string },
+  ): Promise<boolean> {
     try {
       const screen = await this.compliance.screenTransaction({
         tenantId: auth.tenantId,
-        amount,
+        amount: input.amount,
         assetCode: 'STABLECOIN',
+        // The provider screens on counterpartyCountry. Omitting it — as the first version of
+        // this did — starves the screen of the only field it decides on, so it returns CLEAR
+        // for everything and the hold below can never fire. A screening call that cannot
+        // produce a hit is theatre.
+        counterpartyCountry: input.country,
+        destinationReference: input.subjectReference,
       });
       return screen.decision === 'BLOCKED';
     } catch {

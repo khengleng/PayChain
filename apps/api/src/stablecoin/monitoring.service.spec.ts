@@ -1,3 +1,4 @@
+import { MockComplianceProvider } from '@paychain/compliance';
 import { MonitoringService, runRules } from './monitoring.service';
 
 /** Default: the mock provider's real behaviour — CLEAR for everything. */
@@ -125,6 +126,14 @@ describe('MonitoringService.screenMovement — monitoring that actually monitors
   // HOLD test, both green — but nothing asserted that screenMovement could ever REACH either one.
   // It could not: sanctions_match is the only CRITICAL rule and screenMovement never supplied the
   // signal, so the block below was unreachable code sitting behind a passing suite.
+  it('passes the counterparty country to the screen — the field it decides on', async () => {
+    const { svc, compliance } = build();
+    await svc.screenMovement(auth, { ...move('100'), country: 'SG' });
+    expect(compliance.screenTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ counterpartyCountry: 'SG' }),
+    );
+  });
+
   it('BLOCKS the movement when the compliance provider says BLOCKED', async () => {
     const { svc, created } = build({ blocked: true });
     await expect(svc.screenMovement(auth, move('100'))).rejects.toThrow(/sanctions_match/);
@@ -147,6 +156,21 @@ describe('MonitoringService.screenMovement — monitoring that actually monitors
     );
     await expect(svcDown.screenMovement(auth, move('100'))).resolves.toBeUndefined();
     expect(svc).toBeDefined();
+  });
+
+  // Against the REAL provider that is wired in production — a hand-written stub only proves my
+  // stub agrees with my code. This is what proves the sanctioned-jurisdiction hold is live.
+  it('blocks a sanctioned jurisdiction end-to-end via the real MockComplianceProvider', async () => {
+    const prisma = {
+      transaction: { count: async () => 0 },
+      monitoringAlert: { create: async ({ data }: any) => ({ id: 'a1', ...data }) },
+    } as never;
+    const svc = new MonitoringService(prisma, { record: jest.fn() } as never, new MockComplianceProvider());
+
+    await expect(svc.screenMovement(auth, { ...move('100'), country: 'KP' })).rejects.toThrow(
+      /sanctions_match/,
+    );
+    await expect(svc.screenMovement(auth, { ...move('100'), country: 'SG' })).resolves.toBeUndefined();
   });
 
   it('stays silent on ordinary traffic', async () => {
