@@ -57,7 +57,9 @@ Build:
 Exit gate:
 - The full slice runs against testnet with confirmation tracked (not assumed) (§0.5, §47).
 - Cross-tenant access test passes (§7).
-- Read model is rebuildable from chain + event history (§32) — rebuild command exists.
+- Wallet-balance read model is rebuildable from chain (§32) — `pnpm --filter @paychain/database rebuild:wallet-balances`.
+  This line previously claimed a rebuild command existed when none did. §32 also requires rebuilds
+  for transactions, asset supply, stablecoin supply and reserve status: those are still MISSING.
 - Lint + typecheck + tests green; completion report lists what is real vs. deferred (§48).
 
 ---

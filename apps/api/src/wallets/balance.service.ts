@@ -14,7 +14,9 @@ export interface BalanceView {
 /**
  * Maintains the rebuildable balance read model (§16, §32). The chain is authoritative;
  * this table is a cache that can always be reconstructed via refreshFromChain (the basis
- * of `rebuild:wallet-balances`). It must never become the hidden source of truth (§47).
+ * of `rebuild:wallet-balances`, in packages/database/scripts). It must never become the hidden
+ * source of truth (§47) — which is exactly what a cache with no rebuild path is, whatever the
+ * comment says.
  */
 @Injectable()
 export class BalanceService {

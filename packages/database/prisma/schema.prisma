@@ -479,7 +479,8 @@ model Transaction {
 }
 
 // Rebuildable read model of balances (§16, §32). NEVER the source of truth — the chain
-// is authoritative. `pnpm paychain rebuild:wallet-balances` reconstructs this from chain.
+// is authoritative. `pnpm --filter @paychain/database rebuild:wallet-balances` reconstructs this
+// from chain; run it with --dry-run first, and investigate WHY a balance drifted before applying.
 model BalanceReadModel {
   id       String @id @default(uuid())
   tenantId String
