@@ -329,11 +329,10 @@ importers:
         version: 5.9.3
 
   packages/sdk-typescript:
-    dependencies:
+    devDependencies:
       '@paychain/security':
         specifier: workspace:*
         version: link:../security
-    devDependencies:
       '@types/jest':
         specifier: ^29.5.12
         version: 29.5.14
