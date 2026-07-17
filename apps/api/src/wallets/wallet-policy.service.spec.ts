@@ -10,14 +10,20 @@ const BASE = {
 };
 
 function build(policies: Record<string, unknown>[], opts: { held?: string; mints?: string[]; redemptions?: string[] } = {}) {
+  const mintWhere: Record<string, any>[] = [];
   const prisma = {
     walletStablecoinPolicy: { findMany: async () => policies },
     asset: { findUnique: async () => ({ assetCode: 'DKHR', issuerPublicKey: 'GI' }) },
     balanceReadModel: { findFirst: async () => (opts.held ? { balance: opts.held } : null) },
-    stablecoinMintRequest: { findMany: async () => (opts.mints ?? []).map((amount) => ({ amount })) },
+    stablecoinMintRequest: {
+      findMany: async ({ where }: { where: Record<string, any> }) => {
+        mintWhere.push(where);
+        return (opts.mints ?? []).map((amount) => ({ amount }));
+      },
+    },
     stablecoinRedemption: { findMany: async () => (opts.redemptions ?? []).map((amount) => ({ amount })) },
   } as never;
-  return new WalletPolicyService(prisma);
+  return Object.assign(new WalletPolicyService(prisma), { __mintWhere: mintWhere });
 }
 
 const receive = (amount = '100') =>
@@ -103,6 +109,19 @@ describe('§27 — the thirteen controls', () => {
     await expect(
       svc.assertAllowed({ ...receive('30'), operation: 'REDEEM' }),
     ).rejects.toThrow(/daily send limit/);
+  });
+
+  // Found by demoing it on the sandbox: two mints REFUSED at the reserve gate had consumed a
+  // 10,000 daily allowance, because the query counted every request regardless of outcome. A
+  // customer whose mint failed would be locked out for the rest of the day.
+  it('counts only mints whose tokens exist or are in flight — a refused mint must not consume the allowance', async () => {
+    const svc = build([{ ...BASE, maxDailyReceive: '10000' }]);
+    await svc.assertAllowed(receive('100')).catch(() => undefined);
+    const where = (svc as unknown as { __mintWhere: Record<string, any>[] }).__mintWhere[0]!;
+    // Positive filter on landed/in-flight states, NOT "everything except failed".
+    expect(where.status).toEqual({ in: ['SIGNING', 'SUBMITTED', 'CONFIRMED', 'RECONCILED'] });
+    expect(where.status.in).not.toContain('APPROVAL_REQUIRED'); // approved != received
+    expect(where.status.in).not.toContain('REJECTED');
   });
 
   it('uses fixed-point comparison at the limit boundary', async () => {

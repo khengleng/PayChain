@@ -1,9 +1,20 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import type { WalletStablecoinPolicy } from '@paychain/database';
+import type { MintStatus, RedemptionStatus, WalletStablecoinPolicy } from '@paychain/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { addAmounts, compareAmounts, sumAmounts } from '../common/money';
 
 export type StablecoinOperation = 'RECEIVE' | 'SEND' | 'REDEEM';
+
+/**
+ * Mint states where tokens exist or are in flight. Anything earlier has received nothing yet;
+ * anything terminal-failed never will.
+ */
+// Typed against the enum so a renamed state is a compile error, not a filter that silently
+// matches nothing and quietly disables the limit.
+const RECEIVED_STATUSES: MintStatus[] = ['SIGNING', 'SUBMITTED', 'CONFIRMED', 'RECONCILED'];
+
+/** Redemption states where the burn has happened or is in flight. */
+const SENT_STATUSES: RedemptionStatus[] = ['BURN_PENDING', 'BURN_CONFIRMED', 'COMPLETED'];
 
 /**
  * Stablecoin wallet controls (§27).
@@ -147,7 +158,12 @@ export class WalletPolicyService {
         tenantId,
         assetId,
         destinationWalletId: walletId,
-        status: { notIn: ['REJECTED', 'FAILED'] },
+        // Only requests whose tokens exist or are landing. A request sitting at
+        // APPROVAL_REQUIRED has received nothing, and one refused at the reserve gate never
+        // will — counting either would let a REJECTED attempt consume a customer's allowance,
+        // so a failed mint would lock them out for the day. Found by demoing it: two refused
+        // 999999 attempts had eaten a 10000 limit.
+        status: { in: RECEIVED_STATUSES },
         createdAt: { gte: startOfToday() },
       },
       select: { amount: true },
@@ -174,7 +190,9 @@ export class WalletPolicyService {
         tenantId,
         assetId,
         walletId,
-        status: { notIn: ['REJECTED', 'FAILED'] },
+        // Same reasoning as receive: only redemptions that actually left the wallet, or are
+        // mid-flight, count against the daily send allowance.
+        status: { in: SENT_STATUSES },
         createdAt: { gte: startOfToday() },
       },
       select: { amount: true },
