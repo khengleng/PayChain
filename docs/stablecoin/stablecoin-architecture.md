@@ -65,7 +65,8 @@ The reserve figure is a **number PayChain was told**, not a number PayChain veri
 
 - `MockReserveFundingProvider` simulates funding. No bank connection exists.
 - `MockFiatPayoutProvider` simulates payout. No money moves.
-- `MockComplianceProvider` returns `CLEAR` for everything. No screening happens.
+- `MockComplianceProvider` blocks a hardcoded country list (KP/IR/SY) and clears everything
+  else. It is a deterministic stub, not a watchlist: it cannot identify a sanctioned *person*.
 
 Everything downstream is real: the ratio arithmetic is exact, the mint gate genuinely refuses
 to breach the target ratio, snapshots older than `RESERVE_MAX_STALENESS_HOURS` genuinely block
