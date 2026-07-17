@@ -17,6 +17,7 @@ import { AuditService } from '../audit/audit.service';
 import type { AuthContext } from '../auth/auth-context';
 import { BalanceService } from '../wallets/balance.service';
 import { WalletsService } from '../wallets/wallets.service';
+import { EscrowService } from '../wallets/escrow.service';
 import { WebhookEmitterService } from '../webhooks/webhook-emitter.service';
 import { assertValidAmount } from '../common/money';
 import type { CreateAssetDto } from './dto';
@@ -44,6 +45,7 @@ export class AssetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
+    private readonly escrow: EscrowService,
     private readonly audit: AuditService,
     private readonly wallets: WalletsService,
     private readonly balances: BalanceService,
@@ -197,6 +199,17 @@ export class AssetsService {
     const source = await this.wallets.requireSecret(auth.tenantId, sourceWalletId);
     const dest = await this.wallets.requireSecret(auth.tenantId, destinationWalletId);
 
+    // §25: tokens committed to an in-flight redemption are not spendable. Without this a holder
+    // could redeem and then transfer the same tokens — and because payout precedes burn (§0.8),
+    // they would keep both the fiat and the tokens.
+    await this.escrow.assertSpendable({
+      walletId: source.wallet.id,
+      assetId: asset.id,
+      assetCode: asset.assetCode,
+      issuerPublicKey: asset.issuerPublicKey,
+      amount,
+    });
+
     await this.ensureTrustline(asset, dest.wallet.stellarAccountId, dest.secret, correlationId);
 
     const result = await this.chain.transferAsset({
@@ -247,6 +260,13 @@ export class AssetsService {
       throw new BadRequestException('Asset is not redeemable');
     }
     const source = await this.wallets.requireSecret(auth.tenantId, sourceWalletId);
+    await this.escrow.assertSpendable({
+      walletId: source.wallet.id,
+      assetId: asset.id,
+      assetCode: asset.assetCode,
+      issuerPublicKey: asset.issuerPublicKey,
+      amount,
+    });
 
     const result = await this.chain.redeemAsset({
       correlationId,
@@ -284,6 +304,13 @@ export class AssetsService {
     assertValidAmount(amount);
     const asset = await this.requireActive(auth.tenantId, assetId);
     const holder = await this.wallets.requireSecret(auth.tenantId, walletId);
+    await this.escrow.assertSpendable({
+      walletId: holder.wallet.id,
+      assetId: asset.id,
+      assetCode: asset.assetCode,
+      issuerPublicKey: asset.issuerPublicKey,
+      amount,
+    });
 
     const result = await this.chain.burnAsset({
       correlationId,
