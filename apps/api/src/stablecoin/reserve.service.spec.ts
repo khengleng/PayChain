@@ -57,6 +57,7 @@ function fakePrisma(accountBalance = '1000') {
     stablecoinRedemption: { findMany: async () => [] },
     reserveSnapshot: {
       create: async ({ data }: { data: Record<string, unknown> }) => ({ id: 'snap1', ...data }),
+      findFirst: async () => null,
     },
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(client),
   };
@@ -65,7 +66,10 @@ function fakePrisma(accountBalance = '1000') {
 
 function build(prisma: ReturnType<typeof fakePrisma>) {
   const audit = { record: jest.fn() };
-  return { svc: new ReserveService(prisma as never, audit as never), audit };
+  return {
+    svc: new ReserveService(prisma as never, audit as never, { RESERVE_MAX_STALENESS_HOURS: 24 } as never),
+    audit,
+  };
 }
 
 describe('ReserveService — maker-checker on reserve movements (§23)', () => {
@@ -229,5 +233,48 @@ describe('ReserveService — snapshots are evidence (§24)', () => {
     // No mints/redemptions → supply 0. "0" would read as "no backing"; N/A is the truth.
     const snap = (await svc.snapshot('t1', 'a1')) as unknown as Record<string, string>;
     expect(snap.reserveRatio).toBe('N/A');
+  });
+});
+
+/**
+ * §23: "Do not mint on stale or unreconciled reserve data."
+ *
+ * This was unimplemented AND the service docstring claimed the mint saga checked it. There was no
+ * staleness concept anywhere: takenAt was written and never read, STALE_RESERVE_DATA was declared
+ * and never produced. A reserve balance is an assertion, not an observation — with no custodian
+ * feed, the newest snapshot's age IS the freshness of the figure.
+ */
+describe('ReserveService.assertFresh (§23)', () => {
+  function withSnapshot(takenAt: Date | null, maxHours = 24) {
+    const prisma = {
+      reserveSnapshot: { findFirst: async () => (takenAt ? { takenAt } : null) },
+    } as never;
+    return new ReserveService(prisma, { record: jest.fn() } as never, {
+      RESERVE_MAX_STALENESS_HOURS: maxHours,
+    } as never);
+  }
+  const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000);
+
+  it('REFUSES when the reserve has never been snapshotted', async () => {
+    // Never-verified and unverifiable are the same thing to a token holder — this must not pass.
+    await expect(withSnapshot(null).assertFresh('t1', 'a1')).rejects.toThrow(/never been snapshotted/);
+  });
+
+  it('REFUSES when the newest snapshot is older than the limit', async () => {
+    await expect(withSnapshot(hoursAgo(30)).assertFresh('t1', 'a1')).rejects.toThrow(/stale/i);
+  });
+
+  it('reports how stale the data actually is, so the refusal is actionable', async () => {
+    await expect(withSnapshot(hoursAgo(48)).assertFresh('t1', 'a1')).rejects.toThrow(/48\.0h ago/);
+  });
+
+  it('ALLOWS a recent snapshot', async () => {
+    await expect(withSnapshot(hoursAgo(1)).assertFresh('t1', 'a1')).resolves.toBeUndefined();
+  });
+
+  it('honours the configured window rather than a hardcoded one', async () => {
+    // 2h old: stale under a 1h policy, fresh under the 24h default.
+    await expect(withSnapshot(hoursAgo(2), 1).assertFresh('t1', 'a1')).rejects.toThrow(/stale/i);
+    await expect(withSnapshot(hoursAgo(2), 24).assertFresh('t1', 'a1')).resolves.toBeUndefined();
   });
 });

@@ -182,6 +182,11 @@ export class MintService {
     const { config } = await this.loadActive(input.tenantId, input.assetId);
     await this.assertWithinDailyMintLimit(input.tenantId, input.assetId, config, input.amount);
 
+    // §23: a reserve figure nobody has corroborated recently cannot back new issuance. Checked
+    // before the ratio, because an unverified number makes the ratio meaningless rather than
+    // merely wrong.
+    await this.reserve.assertFresh(input.tenantId, input.assetId);
+
     const projection = await this.reserve.wouldBreachTarget(input.tenantId, input.assetId, input.amount);
     if (projection.breach) {
       await this.audit.record({

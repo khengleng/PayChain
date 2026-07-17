@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto';
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { PayChainConfig } from '@paychain/config';
+import { CONFIG } from '../config/config.module';
 import { stableStringify } from '@paychain/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -45,15 +49,25 @@ export interface ReserveState {
 /**
  * Reserve management (§23). Tracks reserve accounts (references only — never banking
  * credentials), computes outstanding supply from confirmed mints minus burns, and flags a
- * shortfall when the reserve ratio drops below the configured target. Minting must not
- * proceed on stale/unreconciled reserve data — the mint saga checks this.
+ * shortfall when the reserve ratio drops below the configured target.
+ *
+ * §23: "Do not mint on stale or unreconciled reserve data." This docstring previously CLAIMED
+ * the mint saga checked this. It did not — there was no concept of staleness anywhere, takenAt
+ * was written and never read, and STALE_RESERVE_DATA was declared and never produced. A comment
+ * asserting a control that does not exist is worse than a silent gap: it stops the next reader
+ * from looking. assertFresh() is that check, and stepMint calls it.
  */
 @Injectable()
 export class ReserveService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-  ) {}
+    @Inject(CONFIG) cfg: PayChainConfig,
+  ) {
+    this.maxStalenessHours = cfg.RESERVE_MAX_STALENESS_HOURS;
+  }
+
+  private readonly maxStalenessHours: number;
 
   async registerAccount(
     auth: AuthContext,
@@ -239,6 +253,40 @@ export class ReserveService {
       select: { reserveRatioTarget: true },
     });
     return config?.reserveRatioTarget ?? '1.0';
+  }
+
+  /**
+   * §23: refuse to mint against a reserve figure nobody has corroborated recently.
+   *
+   * A reserve balance is an assertion, not an observation — there is no custodian feed behind it.
+   * Its only corroboration is an operator taking a snapshot, so the newest snapshot's age IS the
+   * freshness of the figure. Beyond maxStalenessHours we do not know what backs the tokens, and
+   * §23's instruction is not to mint in that state.
+   *
+   * No snapshot at all is treated as stale, not as fine: an unverified reserve and an unverifiable
+   * one are the same thing to a token holder.
+   */
+  async assertFresh(tenantId: string, assetId: string): Promise<void> {
+    const latest = await this.prisma.reserveSnapshot.findFirst({
+      where: { tenantId, assetId },
+      orderBy: { takenAt: 'desc' },
+      select: { takenAt: true },
+    });
+
+    if (!latest) {
+      throw new BadRequestException(
+        `Refusing to mint: reserve for asset ${assetId} has never been snapshotted, so its ` +
+          `balance is unverified. Take a reserve snapshot first (§23).`,
+      );
+    }
+
+    const ageHours = (Date.now() - latest.takenAt.getTime()) / 3_600_000;
+    if (ageHours > this.maxStalenessHours) {
+      throw new BadRequestException(
+        `Refusing to mint: reserve data is stale — last verified ${ageHours.toFixed(1)}h ago, ` +
+          `limit is ${this.maxStalenessHours}h (§23).`,
+      );
+    }
   }
 
   /** Computes the live reserve state against the asset's configured target. */

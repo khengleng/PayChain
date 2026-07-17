@@ -190,6 +190,11 @@ async function main() {
     log(`   policy granted to ${w.ownerReference} -> ${p.status} (KYC STANDARD, cap 50000, daily 10000)`);
   }
 
+  // §23: minting now refuses on unverified reserve data, and a snapshot is what verifies it.
+  // Taking one here is not a workaround — it is the operator action the control demands.
+  const snap = await req('POST', `/stablecoins/${asset!.id}/reserve-snapshots`, { token: scMaker });
+  log(`4. reserve snapshot taken -> ${snap.status} (§23: minting refuses on unverified reserve)`);
+
   // --- 5. The controls, demonstrated both ways ----------------------------------------------
   const enabled = wallets[0];
   const unpolicied = wallets[wallets.length - 1];

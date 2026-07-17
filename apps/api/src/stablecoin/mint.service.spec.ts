@@ -58,6 +58,7 @@ const deps = (
     // Default: reserve comfortably covers supply, so these tests exercise the saga rather than
     // the reserve guard. The guard has its own tests below.
     (reserve ?? {
+      assertFresh: jest.fn().mockResolvedValue(undefined),
       wouldBreachTarget: jest.fn().mockResolvedValue({
         breach: false,
         projectedRatio: '1.500000',
@@ -103,7 +104,10 @@ describe('MintService saga', () => {
       reserveBalance: '50',
       projectedSupply: '100',
     });
-    const svc = deps(prisma, { issueAsset }, { confirmFunding: jest.fn() }, undefined, { wouldBreachTarget });
+    const svc = deps(prisma, { issueAsset }, { confirmFunding: jest.fn() }, undefined, {
+      assertFresh: jest.fn().mockResolvedValue(undefined),
+      wouldBreachTarget,
+    });
 
     await expect(svc.advance('t1', 'm1')).rejects.toThrow(/breach reserve target/i);
     expect(issueAsset).not.toHaveBeenCalled();
@@ -180,5 +184,28 @@ describe('MintService — the destination wallet is tenant-scoped (§7)', () => 
     const { svc, issueAsset } = build({ id: 'w1', tenantId: 't1', status: 'FROZEN', stellarAccountId: 'GDEST' });
     await expect(svc.advance('t1', 'm1')).rejects.toThrow(/FROZEN/);
     expect(issueAsset).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * §23 must be enforced BY the mint path, not merely available next to it. The whole category of
+ * bug this audit found is guards that exist and are never called.
+ */
+describe('MintService — refuses to mint on stale reserve data (§23)', () => {
+  it('propagates the freshness refusal and issues nothing', async () => {
+    const prisma = statefulPrisma({
+      id: 'm1', tenantId: 't1', assetId: 'a1', amount: '100', status: 'APPROVED', reserveConfirmed: true,
+    });
+    const issueAsset = jest.fn();
+    const reserve = {
+      assertFresh: jest.fn().mockRejectedValue(new BadRequestException('reserve data is stale')),
+      wouldBreachTarget: jest.fn(),
+    };
+    const svc = deps(prisma, { issueAsset }, { confirmFunding: jest.fn() }, undefined, reserve);
+
+    await expect(svc.advance('t1', 'm1')).rejects.toThrow(/stale/i);
+    expect(issueAsset).not.toHaveBeenCalled();
+    // Checked BEFORE the ratio: an unverified number makes the ratio meaningless, not just wrong.
+    expect(reserve.wouldBreachTarget).not.toHaveBeenCalled();
   });
 });

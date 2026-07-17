@@ -30,6 +30,17 @@ const envSchema = z.object({
   // Compensating transactions at/above this amount require maker-checker approval (§19).
   COMPENSATION_APPROVAL_THRESHOLD: z.coerce.number().nonnegative().default(100000),
 
+  /**
+   * How long a reserve figure stays usable for minting (§23: "Do not mint on stale or
+   * unreconciled reserve data").
+   *
+   * A reserve balance is only as good as the last time someone corroborated it. With no custodian
+   * feed, that corroboration is an operator taking a snapshot — so this is the maximum age of the
+   * newest snapshot before minting is refused. Short enough that a stale figure cannot silently
+   * back new issuance; long enough not to block a working day.
+   */
+  RESERVE_MAX_STALENESS_HOURS: z.coerce.number().positive().default(24),
+
   // M0 supports testnet + futurenet only. Mainnet is deliberately excluded here.
   STELLAR_NETWORK: z.enum(['testnet', 'futurenet']).default('testnet'),
   STELLAR_RPC_PRIMARY_URL: z.string().url(),
