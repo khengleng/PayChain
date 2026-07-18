@@ -14,6 +14,7 @@
     "test": "pnpm -r test",
     "sdk:postprocess": "node scripts/postprocess-sdk-packages.mjs",
     "sdk:check": "node scripts/postprocess-sdk-packages.mjs --check",
+    "verify:admin-overview": "node scripts/verify-admin-overview.mjs",
     "db:generate": "pnpm --filter @paychain/database generate",
     "db:migrate": "pnpm --filter @paychain/database migrate:dev"
   },

@@ -38,3 +38,6 @@ coverage/
 
 # next.js build output
 .next/
+
+# local JVM / Gradle state
+**/.gradle/

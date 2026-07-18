@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 interface Admin {
   id: string;
@@ -31,14 +31,15 @@ export default function AdminsPage() {
   const [role, setRole] = useState('AUDITOR');
   const [scope, setScope] = useState('');
 
-  async function load() {
+  const load = useCallback(async () => {
     const res = await fetch('/api/admins');
     if (res.status === 403) {
       setError('You do not have permission to manage admins (requires admin:manage).');
       return;
     }
     if (res.ok) setAdmins(await res.json());
-  }
+  }, []);
+
   useEffect(() => {
     void load();
     void fetch('/api/access-model')
@@ -47,7 +48,7 @@ export default function AdminsPage() {
         if (m?.roles) setRoles(m.roles.map((r: { role: string }) => r.role));
       })
       .catch(() => undefined);
-  }, []);
+  }, [load]);
 
   /** Parses the comma-separated tenant scope input into ABAC attributes. */
   function scopeAttributes(raw: string): Record<string, unknown> {

@@ -239,7 +239,7 @@ export class ReconciliationService {
           });
           if (opened) orphans += 1;
         }
-      } catch (err) {
+      } catch {
         unreconciled += 1;
       }
     }

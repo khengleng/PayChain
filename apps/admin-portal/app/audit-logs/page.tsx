@@ -55,7 +55,9 @@ export default function AuditLogsPage() {
     setBusy(false);
   }, [qs]);
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   async function verify() {
     setBusy(true);

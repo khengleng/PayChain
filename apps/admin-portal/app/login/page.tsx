@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -84,8 +85,7 @@ export default function LoginPage() {
       {phase === 'password' ? (
         <form className="login-card" onSubmit={submitPassword}>
           <div className="brand" style={{ fontSize: 22, marginBottom: 4, justifyContent: 'center' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/paychain-icon.svg" alt="" className="brand-mark" width={30} height={30} />
+            <Image src="/brand/paychain-icon.svg" alt="" className="brand-mark" width={30} height={30} />
             <span className="brand-word">Pay<span>Chain</span></span>
           </div>
           <div className="brand-sub" style={{ marginBottom: 24 }}>Admin Portal — sign in</div>
@@ -104,8 +104,7 @@ export default function LoginPage() {
       ) : (
         <form className="login-card" onSubmit={submitCode}>
           <div className="brand" style={{ fontSize: 22, marginBottom: 4, justifyContent: 'center' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/paychain-icon.svg" alt="" className="brand-mark" width={30} height={30} />
+            <Image src="/brand/paychain-icon.svg" alt="" className="brand-mark" width={30} height={30} />
             <span className="brand-word">Pay<span>Chain</span></span>
           </div>
           <div className="brand-sub" style={{ marginBottom: 20 }}>
@@ -118,7 +117,16 @@ export default function LoginPage() {
               <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 0 }}>
                 Scan with Google Authenticator / Authy, or enter the key manually.
               </p>
-              {qr && <img src={qr} alt="MFA QR code" width={180} height={180} style={{ borderRadius: 8, background: '#fff', padding: 6 }} />}
+              {qr && (
+                <Image
+                  src={qr}
+                  alt="MFA QR code"
+                  width={180}
+                  height={180}
+                  unoptimized
+                  style={{ borderRadius: 8, background: '#fff', padding: 6 }}
+                />
+              )}
               {secret && <div className="mono" style={{ marginTop: 10, wordBreak: 'break-all', fontSize: 12, color: 'var(--muted)' }}>{secret}</div>}
             </div>
           )}
