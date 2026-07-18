@@ -77,17 +77,57 @@ describe('AdminTenantsService', () => {
       tenantRow({ id: 'ret1', name: 'Retail A', type: 'RETAILER', parentTenantId: 'wh1', parentTenant: { id: 'wh1', name: 'PayKH' }, _count: { childTenants: 0, apiClients: 1, wallets: 2, assets: 3 } }),
       tenantRow({ id: 'ret2', name: 'Retail B', type: 'RETAILER', parentTenantId: 'wh1', parentTenant: { id: 'wh1', name: 'PayKH' }, _count: { childTenants: 0, apiClients: 2, wallets: 4, assets: 5 } }),
     ];
-    const prisma = {
+    const prismaMock = {
       tenant: {
         findUnique: jest.fn().mockResolvedValue(wholesaler),
         findMany: jest.fn().mockResolvedValue(retailers),
       },
-    } as never;
+      apiClientRequestLog: {
+        groupBy: jest
+          .fn()
+          .mockResolvedValueOnce([
+            { tenantId: 'ret1', _count: { _all: 7 } },
+            { tenantId: 'ret2', _count: { _all: 11 } },
+          ])
+          .mockResolvedValueOnce([
+            { tenantId: 'ret1', _count: { _all: 1 } },
+            { tenantId: 'ret2', _count: { _all: 3 } },
+          ])
+          .mockResolvedValueOnce([
+            { tenantId: 'ret1', _max: { createdAt: new Date('2026-07-18T09:00:00Z') } },
+            { tenantId: 'ret2', _max: { createdAt: new Date('2026-07-18T09:30:00Z') } },
+          ]),
+      },
+      apiClientAuthAttempt: {
+        groupBy: jest
+          .fn()
+          .mockResolvedValueOnce([
+            { tenantId: 'ret1', _count: { _all: 2 } },
+            { tenantId: 'ret2', _count: { _all: 1 } },
+          ])
+          .mockResolvedValueOnce([
+            { tenantId: 'ret1', _max: { createdAt: new Date('2026-07-18T08:00:00Z') } },
+            { tenantId: 'ret2', _max: { createdAt: new Date('2026-07-18T08:30:00Z') } },
+          ]),
+      },
+    };
+    const prisma = prismaMock as never;
     const svc = new AdminTenantsService(prisma, { record: jest.fn() } as never);
 
     const view = await svc.retailers(admin('WHOLESALE_ADMIN', { tenants: ['wh1', 'ret1', 'ret2'] }), 'wh1');
-    expect(view.summary).toEqual({ retailers: 2, apiClients: 3, wallets: 6, assets: 8 });
+    expect(view.summary).toEqual({
+      retailers: 2,
+      apiClients: 3,
+      wallets: 6,
+      assets: 8,
+      requestCount24h: 18,
+      errorCount24h: 4,
+      failedAuthAttempts24h: 3,
+    });
     expect(view.items[0]?.wholesalerTenantName).toBe('PayKH');
+    expect(view.items[0]?.requestCount24h).toBe(7);
+    expect(view.items[1]?.errorCount24h).toBe(3);
+    expect(view.items[0]?.failedAuthAttempts24h).toBe(2);
   });
 
   it('rejects retailer summary for non-wholesaler tenants', async () => {

@@ -17,6 +17,11 @@ interface RetailerTenantRow {
   assets: number;
   wholesalerTenantId: string;
   wholesalerTenantName: string;
+  requestCount24h: number;
+  errorCount24h: number;
+  failedAuthAttempts24h: number;
+  lastApiRequestAt: string | null;
+  lastFailedAuthAt: string | null;
 }
 
 interface WholesalerRetailersView {
@@ -38,6 +43,9 @@ interface WholesalerRetailersView {
     apiClients: number;
     wallets: number;
     assets: number;
+    requestCount24h: number;
+    errorCount24h: number;
+    failedAuthAttempts24h: number;
   };
   items: RetailerTenantRow[];
 }
@@ -148,6 +156,18 @@ export default function WholesalerTenantPage({ params }: { params: { id: string 
           <h3>Assets</h3>
           <p className="mono">{data.summary.assets}</p>
         </div>
+        <div className="card">
+          <h3>24h API Requests</h3>
+          <p className="mono">{data.summary.requestCount24h}</p>
+        </div>
+        <div className="card">
+          <h3>24h Errors</h3>
+          <p className="mono">{data.summary.errorCount24h}</p>
+        </div>
+        <div className="card">
+          <h3>24h Auth Failures</h3>
+          <p className="mono">{data.summary.failedAuthAttempts24h}</p>
+        </div>
       </div>
 
       <form className="form-card" style={{ maxWidth: 640, marginBottom: 24 }} onSubmit={create}>
@@ -188,13 +208,16 @@ export default function WholesalerTenantPage({ params }: { params: { id: string 
               <th style={{ textAlign: 'right' }}>API clients</th>
               <th style={{ textAlign: 'right' }}>Wallets</th>
               <th style={{ textAlign: 'right' }}>Assets</th>
+              <th style={{ textAlign: 'right' }}>24h Req / Err</th>
+              <th>Last activity</th>
+              <th style={{ textAlign: 'right' }}>24h Auth Fail</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {data.items.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ color: 'var(--muted)' }}>
+                <td colSpan={9} style={{ color: 'var(--muted)' }}>
                   No retailers have been provisioned under this wholesaler yet.
                 </td>
               </tr>
@@ -213,6 +236,20 @@ export default function WholesalerTenantPage({ params }: { params: { id: string 
                 <td style={{ textAlign: 'right' }}>{retailer.apiClients}</td>
                 <td style={{ textAlign: 'right' }}>{retailer.wallets}</td>
                 <td style={{ textAlign: 'right' }}>{retailer.assets}</td>
+                <td style={{ textAlign: 'right' }}>
+                  {retailer.requestCount24h} / {retailer.errorCount24h}
+                </td>
+                <td>
+                  {retailer.lastApiRequestAt ? new Date(retailer.lastApiRequestAt).toLocaleString() : '—'}
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  {retailer.failedAuthAttempts24h}
+                  {retailer.lastFailedAuthAt ? (
+                    <div className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>
+                      {new Date(retailer.lastFailedAuthAt).toLocaleString()}
+                    </div>
+                  ) : null}
+                </td>
                 <td>
                   <div className="row-actions">
                     <Link className="btn-sm" href={`/tenants/${retailer.id}/clients`}>API credentials</Link>

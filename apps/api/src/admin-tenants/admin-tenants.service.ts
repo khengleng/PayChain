@@ -22,6 +22,11 @@ export interface TenantView {
 export interface RetailerTenantView extends TenantView {
   wholesalerTenantId: string;
   wholesalerTenantName: string;
+  requestCount24h: number;
+  errorCount24h: number;
+  failedAuthAttempts24h: number;
+  lastApiRequestAt: Date | null;
+  lastFailedAuthAt: Date | null;
 }
 
 export interface WholesalerRetailersView {
@@ -31,6 +36,9 @@ export interface WholesalerRetailersView {
     apiClients: number;
     wallets: number;
     assets: number;
+    requestCount24h: number;
+    errorCount24h: number;
+    failedAuthAttempts24h: number;
   };
   items: RetailerTenantView[];
 }
@@ -154,7 +162,7 @@ export class AdminTenantsService {
         _count: { select: { childTenants: true, apiClients: true, wallets: true, assets: true } },
       },
     });
-    const items = rows.map((tenant) => this.toRetailerView(tenant, wholesaler));
+    const items = await this.withRetailerUsage(rows, wholesaler);
     return {
       wholesaler: this.toTenantView(wholesaler),
       summary: {
@@ -162,6 +170,9 @@ export class AdminTenantsService {
         apiClients: items.reduce((sum, item) => sum + item.apiClients, 0),
         wallets: items.reduce((sum, item) => sum + item.wallets, 0),
         assets: items.reduce((sum, item) => sum + item.assets, 0),
+        requestCount24h: items.reduce((sum, item) => sum + item.requestCount24h, 0),
+        errorCount24h: items.reduce((sum, item) => sum + item.errorCount24h, 0),
+        failedAuthAttempts24h: items.reduce((sum, item) => sum + item.failedAuthAttempts24h, 0),
       },
       items,
     };
@@ -232,7 +243,66 @@ export class AdminTenantsService {
       ...this.toTenantView(tenant),
       wholesalerTenantId: wholesaler.id,
       wholesalerTenantName: wholesaler.name,
+      requestCount24h: 0,
+      errorCount24h: 0,
+      failedAuthAttempts24h: 0,
+      lastApiRequestAt: null,
+      lastFailedAuthAt: null,
     };
+  }
+
+  private async withRetailerUsage(
+    rows: TenantWithCounts[],
+    wholesaler: TenantWithCounts,
+  ): Promise<RetailerTenantView[]> {
+    if (rows.length === 0) return [];
+    const tenantIds = rows.map((row) => row.id);
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [counts24h, errors24h, failedAuths24h, lastRequests, lastFailedAuths] = await Promise.all([
+      this.prisma.apiClientRequestLog.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: tenantIds }, createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      this.prisma.apiClientRequestLog.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: tenantIds }, createdAt: { gte: since }, statusCode: { gte: 400 } },
+        _count: { _all: true },
+      }),
+      this.prisma.apiClientAuthAttempt.groupBy({
+        by: ['tenantId'],
+        where: {
+          tenantId: { in: tenantIds, not: null },
+          createdAt: { gte: since },
+          success: false,
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.apiClientRequestLog.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: tenantIds } },
+        _max: { createdAt: true },
+      }),
+      this.prisma.apiClientAuthAttempt.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: tenantIds, not: null }, success: false },
+        _max: { createdAt: true },
+      }),
+    ]);
+    const requestCountById = new Map(counts24h.map((row) => [row.tenantId, row._count._all]));
+    const errorCountById = new Map(errors24h.map((row) => [row.tenantId, row._count._all]));
+    const failedAuthCountById = new Map(failedAuths24h.map((row) => [row.tenantId!, row._count._all]));
+    const lastRequestById = new Map(lastRequests.map((row) => [row.tenantId, row._max.createdAt ?? null]));
+    const lastFailedAuthById = new Map(lastFailedAuths.map((row) => [row.tenantId!, row._max.createdAt ?? null]));
+
+    return rows.map((tenant) => ({
+      ...this.toRetailerView(tenant, wholesaler),
+      requestCount24h: requestCountById.get(tenant.id) ?? 0,
+      errorCount24h: errorCountById.get(tenant.id) ?? 0,
+      failedAuthAttempts24h: failedAuthCountById.get(tenant.id) ?? 0,
+      lastApiRequestAt: lastRequestById.get(tenant.id) ?? null,
+      lastFailedAuthAt: lastFailedAuthById.get(tenant.id) ?? null,
+    }));
   }
 }
 
