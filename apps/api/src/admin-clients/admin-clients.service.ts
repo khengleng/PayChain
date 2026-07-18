@@ -11,6 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { assertPermittedByAttributes } from '../admin-auth/abac';
 import type { AdminContext } from '../admin-auth/admin-context';
 import { SENSITIVE_SCOPES, isApiScope, type ApiScope } from './api-scopes';
+import { resolveEffectivePolicy } from '../admin-tenants/admin-tenants.service';
 
 export interface IssuedClient {
   id: string;
@@ -169,8 +170,26 @@ export class AdminClientsService {
   ): Promise<IssuedClient> {
     assertPermittedByAttributes(admin, { tenantId });
 
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        name: true,
+        parentTenantId: true,
+        apiClientDefaultRequestsPerMinuteLimit: true,
+        apiClientDefaultWriteRequestsPerMinuteLimit: true,
+        parentTenant: {
+          select: {
+            id: true,
+            name: true,
+            apiClientDefaultRequestsPerMinuteLimit: true,
+            apiClientDefaultWriteRequestsPerMinuteLimit: true,
+          },
+        },
+      },
+    });
     if (!tenant) throw new NotFoundException('Tenant not found');
+    const policy = resolveEffectivePolicy(tenant);
 
     const scopes = this.validateScopes(input.scopes);
     this.assertOwnerForSensitiveScopes(scopes, input.ownerEmail);
@@ -187,8 +206,8 @@ export class AdminClientsService {
         scopes,
         status: 'ACTIVE',
         tokenVersion: 1,
-        requestsPerMinuteLimit: 120,
-        writeRequestsPerMinuteLimit: 30,
+        requestsPerMinuteLimit: policy.requestsPerMinuteLimit,
+        writeRequestsPerMinuteLimit: policy.writeRequestsPerMinuteLimit,
         createdBy: admin.email,
         ownerEmail: input.ownerEmail?.toLowerCase() ?? null,
       },
@@ -207,6 +226,12 @@ export class AdminClientsService {
         scopes,
         // Surfaced so a reviewer can find privileged grants without re-deriving the rule.
         sensitiveScopes: scopes.filter((s) => (SENSITIVE_SCOPES as string[]).includes(s)),
+        inheritedPolicy: {
+          requestsPerMinuteLimit: policy.requestsPerMinuteLimit,
+          writeRequestsPerMinuteLimit: policy.writeRequestsPerMinuteLimit,
+          sourceTenantId: policy.sourceTenantId,
+          sourceTenantName: policy.sourceTenantName,
+        },
         ownerEmail: input.ownerEmail ?? null,
         role: admin.role,
       },

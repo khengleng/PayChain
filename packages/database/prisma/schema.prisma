@@ -353,6 +353,8 @@ model Tenant {
   name           String
   type           TenantType   @default(DIRECT)
   parentTenantId String?
+  apiClientDefaultRequestsPerMinuteLimit      Int?
+  apiClientDefaultWriteRequestsPerMinuteLimit Int?
   status         TenantStatus @default(ACTIVE)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt

@@ -4,7 +4,7 @@ import { AdminAuthGuard } from '../admin-auth/admin-auth.guard';
 import { AdminPermissionGuard, RequireAdminPermission } from '../admin-auth/admin-permission.guard';
 import { CurrentAdmin, type AdminContext } from '../admin-auth/admin-context';
 import { AdminTenantsService } from './admin-tenants.service';
-import { CreateRetailerTenantDto, CreateTenantDto, SetTenantStatusDto } from './dto';
+import { CreateRetailerTenantDto, CreateTenantDto, SetTenantStatusDto, UpdateTenantPolicyDto } from './dto';
 
 /**
  * Tenant provisioning (§7) — the first half of onboarding a partner; issuing their API
@@ -52,6 +52,17 @@ export class AdminTenantsController {
     @Body() dto: CreateRetailerTenantDto,
   ) {
     return this.tenants.createRetailer(admin, tenantId, dto, corr);
+  }
+
+  @Post(':tenantId/policy')
+  @RequireAdminPermission('tenant:write')
+  setPolicy(
+    @CurrentAdmin() admin: AdminContext,
+    @CorrelationId() corr: string,
+    @Param('tenantId') tenantId: string,
+    @Body() dto: UpdateTenantPolicyDto,
+  ) {
+    return this.tenants.updatePolicy(admin, tenantId, dto, corr);
   }
 
   /**

@@ -22,7 +22,30 @@ function fakePrisma() {
     requestLogs,
     tenant: {
       findUnique: async ({ where }: { where: { id: string } }) =>
-        where.id === 't1' ? { id: 't1', name: 'PayKH Sandbox' } : null,
+        where.id === 't1'
+          ? {
+              id: 't1',
+              name: 'PayKH Sandbox',
+              parentTenantId: null,
+              apiClientDefaultRequestsPerMinuteLimit: null,
+              apiClientDefaultWriteRequestsPerMinuteLimit: null,
+              parentTenant: null,
+            }
+          : where.id === 'ret1'
+            ? {
+                id: 'ret1',
+                name: 'Retail A',
+                parentTenantId: 'wh1',
+                apiClientDefaultRequestsPerMinuteLimit: null,
+                apiClientDefaultWriteRequestsPerMinuteLimit: null,
+                parentTenant: {
+                  id: 'wh1',
+                  name: 'PayKH',
+                  apiClientDefaultRequestsPerMinuteLimit: 240,
+                  apiClientDefaultWriteRequestsPerMinuteLimit: 60,
+                },
+              }
+            : null,
     },
     apiClient: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -258,6 +281,20 @@ describe('AdminClientsService — issuing partner credentials (§34)', () => {
     const entry = audit.record.mock.calls.find((c) => c[0].action === 'api_client.issued');
     expect(entry?.[0].metadata.sensitiveScopes).toEqual(['treasury.approve']);
     expect(entry?.[0].actor).toBe('ops@paychain.dev');
+  });
+
+  it('inherits tenant API policy defaults when issuing a new client', async () => {
+    const { svc, prisma, audit } = build();
+    const issued = await svc.issue(admin(), 'ret1', { name: 'Retail A', scopes: LOYALTY }, 'corr');
+    expect(prisma.clients[issued.id]!.requestsPerMinuteLimit).toBe(240);
+    expect(prisma.clients[issued.id]!.writeRequestsPerMinuteLimit).toBe(60);
+    const entry = audit.record.mock.calls.find((c) => c[0].action === 'api_client.issued');
+    expect(entry?.[0].metadata.inheritedPolicy).toEqual({
+      requestsPerMinuteLimit: 240,
+      writeRequestsPerMinuteLimit: 60,
+      sourceTenantId: 'wh1',
+      sourceTenantName: 'PayKH',
+    });
   });
 });
 

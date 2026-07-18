@@ -17,6 +17,12 @@ interface RetailerTenantRow {
   assets: number;
   wholesalerTenantId: string;
   wholesalerTenantName: string;
+  apiClientDefaultRequestsPerMinuteLimit: number | null;
+  apiClientDefaultWriteRequestsPerMinuteLimit: number | null;
+  effectiveRequestsPerMinuteLimit: number;
+  effectiveWriteRequestsPerMinuteLimit: number;
+  policySourceTenantId: string | null;
+  policySourceTenantName: string | null;
   requestCount24h: number;
   errorCount24h: number;
   failedAuthAttempts24h: number;
@@ -31,6 +37,12 @@ interface WholesalerRetailersView {
     type: 'WHOLESALER';
     parentTenantId: string | null;
     parentTenantName: string | null;
+    apiClientDefaultRequestsPerMinuteLimit: number | null;
+    apiClientDefaultWriteRequestsPerMinuteLimit: number | null;
+    effectiveRequestsPerMinuteLimit: number;
+    effectiveWriteRequestsPerMinuteLimit: number;
+    policySourceTenantId: string | null;
+    policySourceTenantName: string | null;
     status: string;
     createdAt: string;
     childTenants: number;
@@ -55,14 +67,33 @@ export default function WholesalerTenantPage({ params }: { params: { id: string 
   const [loaded, setLoaded] = useState(false);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [policyBusy, setPolicyBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [wholesalerPolicy, setWholesalerPolicy] = useState({ rpm: '120', wrpm: '30' });
+  const [retailerPolicies, setRetailerPolicies] = useState<Record<string, { rpm: string; wrpm: string }>>({});
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/tenants/${params.id}/retailers`);
     const body = await res.json().catch(() => null);
     if (res.ok) {
       setData(body as WholesalerRetailersView);
+      const view = body as WholesalerRetailersView;
+      setWholesalerPolicy({
+        rpm: String(view.wholesaler.apiClientDefaultRequestsPerMinuteLimit ?? view.wholesaler.effectiveRequestsPerMinuteLimit),
+        wrpm: String(view.wholesaler.apiClientDefaultWriteRequestsPerMinuteLimit ?? view.wholesaler.effectiveWriteRequestsPerMinuteLimit),
+      });
+      setRetailerPolicies(
+        Object.fromEntries(
+          view.items.map((item) => [
+            item.id,
+            {
+              rpm: String(item.apiClientDefaultRequestsPerMinuteLimit ?? item.effectiveRequestsPerMinuteLimit),
+              wrpm: String(item.apiClientDefaultWriteRequestsPerMinuteLimit ?? item.effectiveWriteRequestsPerMinuteLimit),
+            },
+          ]),
+        ),
+      );
       setError('');
     } else {
       setData(null);
@@ -106,6 +137,53 @@ export default function WholesalerTenantPage({ params }: { params: { id: string 
     });
     if (res.ok) void load();
     else setError((await res.json().catch(() => ({}))).message ?? 'Retailer status change failed');
+  }
+
+  async function saveWholesalerPolicy() {
+    setPolicyBusy(true);
+    setNotice('');
+    setError('');
+    const res = await fetch(`/api/tenants/${params.id}/policy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestsPerMinuteLimit: Number(wholesalerPolicy.rpm),
+        writeRequestsPerMinuteLimit: Number(wholesalerPolicy.wrpm),
+      }),
+    });
+    if (res.ok) {
+      setNotice('Updated wholesaler default API policy.');
+      void load();
+    } else {
+      setError((await res.json().catch(() => ({}))).message ?? 'Could not update wholesaler policy');
+    }
+    setPolicyBusy(false);
+  }
+
+  async function saveRetailerPolicy(retailerId: string, inheritFromParent = false) {
+    setPolicyBusy(true);
+    setNotice('');
+    setError('');
+    const draft = retailerPolicies[retailerId];
+    const res = await fetch(`/api/tenants/${retailerId}/policy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        inheritFromParent
+          ? { inheritFromParent: true }
+          : {
+              requestsPerMinuteLimit: Number(draft?.rpm ?? 120),
+              writeRequestsPerMinuteLimit: Number(draft?.wrpm ?? 30),
+            },
+      ),
+    });
+    if (res.ok) {
+      setNotice(inheritFromParent ? 'Retailer policy reset to inherited defaults.' : 'Retailer policy updated.');
+      void load();
+    } else {
+      setError((await res.json().catch(() => ({}))).message ?? 'Could not update retailer policy');
+    }
+    setPolicyBusy(false);
   }
 
   if (!loaded) return <p className="subtitle">Loading downstream retailers…</p>;
@@ -199,6 +277,26 @@ export default function WholesalerTenantPage({ params }: { params: { id: string 
         </p>
       </form>
 
+      <div className="form-card" style={{ maxWidth: 760, marginBottom: 24 }}>
+        <div className="section-title" style={{ marginTop: 0 }}>Wholesaler default API policy</div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div>
+            <label className="login-label">Requests / min</label>
+            <input className="login-input" value={wholesalerPolicy.rpm} onChange={(e) => setWholesalerPolicy((v) => ({ ...v, rpm: e.target.value }))} />
+          </div>
+          <div>
+            <label className="login-label">Write req / min</label>
+            <input className="login-input" value={wholesalerPolicy.wrpm} onChange={(e) => setWholesalerPolicy((v) => ({ ...v, wrpm: e.target.value }))} />
+          </div>
+          <button className="login-btn" style={{ width: 'auto', marginTop: 0, padding: '11px 18px' }} disabled={policyBusy} onClick={() => void saveWholesalerPolicy()}>
+            Save defaults
+          </button>
+        </div>
+        <p className="subtitle" style={{ fontSize: 12, marginBottom: 0 }}>
+          These defaults are inherited by downstream retailers unless a retailer overrides them.
+        </p>
+      </div>
+
       <div className="table-wrap">
         <table>
           <thead>
@@ -208,6 +306,7 @@ export default function WholesalerTenantPage({ params }: { params: { id: string 
               <th style={{ textAlign: 'right' }}>API clients</th>
               <th style={{ textAlign: 'right' }}>Wallets</th>
               <th style={{ textAlign: 'right' }}>Assets</th>
+              <th>Policy</th>
               <th style={{ textAlign: 'right' }}>24h Req / Err</th>
               <th>Last activity</th>
               <th style={{ textAlign: 'right' }}>24h Auth Fail</th>
@@ -217,7 +316,7 @@ export default function WholesalerTenantPage({ params }: { params: { id: string 
           <tbody>
             {data.items.length === 0 && (
               <tr>
-                <td colSpan={9} style={{ color: 'var(--muted)' }}>
+                <td colSpan={10} style={{ color: 'var(--muted)' }}>
                   No retailers have been provisioned under this wholesaler yet.
                 </td>
               </tr>
@@ -236,6 +335,44 @@ export default function WholesalerTenantPage({ params }: { params: { id: string 
                 <td style={{ textAlign: 'right' }}>{retailer.apiClients}</td>
                 <td style={{ textAlign: 'right' }}>{retailer.wallets}</td>
                 <td style={{ textAlign: 'right' }}>{retailer.assets}</td>
+                <td>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input
+                      className="login-input"
+                      style={{ width: 72, padding: '4px 8px', fontSize: 12 }}
+                      value={retailerPolicies[retailer.id]?.rpm ?? ''}
+                      onChange={(e) =>
+                        setRetailerPolicies((prev) => ({
+                          ...prev,
+                          [retailer.id]: { ...(prev[retailer.id] ?? { rpm: '', wrpm: '' }), rpm: e.target.value },
+                        }))
+                      }
+                    />
+                    <span className="mono">/</span>
+                    <input
+                      className="login-input"
+                      style={{ width: 72, padding: '4px 8px', fontSize: 12 }}
+                      value={retailerPolicies[retailer.id]?.wrpm ?? ''}
+                      onChange={(e) =>
+                        setRetailerPolicies((prev) => ({
+                          ...prev,
+                          [retailer.id]: { ...(prev[retailer.id] ?? { rpm: '', wrpm: '' }), wrpm: e.target.value },
+                        }))
+                      }
+                    />
+                    <button className="btn-sm" disabled={policyBusy} onClick={() => void saveRetailerPolicy(retailer.id)}>
+                      Save
+                    </button>
+                    <button className="btn-sm" disabled={policyBusy} onClick={() => void saveRetailerPolicy(retailer.id, true)}>
+                      Inherit
+                    </button>
+                  </div>
+                  <div className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    Effective {retailer.effectiveRequestsPerMinuteLimit}/{retailer.effectiveWriteRequestsPerMinuteLimit}
+                    {' · '}
+                    {retailer.policySourceTenantName ?? 'Platform default'}
+                  </div>
+                </td>
                 <td style={{ textAlign: 'right' }}>
                   {retailer.requestCount24h} / {retailer.errorCount24h}
                 </td>
