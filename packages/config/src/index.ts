@@ -88,6 +88,12 @@ const envSchema = z.object({
     .transform(splitOrigins),
 
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional().or(z.literal('')),
+
+  // Shared secret the external trustee platform signs its outbound webhooks with (§35 scheme).
+  // Optional: when unset, POST /api/v1/trustee/events fails closed (503) rather than accepting
+  // events it cannot cryptographically verify. Set it to the secret shown once at endpoint
+  // create/rotate on the trustee side.
+  TRUSTEE_WEBHOOK_SECRET: z.string().optional().or(z.literal('')),
 }).superRefine((cfg, ctx) => {
   // KEY_MANAGEMENT_PROVIDER advertises kms/hsm/mpc, but only the local-dev provider is built:
   // CryptoService wraps AES-256-GCM over KEY_ENCRYPTION_KEY and every signing path decrypts the

@@ -20,6 +20,7 @@ import { StablecoinProvidersModule } from './stablecoin/providers/providers.modu
 import { SandboxModule } from './sandbox/sandbox.module';
 import { StablecoinModule } from './stablecoin/stablecoin.module';
 import { ReadinessModule } from './readiness/readiness.module';
+import { TrusteeModule } from './trustee/trustee.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
 import { AdminUsersModule } from './admin-users/admin-users.module';
 import { AdminClientsModule } from './admin-clients/admin-clients.module';
@@ -68,6 +69,7 @@ import { ApiClientUsageMiddleware } from './auth/api-client-usage.middleware';
     AdminWalletsModule,
     AdminReadModule,
     ReadinessModule,
+    TrusteeModule,
     HealthModule,
     DocsModule,
   ],

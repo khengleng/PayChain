@@ -25,8 +25,15 @@ async function bootstrap(): Promise<void> {
     allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Correlation-Id'],
     exposedHeaders: ['X-Correlation-Id'],
   });
-  // Bound request bodies to blunt payload-based DoS (§41).
-  app.useBodyParser('json', { limit: '256kb' });
+  // Bound request bodies to blunt payload-based DoS (§41). The verify hook stashes the exact
+  // received bytes on req.rawBody so webhook receivers (the trustee events endpoint) can verify
+  // an HMAC computed over the raw body rather than a lossy re-serialization of the parsed JSON.
+  app.useBodyParser('json', {
+    limit: '256kb',
+    verify: (req: { rawBody?: Buffer }, _res: unknown, buf: Buffer) => {
+      if (buf?.length) req.rawBody = Buffer.from(buf);
+    },
+  });
 
   // All routes are versioned under /api/v1 (§33).
   app.setGlobalPrefix('api/v1');
