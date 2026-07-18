@@ -26,6 +26,7 @@ export class TrusteeController {
   ingest(
     @Req() req: RawBodyRequest,
     @Headers('x-trustee-signature') signature: string | undefined,
+    @Headers('x-trustee-key-id') keyId: string | undefined,
     @Headers('x-trustee-timestamp') timestamp: string | undefined,
     @Headers('x-trustee-event') eventType: string | undefined,
     @Headers('x-trustee-delivery') deliveryId: string | undefined,
@@ -34,6 +35,7 @@ export class TrusteeController {
     return this.trustee.ingest({
       rawBody: req.rawBody,
       signature,
+      keyId,
       timestamp,
       eventType,
       deliveryId,

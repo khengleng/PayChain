@@ -5,7 +5,8 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { verifyWebhook } from '@paychain/security';
+import type { KeyObject } from 'node:crypto';
+import { loadEd25519PublicKey, verifyEd25519 } from '@paychain/security';
 import { CONFIG } from '../config/config.module';
 import type { PayChainConfig } from '@paychain/config';
 import { AuditService } from '../audit/audit.service';
@@ -18,10 +19,14 @@ import { IdempotencyService } from '../idempotency/idempotency.service';
  */
 export const TRUSTEE_INBOUND_TENANT = '__trustee_inbound__';
 
+/** How far a delivery timestamp may drift from server time before it is treated as a replay. */
+const TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
+
 export interface TrusteeEventInput {
-  /** The exact received bytes. Signature is verified over these, never a re-serialization. */
+  /** The exact received bytes. The Ed25519 signature is over these, never a re-serialization. */
   rawBody: Buffer | undefined;
   signature: string | undefined;
+  keyId: string | undefined;
   timestamp: string | undefined;
   eventType: string | undefined;
   deliveryId: string | undefined;
@@ -36,35 +41,44 @@ export interface TrusteeEventAck {
 
 /**
  * Receiver for outbound webhooks from the external trustee platform (see
- * docs/integration/API-CONTRACT.md). PayChain is a *client* of the trustee here: the trustee
- * signs each delivery with the shared §35 scheme and POSTs it to /api/v1/trustee/events.
+ * docs/integration/API-CONTRACT.md). PayChain is a *client* of the trustee here: the trustee signs
+ * each delivery with its Ed25519 private key and POSTs it to /api/v1/trustee/events.
  *
  * The endpoint is deliberately not JWT-authenticated — a machine sender holds no tenant token.
- * Authenticity comes entirely from the HMAC signature over the raw body, so verification must
- * fail closed: no secret configured, no signature, a bad signature, or a stale timestamp all
- * reject before the payload is trusted or recorded.
+ * Authenticity comes entirely from the Ed25519 signature over the raw body, so verification must
+ * fail closed: no public key configured, missing headers, an unknown key id, a bad signature, or a
+ * stale timestamp all reject before the payload is trusted or recorded.
  *
  * Delivery is idempotent on the trustee's delivery id, so the trustee's retries and its
  * "replay all dead-lettered" backlog flush land exactly once.
+ *
+ * ASSUMED WIRE FORMAT (confirm against the trustee contract before trusting in prod):
+ *   - signed message = `${timestamp}.${rawBody}`
+ *   - X-Trustee-Signature: base64 (or hex) Ed25519 signature
+ *   - X-Trustee-Key-Id: matches TRUSTEE_WEBHOOK_KEY_ID
+ *   - X-Trustee-Timestamp: unix ms · X-Trustee-Delivery: unique id
  */
 @Injectable()
 export class TrusteeService {
-  private readonly secret: string;
+  private readonly publicKey: KeyObject | null;
+  private readonly keyId: string;
 
   constructor(
     @Inject(CONFIG) config: PayChainConfig,
     private readonly audit: AuditService,
     private readonly idempotency: IdempotencyService,
   ) {
-    this.secret = config.TRUSTEE_WEBHOOK_SECRET ?? '';
+    const pem = normalizePem(config.TRUSTEE_WEBHOOK_PUBLIC_KEY ?? '');
+    this.publicKey = pem ? loadEd25519PublicKey(pem) : null;
+    this.keyId = config.TRUSTEE_WEBHOOK_KEY_ID;
   }
 
   async ingest(input: TrusteeEventInput): Promise<TrusteeEventAck> {
-    if (!this.secret) {
+    if (!this.publicKey) {
       // Fail closed: accepting unverifiable events would let anyone forge trustee traffic.
       throw new ServiceUnavailableException('Trustee event receiver is not configured');
     }
-    const { rawBody, signature, timestamp, eventType, deliveryId, correlationId } = input;
+    const { rawBody, signature, keyId, timestamp, eventType, deliveryId, correlationId } = input;
     if (!rawBody || rawBody.length === 0) {
       throw new BadRequestException('Missing request body');
     }
@@ -73,10 +87,20 @@ export class TrusteeService {
         'Missing X-Trustee-Signature, X-Trustee-Timestamp, or X-Trustee-Delivery header',
       );
     }
+    // A delivery signed by a key id we do not recognise cannot be trusted, even if the bytes verify
+    // against the configured key — the mismatch means our key material is stale.
+    if (keyId && keyId !== this.keyId) {
+      throw new UnauthorizedException(`Unknown trustee key id: ${keyId}`);
+    }
+
+    const ts = Number(timestamp);
+    if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > TIMESTAMP_TOLERANCE_MS) {
+      throw new UnauthorizedException('Trustee webhook timestamp is stale or invalid');
+    }
 
     const body = rawBody.toString('utf8');
-    // Covers both a forged/mismatched signature and a stale-or-future timestamp (replay window).
-    if (!verifyWebhook(this.secret, body, signature, timestamp)) {
+    const signedMessage = `${timestamp}.${body}`;
+    if (!verifyEd25519(this.publicKey, signedMessage, signature)) {
       throw new UnauthorizedException('Invalid trustee webhook signature');
     }
 
@@ -104,12 +128,18 @@ export class TrusteeService {
           resourceType: 'trustee_event',
           resourceId: deliveryId,
           correlationId,
-          metadata: { eventType: resolvedType },
+          metadata: { eventType: resolvedType, keyId: this.keyId },
         });
         return { received: true, deliveryId, eventType: resolvedType };
       },
     );
   }
+}
+
+/** Railway and most PaaS store multi-line PEM as a single line with escaped newlines. */
+function normalizePem(value: string): string {
+  const trimmed = value.trim();
+  return trimmed ? trimmed.replace(/\\n/g, '\n') : '';
 }
 
 /** Best-effort event-type read from the payload when the X-Trustee-Event header is absent. */

@@ -89,11 +89,15 @@ const envSchema = z.object({
 
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional().or(z.literal('')),
 
-  // Shared secret the external trustee platform signs its outbound webhooks with (§35 scheme).
-  // Optional: when unset, POST /api/v1/trustee/events fails closed (503) rather than accepting
-  // events it cannot cryptographically verify. Set it to the secret shown once at endpoint
-  // create/rotate on the trustee side.
-  TRUSTEE_WEBHOOK_SECRET: z.string().optional().or(z.literal('')),
+  // The trustee platform signs its outbound webhooks with an Ed25519 PRIVATE key and publishes the
+  // PUBLIC key (keyId in TRUSTEE_WEBHOOK_KEY_ID). PayChain verifies with the public key — a public
+  // value, not a secret, but still injected as config. PEM SubjectPublicKeyInfo, newlines may be
+  // escaped as \n (Railway single-line env). Optional: when unset, POST /api/v1/trustee/events
+  // fails closed (503) rather than accepting events it cannot cryptographically verify.
+  TRUSTEE_WEBHOOK_PUBLIC_KEY: z.string().optional().or(z.literal('')),
+  // The key identifier the trustee stamps on each delivery (e.g. X-Trustee-Key-Id: webhook-v1).
+  // Deliveries whose key id does not match are rejected — this is the rotation hook.
+  TRUSTEE_WEBHOOK_KEY_ID: z.string().default('webhook-v1'),
 }).superRefine((cfg, ctx) => {
   // KEY_MANAGEMENT_PROVIDER advertises kms/hsm/mpc, but only the local-dev provider is built:
   // CryptoService wraps AES-256-GCM over KEY_ENCRYPTION_KEY and every signing path decrypts the
