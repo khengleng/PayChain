@@ -3,6 +3,7 @@ type Parameter = Record<string, unknown>;
 type Operation = Record<string, unknown>;
 
 const API_BASE = process.env.PAYCHAIN_PUBLIC_API_URL ?? 'https://api.paychain.cambobia.com';
+const DOCS_BASE = process.env.PAYCHAIN_DOCS_URL ?? 'https://docs.paychain.cambobia.com';
 const API_PREFIX = '/api/v1';
 const TOKEN_URL = `${API_BASE}${API_PREFIX}/oauth/token`;
 
@@ -948,7 +949,7 @@ export function buildOpenApiSpec() {
     },
     externalDocs: {
       description: 'Developer portal integration guide',
-      url: 'https://paychain.cambobia.com/integration',
+      url: `${DOCS_BASE}/integration`,
     },
   };
 }

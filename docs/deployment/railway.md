@@ -10,13 +10,15 @@ service builds from the repo root as build context.
 | paychain-api | `apps/api/Dockerfile` | `api.paychain.cambobia.com` | NestJS API, runs `prisma migrate deploy` on start (Dockerfile CMD) |
 | paychain-worker | `apps/worker/Dockerfile` | — (internal only) | BullMQ worker: confirmation, webhook delivery, reconciliation |
 | paychain-admin | `apps/admin-portal/Dockerfile` | `paychain.cambobia.com` | Next.js admin console; auth-gated |
-| paychain-developer | `apps/developer-portal/Dockerfile` | `developer.paychain.cambobia.com` | Next.js developer portal; public, no auth |
+| paychain-developer | `apps/developer-portal/Dockerfile` | `docs.paychain.cambobia.com` | Next.js proprietary docs / SDK portal; public, no auth |
 | Postgres | Railway plugin | — | Managed PostgreSQL |
 | Redis | Railway plugin | — | Managed Redis |
 
-Note the domain split: `paychain.cambobia.com` (apex) serves the **admin** console, while the API
-is on the `api.` subdomain. The worker has no custom domain — it consumes queues and serves no
-public traffic.
+Note the domain split: `paychain.cambobia.com` (apex) serves the **admin** console,
+`docs.paychain.cambobia.com` serves the proprietary docs / SDK portal, and the API is on the
+`api.` subdomain. The worker has no custom domain — it consumes queues and serves no public
+traffic. Client businesses such as `paykh.cambobia.com` integrate with PayChain as external B2B
+tenants and are not PayChain-managed browser origins by default.
 
 **Multi-service build selection:** do NOT use a root `railway.json` with a hardcoded
 `dockerfilePath` — it applies to every service in the project and would make all services
@@ -39,7 +41,7 @@ DNS for `cambobia.com` is hosted in **Google Cloud DNS**. Adding a domain is two
 Railway side, then DNS side:
 
 ```bash
-railway domain --service paychain-developer developer.paychain.cambobia.com
+railway domain --service paychain-developer docs.paychain.cambobia.com
 ```
 
 That prints a CNAME target and a `_railway-verify` TXT record. Create both in the
@@ -50,7 +52,7 @@ railway domain status <domain-id> --service paychain-developer
 # want: Verified: yes / Certificate status: CERTIFICATE_STATUS_TYPE_VALID
 ```
 
-Two gotchas: record names are relative to the zone (`developer.paychain`, not the FQDN), and
+Two gotchas: record names are relative to the zone (`docs.paychain`, not the FQDN), and
 Cloud DNS needs a **trailing dot** on the CNAME value or it resolves relative to the zone. The
 TXT record is what unblocks certificate issuance — without it the cert sits in
 `VALIDATING_OWNERSHIP` and HTTPS never comes up.
@@ -89,12 +91,14 @@ ADMIN_CLIENT_SECRET=<api client secret>
 ```
 NODE_ENV=production
 PAYCHAIN_API_URL=https://api.paychain.cambobia.com
+PAYCHAIN_DOCS_URL=https://docs.paychain.cambobia.com
+PAYKH_CLIENT_URL=https://paykh.cambobia.com
 ```
 
-The developer portal is a public docs site with no auth and no credentials of its own. It calls
-the API only for the unauthenticated health reads behind its `/status` page, so `PAYCHAIN_API_URL`
-is the whole configuration surface. Both portals default to `https://api.paychain.cambobia.com`
-in code, so this is an explicitness measure rather than a strict requirement.
+The docs portal is a public site with no auth and no credentials of its own. It calls the API only
+for the unauthenticated health reads behind its `/status` page, so `PAYCHAIN_API_URL` is its only
+runtime API dependency. `PAYCHAIN_DOCS_URL` and `PAYKH_CLIENT_URL` keep the published partner copy
+and snippets aligned with the deployed domains.
 
 Never set real secrets in the repo or in staging shared with production (§39).
 
@@ -111,27 +115,19 @@ Smoke-check the public surfaces after a deploy:
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' https://api.paychain.cambobia.com/api/v1/health
-curl -sS -o /dev/null -w '%{http_code}\n' https://developer.paychain.cambobia.com
+curl -sS -o /dev/null -w '%{http_code}\n' https://docs.paychain.cambobia.com
 curl -sS -o /dev/null -w '%{http_code}\n' https://paychain.cambobia.com
 ```
 
 ## Provisioning API clients
 
 `pnpm --filter @paychain/database exec prisma db seed` creates a sandbox tenant + API client
-(`demo-client` / `demo-secret` unless `SEED_CLIENT_ID`/`SEED_CLIENT_SECRET` are set). Do not
-seed demo credentials into production.
+(`demo-client` / `demo-secret` unless `SEED_CLIENT_ID`/`SEED_CLIENT_SECRET` are set). Do not seed
+demo credentials into production.
 
-**There is currently no self-service or admin flow for issuing API clients.** `POST
-/api/v1/oauth/token` verifies `client_id`/`client_secret` against the `api_clients` table, but
-nothing in the product writes to that table — the seed script is the only writer. Production
-clients (including the admin console's own `ADMIN_CLIENT_ID`) are provisioned by inserting rows
-directly. Two consequences worth tracking:
-
-- The developer portal documents client-credentials auth it cannot hand out, so an external
-  developer landing on `developer.paychain.cambobia.com` cannot self-onboard.
-- Client secrets are hashed with unsalted SHA-256 (`apps/api/src/auth/auth.service.ts`). That is
-  acceptable for a seeded placeholder but must be replaced with a slow KDF before real
-  credentials are issued to third parties.
+Production B2B clients such as PayKH should be provisioned from the admin portal's tenant client
+management flow, where secrets are shown once, scopes are constrained, rate policies can be
+enforced, usage is audited, and credentials can be revoked or rotated immediately.
 
 ## Rollback
 

@@ -1,5 +1,6 @@
-const API_BASE =
-  process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
+const API_BASE = process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
+const PAYKH_BASE = process.env.PAYKH_CLIENT_URL ?? 'https://paykh.cambobia.com';
+const DOCS_BASE = process.env.PAYCHAIN_DOCS_URL ?? 'https://docs.paychain.cambobia.com';
 
 const TOKEN_SNIPPET = `curl -X POST ${API_BASE}/api/v1/oauth/token \\
   -H 'Content-Type: application/json' \\
@@ -55,8 +56,9 @@ export default function Page() {
       </div>
 
       <div className="footer">
-        API base: {API_BASE} · The first PayKH integration is loyalty-only; PayKH stablecoin
-        features remain disabled until PayChain stablecoin readiness gates pass.
+        API base: {API_BASE} · Example client tenant: {PAYKH_BASE} · Docs: {DOCS_BASE} · The
+        first PayKH integration is loyalty-only; PayKH stablecoin features remain disabled until
+        PayChain stablecoin readiness gates pass.
       </div>
     </div>
   );

@@ -1,4 +1,7 @@
-const AUTH_SNIPPET = `curl -s -X POST https://api.paychain.cambobia.com/api/v1/oauth/token \\
+const API_BASE = process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
+const PAYKH_BASE = process.env.PAYKH_CLIENT_URL ?? 'https://paykh.cambobia.com';
+
+const AUTH_SNIPPET = `curl -s -X POST ${API_BASE}/api/v1/oauth/token \\
   -H 'content-type: application/json' \\
   -d '{"client_id":"...","client_secret":"...","grant_type":"client_credentials"}'
 # -> { "access_token": "...", "expires_in": 3600 }
@@ -44,8 +47,10 @@ export default function Integration() {
       <h1>Integration guide</h1>
       <p className="lead">
         How an existing app becomes a PayChain client. Written for the PayKH loyalty integration;
-        the pattern is the same for any tenant. Your app is <strong>not</strong> modified into
-        PayChain — it calls it.
+        the pattern is the same for any tenant. PayKH operates on{' '}
+        <span className="mono">{PAYKH_BASE}</span> as a PayChain client tenant; it is{' '}
+        <strong>not</strong> part of the PayChain control plane. Its backend calls PayChain over
+        approved APIs.
       </p>
 
       <h2>Before you write code — read this</h2>

@@ -9,9 +9,22 @@ import { AppModule } from './app.module';
 async function bootstrap(): Promise<void> {
   const cfg = loadConfig();
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: false });
+  const allowedOrigins = new Set(cfg.API_ALLOWED_ORIGINS.map((origin) => origin.replace(/\/+$/, '')));
 
   // Security headers (§41): CSP, HSTS, no-sniff, frameguard, etc.
   app.use(helmet());
+  app.enableCors({
+    origin(origin: string | undefined, callback) {
+      // Server-to-server calls and curl/postman requests have no browser Origin header.
+      if (!origin) return callback(null, true);
+      const normalized = origin.replace(/\/+$/, '');
+      if (allowedOrigins.has(normalized)) return callback(null, true);
+      return callback(new Error(`Origin ${origin} is not allowed by PayChain CORS policy`), false);
+    },
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key', 'X-Correlation-Id'],
+    exposedHeaders: ['X-Correlation-Id'],
+  });
   // Bound request bodies to blunt payload-based DoS (§41).
   app.useBodyParser('json', { limit: '256kb' });
 
@@ -36,6 +49,7 @@ async function bootstrap(): Promise<void> {
       msg: 'paychain-api listening',
       port,
       network: cfg.STELLAR_NETWORK,
+      allowedOrigins: cfg.API_ALLOWED_ORIGINS,
     }),
   );
 }

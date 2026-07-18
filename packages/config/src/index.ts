@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+function splitOrigins(value: string): string[] {
+  return value
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
+
 /**
  * Central, validated environment configuration for PayChain (§4, §47).
  *
@@ -60,7 +67,25 @@ const envSchema = z.object({
   // dev mode (logs the link instead of sending). MAIL_FROM must be a Resend-verified sender.
   RESEND_API_KEY: z.string().optional().or(z.literal('')),
   MAIL_FROM: z.string().default('PayChain <noreply@cambobia.com>'),
+  PAYCHAIN_PUBLIC_API_URL: z.string().url().default('https://api.paychain.cambobia.com'),
   ADMIN_PORTAL_URL: z.string().url().default('https://paychain.cambobia.com'),
+  PAYCHAIN_DOCS_URL: z.string().url().default('https://docs.paychain.cambobia.com'),
+  PAYKH_CLIENT_URL: z.string().url().default('https://paykh.cambobia.com'),
+  API_ALLOWED_ORIGINS: z
+    .string()
+    .default(
+      [
+        'https://paychain.cambobia.com',
+        'https://docs.paychain.cambobia.com',
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:3002',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+        'http://127.0.0.1:3002',
+      ].join(','),
+    )
+    .transform(splitOrigins),
 
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional().or(z.literal('')),
 }).superRefine((cfg, ctx) => {

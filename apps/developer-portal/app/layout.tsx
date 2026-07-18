@@ -3,8 +3,8 @@ import Link from 'next/link';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'PayChain Developers',
-  description: 'PayChain developer portal — integrate wallets, assets, and loyalty',
+  title: 'PayChain Docs',
+  description: 'PayChain proprietary integration docs for wallets, assets, loyalty, and partner SDKs',
 };
 
 const LINKS = [
@@ -25,7 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="logo">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/paychain-icon.svg" alt="" width={24} height={24} />
-              <span className="logo-word">Pay<span>Chain</span></span> Developers
+              <span className="logo-word">Pay<span>Chain</span></span> Docs
             </Link>
             <div className="links">
               {LINKS.map((l) => (

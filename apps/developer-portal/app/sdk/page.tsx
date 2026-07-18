@@ -1,4 +1,6 @@
-const OPENAPI_URL = 'https://api.paychain.cambobia.com/api/v1/openapi.json';
+const API_BASE = process.env.PAYCHAIN_API_URL ?? 'https://api.paychain.cambobia.com';
+const DOCS_BASE = process.env.PAYCHAIN_DOCS_URL ?? 'https://docs.paychain.cambobia.com';
+const OPENAPI_URL = `${API_BASE}/api/v1/openapi.json`;
 
 const TYPESCRIPT_INSTALL = `# Access is provisioned by PayChain
 npm install @paychain/sdk --registry=https://packages.paychain.cambobia.com/npm/`;
@@ -14,7 +16,7 @@ npx @openapitools/openapi-generator-cli generate \\
 const TYPESCRIPT_SNIPPET = `import { PayChainClient } from '@paychain/sdk';
 
 const client = new PayChainClient({
-  baseUrl: 'https://api.paychain.cambobia.com/api/v1',
+  baseUrl: '${API_BASE}/api/v1',
   clientId: process.env.PAYCHAIN_CLIENT_ID!,
   clientSecret: process.env.PAYCHAIN_CLIENT_SECRET!,
 });
@@ -64,7 +66,7 @@ export default function Sdk() {
       <h1>SDKs</h1>
       <p className="lead">
         PayChain supports one maintained TypeScript SDK plus generated Dart, PHP, Kotlin, and
-        .NET packages from the public OpenAPI contract. SDK distributions are PayChain-owned
+        .NET packages from the published OpenAPI contract. SDK distributions are PayChain-owned
         packages for approved partners and internal teams.
       </p>
 
@@ -148,7 +150,10 @@ export default function Sdk() {
             <td className="mono" style={{ whiteSpace: 'nowrap', paddingRight: 16 }}>
               SDK distribution
             </td>
-            <td>Language SDKs are distributed as PayChain proprietary packages. Contact PayChain to provision registry access.</td>
+            <td>
+              Language SDKs are distributed as PayChain proprietary packages. Contact PayChain to
+              provision registry access through {DOCS_BASE}.
+            </td>
           </tr>
           <tr>
             <td className="mono" style={{ whiteSpace: 'nowrap', paddingRight: 16 }}>
