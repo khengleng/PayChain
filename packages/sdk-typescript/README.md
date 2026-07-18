@@ -2,6 +2,8 @@
 
 Hand-written TypeScript client for the PayChain public API.
 
+This SDK is PayChain proprietary software and is intended for approved partner and internal use.
+
 ## Features
 
 - OAuth client-credentials token caching
@@ -23,3 +25,5 @@ pnpm --filter @paychain/sdk test
 cd packages/sdk-typescript
 npm pack
 ```
+
+For distribution outside this workspace, publish through a PayChain-controlled private registry.

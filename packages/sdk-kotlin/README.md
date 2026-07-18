@@ -2,16 +2,14 @@
 
 Generated Kotlin/JVM client for the PayChain public API.
 
-## Source
+This SDK is proprietary to PayChain and is intended for approved partner and internal use.
+
+## Contract
 
 - OpenAPI contract: `https://api.paychain.cambobia.com/api/v1/openapi.json`
 - Package path: `packages/sdk-kotlin`
-- Generation source: OpenAPI Generator `kotlin` with `jvm-okhttp4`
 
-## Status
-
-This package is generated from the PayChain OpenAPI contract and committed to the repository for
-Android and JVM integrations.
+This package is generated from the PayChain OpenAPI contract for Android and JVM integrations.
 
 ## Local Use
 
@@ -20,6 +18,8 @@ cd packages/sdk-kotlin
 chmod +x gradlew
 ./gradlew test
 ```
+
+Distribute artifacts through a PayChain-controlled private Maven repository.
 
 ## Contract
 

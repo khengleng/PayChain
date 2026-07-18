@@ -11,7 +11,7 @@
         "api"
     ],
     "homepage": "https://developer.paychain.cambobia.com",
-    "license": "Apache-2.0",
+    "license": "proprietary",
     "authors": [
         {
             "name": "PayChain",
@@ -19,8 +19,11 @@
         }
     ],
     "support": {
-        "issues": "https://github.com/khengleng/PayChain/issues",
-        "source": "https://github.com/khengleng/PayChain"
+        "docs": "https://developer.paychain.cambobia.com",
+        "email": "sdk@paychain.cambobia.com"
+    },
+    "extra": {
+        "paychain-distribution": "private-composer-archive"
     },
     "require": {
         "php": "^8.1",
@@ -47,8 +50,10 @@
     },
     "scripts": {
         "test": [
-            "@phplint"
+            "@phplint",
+            "@phpunit"
         ],
-        "phplint": "phplint"
+        "phplint": "phplint",
+        "phpunit": "phpunit --configuration phpunit.xml.dist"
     }
 }

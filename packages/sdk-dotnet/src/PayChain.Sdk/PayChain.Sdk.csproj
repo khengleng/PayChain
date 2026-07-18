@@ -14,10 +14,8 @@
     <RootNamespace>PayChain.Sdk</RootNamespace>
     <Version>0.1.0</Version>
     <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\PayChain.Sdk.xml</DocumentationFile>
-    <RepositoryUrl>https://github.com/khengleng/PayChain</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://developer.paychain.cambobia.com</PackageProjectUrl>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageLicenseFile>LICENSE-PAYCHAIN-SDK.txt</PackageLicenseFile>
     <PackageTags>paychain;api;sdk;openapi</PackageTags>
     <PackageReleaseNotes>Generated from the PayChain public OpenAPI contract.</PackageReleaseNotes>
     <Nullable>enable</Nullable>
@@ -29,6 +27,10 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Condition="'$(TargetFramework)' == 'net8.0'" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Http.Polly" Condition="'$(TargetFramework)' == 'net8.0'" Version="8.0.20" />
     <PackageReference Include="Microsoft.Net.Http.Headers" Condition="'$(TargetFramework)' == 'net8.0'" Version="8.0.17" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="LICENSE-PAYCHAIN-SDK.txt" Pack="true" PackagePath="" />
   </ItemGroup>
 
 </Project>

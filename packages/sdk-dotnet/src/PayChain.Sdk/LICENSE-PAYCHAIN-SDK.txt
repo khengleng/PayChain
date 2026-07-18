@@ -1,0 +1,6 @@
+PayChain Commercial SDK License
+
+This software is proprietary to PayChain.
+
+Use, copying, modification, redistribution, sublicensing, or disclosure is prohibited
+except as expressly permitted in a written agreement with PayChain.

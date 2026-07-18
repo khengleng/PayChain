@@ -2,16 +2,14 @@
 
 Generated .NET client source for the PayChain public API.
 
-## Source
+This SDK is proprietary to PayChain and is intended for approved partner and internal use.
+
+## Contract
 
 - OpenAPI contract: `https://api.paychain.cambobia.com/api/v1/openapi.json`
 - Package path: `packages/sdk-dotnet`
-- Generation source: OpenAPI Generator `csharp`
 
-## Status
-
-This package is generated from the PayChain OpenAPI contract and committed to the repository for
-.NET integrations.
+This package is generated from the PayChain OpenAPI contract for .NET integrations.
 
 ## Local Use
 
@@ -26,6 +24,8 @@ Build and test it in a .NET 8 environment:
 ```bash
 dotnet test packages/sdk-dotnet/PayChain.Sdk.sln
 ```
+
+Distribute built packages through a PayChain-controlled private NuGet feed.
 
 ## Contract
 

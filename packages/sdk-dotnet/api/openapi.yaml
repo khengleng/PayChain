@@ -1367,7 +1367,7 @@ components:
       - status
     WebhookCreateRequest:
       example:
-        url: https://openapi-generator.tech
+        url: https://developer.paychain.cambobia.com
         events:
         - events
         - events
@@ -1387,7 +1387,7 @@ components:
     WebhookEndpoint:
       example:
         id: id
-        url: https://openapi-generator.tech
+        url: https://developer.paychain.cambobia.com
         events:
         - events
         - events
@@ -1426,7 +1426,7 @@ components:
         - secret
       example:
         id: id
-        url: https://openapi-generator.tech
+        url: https://developer.paychain.cambobia.com
         events:
         - events
         - events

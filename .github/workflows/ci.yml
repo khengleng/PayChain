@@ -27,6 +27,9 @@ jobs:
       - name: Verify SDK versions stay aligned
         run: bash scripts/verify-sdk-versions.sh
 
+      - name: Check SDK post-processing
+        run: pnpm sdk:check
+
       - name: Generate Prisma client
         run: pnpm --filter @paychain/database exec prisma generate
 
@@ -69,6 +72,7 @@ jobs:
           dart pub get
           dart run build_runner build
           dart analyze
+          dart test
 
   sdk-php:
     runs-on: ubuntu-latest

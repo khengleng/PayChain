@@ -8,6 +8,8 @@ import { STABLECOIN_FLAGS } from '../feature-flags/feature-flags.constants';
  * (2) models that store only a tenantId are enriched with the tenant's human name.
  */
 describe('AdminReadService', () => {
+  const readiness: { summary: jest.Mock } = { summary: jest.fn() };
+
   it('shows every declared stablecoin flag as OFF by default and separates tenant overrides', async () => {
     const prisma = {
       tenant: { findMany: jest.fn().mockResolvedValue([{ id: 't1', name: 'PayKH Sandbox' }]) },
@@ -20,7 +22,7 @@ describe('AdminReadService', () => {
         ]),
       },
     } as never;
-    const svc = new AdminReadService(prisma);
+    const svc = new AdminReadService(prisma, readiness as any);
 
     const { global, overrides } = await svc.flags(null);
 
@@ -48,7 +50,7 @@ describe('AdminReadService', () => {
         ]),
       },
     } as never;
-    const svc = new AdminReadService(prisma);
+    const svc = new AdminReadService(prisma, readiness as any);
 
     const { items } = await svc.treasury(null);
     expect(items[0]?.tenant).toBe('PayKH Sandbox');
@@ -59,7 +61,7 @@ describe('AdminReadService', () => {
   it('builds a case-insensitive OR search filter for wallets and passes it to prisma', async () => {
     const findMany = jest.fn().mockResolvedValue([]);
     const prisma = { wallet: { findMany } } as never;
-    const svc = new AdminReadService(prisma);
+    const svc = new AdminReadService(prisma, readiness as any);
 
     await svc.wallets(null, '  GABC  ');
 
@@ -74,10 +76,70 @@ describe('AdminReadService', () => {
   it('applies no filter when the wallet search query is empty', async () => {
     const findMany = jest.fn().mockResolvedValue([]);
     const prisma = { wallet: { findMany } } as never;
-    const svc = new AdminReadService(prisma);
+    const svc = new AdminReadService(prisma, readiness as any);
 
     const res = await svc.wallets(null, '   ');
     expect(findMany.mock.calls[0][0].where).toEqual({});
     expect(res.query).toBeNull();
+  });
+
+  it('builds a permission-scoped overview from live counts and readiness summary', async () => {
+    readiness.summary = jest.fn().mockResolvedValue({
+      productionReady: false,
+      mandatoryPassed: 3,
+      mandatoryTotal: 5,
+      blockedBy: ['security.pen_test', 'operations.incident_drill'],
+    });
+
+    const prisma: any = {
+      tenant: { count: jest.fn().mockResolvedValue(2) },
+      wallet: { count: jest.fn().mockResolvedValue(11) },
+      asset: { count: jest.fn().mockResolvedValue(4) },
+      stablecoinConfig: { count: jest.fn().mockResolvedValue(1) },
+      reserveAccount: { count: jest.fn().mockResolvedValue(2) },
+      treasuryMovement: { count: jest.fn().mockResolvedValue(3) },
+      monitoringAlert: { count: jest.fn().mockResolvedValue(5) },
+      reconciliationException: { count: jest.fn().mockResolvedValue(7) },
+      featureFlag: { count: jest.fn().mockResolvedValue(9) },
+      auditLog: { count: jest.fn().mockResolvedValue(13) },
+    } as never;
+
+    const svc = new AdminReadService(prisma, readiness as any);
+    const overview = await svc.overview(['tenant-a', 'tenant-b'], [
+      'tenant:read',
+      'wallet:read',
+      'asset:read',
+      'stablecoin:read',
+      'reserve:read',
+      'treasury:read',
+      'compliance:read',
+      'reconciliation:read',
+      'flags:read',
+      'audit:read',
+      'readiness:read',
+    ]);
+
+    expect(overview.readiness).toEqual({
+      productionReady: false,
+      mandatoryPassed: 3,
+      mandatoryTotal: 5,
+      blockedBy: ['security.pen_test', 'operations.incident_drill'],
+    });
+    expect(overview.counts).toEqual({
+      tenants: 2,
+      wallets: 11,
+      assets: 4,
+      stablecoins: 1,
+      reserveAccounts: 2,
+      treasuryPending: 3,
+      complianceOpen: 5,
+      reconciliationOpen: 7,
+      flagOverrides: 9,
+      recentAuditEvents: 13,
+    });
+    expect(prisma.tenant.count).toHaveBeenCalledWith({ where: { id: { in: ['tenant-a', 'tenant-b'] } } });
+    expect(prisma.reconciliationException.count).toHaveBeenCalledWith({
+      where: { tenantId: { in: ['tenant-a', 'tenant-b'] }, status: 'OPEN' },
+    });
   });
 });

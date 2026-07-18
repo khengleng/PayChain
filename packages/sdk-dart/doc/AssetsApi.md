@@ -28,7 +28,7 @@ Activate an asset
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getAssetsApi();
@@ -73,7 +73,7 @@ Burn loyalty value
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getAssetsApi();
@@ -122,7 +122,7 @@ Create an asset
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getAssetsApi();
@@ -169,7 +169,7 @@ Evaluate earn rules and award points
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getAssetsApi();
@@ -218,7 +218,7 @@ Get an asset
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getAssetsApi();
@@ -263,7 +263,7 @@ Issue loyalty value
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getAssetsApi();
@@ -312,7 +312,7 @@ List assets
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getAssetsApi();
@@ -355,7 +355,7 @@ Redeem loyalty value
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getAssetsApi();
@@ -404,7 +404,7 @@ Transfer loyalty value
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getAssetsApi();

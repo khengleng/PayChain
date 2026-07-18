@@ -11,6 +11,7 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 bash "$ROOT/scripts/verify-sdk-versions.sh" "$VERSION"
+node "$ROOT/scripts/postprocess-sdk-packages.mjs"
 
 rm -rf "$OUTDIR"
 mkdir -p "$OUTDIR"
@@ -23,6 +24,7 @@ cp "$OUTDIR/paychain-sdk-$VERSION.tgz" "$OUTDIR/paychain-sdk-latest.tgz"
   cd "$ROOT/packages/sdk-dart"
   dart pub get
   dart run build_runner build
+  dart test
   tar --exclude='.dart_tool' --exclude='build' -czf "$OUTDIR/paychain-sdk-dart-$VERSION.tar.gz" .
 )
 cp "$OUTDIR/paychain-sdk-dart-$VERSION.tar.gz" "$OUTDIR/paychain-sdk-dart-latest.tar.gz"

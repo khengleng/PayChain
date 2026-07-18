@@ -11,10 +11,25 @@ interface HealthState {
   database: boolean;
   chain: { healthy: boolean; network?: string; latestLedger?: number } | null;
 }
-interface ReadinessSummary {
-  productionReady: boolean;
-  mandatoryPassed: number;
-  mandatoryTotal: number;
+interface OverviewData {
+  readiness: {
+    productionReady: boolean;
+    mandatoryPassed: number;
+    mandatoryTotal: number;
+    blockedBy: string[];
+  } | null;
+  counts: {
+    tenants: number | null;
+    wallets: number | null;
+    assets: number | null;
+    stablecoins: number | null;
+    reserveAccounts: number | null;
+    treasuryPending: number | null;
+    complianceOpen: number | null;
+    reconciliationOpen: number | null;
+    flagOverrides: number | null;
+    recentAuditEvents: number | null;
+  };
 }
 
 async function getHealth(): Promise<HealthState> {
@@ -31,16 +46,16 @@ async function getHealth(): Promise<HealthState> {
 }
 
 const SECTIONS = [
-  { title: 'Readiness', href: '/readiness', desc: 'Production gates — blocks mainnet until all pass' },
-  { title: 'Stablecoins', href: '/stablecoins', desc: 'Lifecycle, gates, activation (flags OFF)' },
-  { title: 'Reserve', href: '/reserve', desc: 'Snapshots, ratios, proof-of-reserve' },
-  { title: 'Treasury', href: '/treasury', desc: 'Maker-checker movements' },
-  { title: 'Compliance', href: '/compliance', desc: 'KYC/AML/sanctions alerts' },
-  { title: 'Reconciliation', href: '/reconciliation', desc: 'Exception queue' },
-  { title: 'Feature Flags', href: '/feature-flags', desc: 'stablecoin.* flags' },
-  { title: 'Wallets', href: '/wallets', desc: 'Search, freeze, limits' },
-  { title: 'Assets', href: '/assets', desc: 'Issuance, supply' },
-  { title: 'Audit Logs', href: '/audit-logs', desc: 'Privileged + financial actions' },
+  { title: 'Readiness', href: '/readiness', desc: 'Production gates — blocks mainnet until all pass', key: 'readiness' },
+  { title: 'Stablecoins', href: '/stablecoins', desc: 'Lifecycle, gates, activation (flags OFF)', key: 'stablecoins' },
+  { title: 'Reserve', href: '/reserve', desc: 'Snapshots, ratios, proof-of-reserve', key: 'reserveAccounts' },
+  { title: 'Treasury', href: '/treasury', desc: 'Maker-checker movements', key: 'treasuryPending' },
+  { title: 'Compliance', href: '/compliance', desc: 'KYC/AML/sanctions alerts', key: 'complianceOpen' },
+  { title: 'Reconciliation', href: '/reconciliation', desc: 'Exception queue', key: 'reconciliationOpen' },
+  { title: 'Feature Flags', href: '/feature-flags', desc: 'stablecoin.* flags', key: 'flagOverrides' },
+  { title: 'Wallets', href: '/wallets', desc: 'Search, freeze, limits', key: 'wallets' },
+  { title: 'Assets', href: '/assets', desc: 'Issuance, supply', key: 'assets' },
+  { title: 'Audit Logs', href: '/audit-logs', desc: 'Privileged + financial actions', key: 'recentAuditEvents' },
 ];
 
 function Dot({ ok }: { ok: boolean }) {
@@ -48,11 +63,28 @@ function Dot({ ok }: { ok: boolean }) {
 }
 
 export default async function Page() {
-  const [health, readiness] = await Promise.all([
+  const [health, overview] = await Promise.all([
     getHealth(),
-    apiGet<{ summary: ReadinessSummary }>('/admin/readiness'),
+    apiGet<OverviewData>('/admin/overview'),
   ]);
-  const summary = readiness?.summary;
+  const summary = overview?.readiness;
+
+  function sectionMeta(section: (typeof SECTIONS)[number]) {
+    if (!overview) return null;
+    if (section.key === 'readiness') {
+      return summary
+        ? `${summary.mandatoryPassed}/${summary.mandatoryTotal} mandatory gates passed`
+        : null;
+    }
+    const value = overview.counts[section.key as keyof OverviewData['counts']];
+    if (value === null) return null;
+    if (section.key === 'treasuryPending') return `${value} pending approval`;
+    if (section.key === 'complianceOpen') return `${value} open alert${value === 1 ? '' : 's'}`;
+    if (section.key === 'reconciliationOpen') return `${value} unresolved exception${value === 1 ? '' : 's'}`;
+    if (section.key === 'flagOverrides') return `${value} tenant override${value === 1 ? '' : 's'}`;
+    if (section.key === 'recentAuditEvents') return `${value} audit event${value === 1 ? '' : 's'}`;
+    return `${value} record${value === 1 ? '' : 's'}`;
+  }
 
   return (
     <>
@@ -95,6 +127,9 @@ export default async function Page() {
           <Link className="card" key={s.href} href={s.href} style={{ display: 'block' }}>
             <h3>{s.title}</h3>
             <p>{s.desc}</p>
+            {sectionMeta(s) && (
+              <p style={{ marginTop: 10, color: 'var(--muted)', fontSize: 13 }}>{sectionMeta(s)}</p>
+            )}
           </Link>
         ))}
       </div>

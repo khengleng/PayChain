@@ -26,7 +26,7 @@ Activate a stablecoin
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getStablecoinsApi();
@@ -71,7 +71,7 @@ Approve a stablecoin gate
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getStablecoinsApi();
@@ -120,7 +120,7 @@ Feature-flag gated; public issuance remains disabled until readiness gates pass.
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getStablecoinsApi();
@@ -167,7 +167,7 @@ Get a stablecoin
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getStablecoinsApi();
@@ -214,7 +214,7 @@ Stablecoin features are disabled by default until readiness gates pass.
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getStablecoinsApi();
@@ -257,7 +257,7 @@ Submit a stablecoin for review
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getStablecoinsApi();
@@ -302,7 +302,7 @@ Suspend stablecoin minting, redemption, or both
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getStablecoinsApi();

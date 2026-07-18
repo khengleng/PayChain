@@ -5,15 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "homepage": "https://developer.paychain.cambobia.com",
-  "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/khengleng/PayChain.git",
-    "directory": "packages/sdk-typescript"
-  },
-  "bugs": {
-    "url": "https://github.com/khengleng/PayChain/issues"
-  },
+  "license": "UNLICENSED",
   "keywords": [
     "paychain",
     "sdk",
@@ -39,6 +31,7 @@
     "dist"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "restricted",
+    "registry": "https://packages.paychain.cambobia.com/npm/"
   }
 }

@@ -22,7 +22,7 @@ Create a mint request
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getStablecoinWorkflowsApi();
@@ -71,7 +71,7 @@ Create a redemption request
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getStablecoinWorkflowsApi();
@@ -120,7 +120,7 @@ Quote a loyalty to stablecoin conversion
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getStablecoinWorkflowsApi();

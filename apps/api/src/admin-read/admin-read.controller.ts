@@ -19,6 +19,11 @@ import { AdminReadService } from './admin-read.service';
 export class AdminReadController {
   constructor(private readonly svc: AdminReadService) {}
 
+  @Get('overview')
+  overview(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.overview(tenantScopeOf(admin), admin.permissions);
+  }
+
   // GET admin/tenants now lives on AdminTenantsController, alongside tenant creation and
   // suspension, and keeps this route and response shape.
 

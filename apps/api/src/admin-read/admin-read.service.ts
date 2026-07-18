@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import type { Permission } from '../admin-auth/roles';
+import { ReadinessService } from '../readiness/readiness.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { tenantScopeWhere } from '../admin-auth/abac';
 import { STABLECOIN_FLAGS, GLOBAL_TENANT } from '../feature-flags/feature-flags.constants';
@@ -19,7 +21,10 @@ const MAX = 200;
 
 @Injectable()
 export class AdminReadService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly readiness: ReadinessService,
+  ) {}
 
   /** tenantId → tenant name, for enriching models that store only a tenantId string. */
   private async tenantNames(): Promise<Map<string, string>> {
@@ -246,6 +251,103 @@ export class AdminReadService {
         updatedAt: r.updatedAt,
       }));
     return { global, overrides };
+  }
+
+  /**
+   * Top-level admin portal summary, used by the overview dashboard.
+   *
+   * The first version of the dashboard was effectively a mockup with live health checks stapled
+   * onto it: labels and links were static, and the operator learned nothing about platform state
+   * until drilling into each page. This endpoint turns the overview into a real control surface by
+   * feeding it the same counts and readiness state the underlying screens are built on.
+   *
+   * Counts are only returned for sections the caller may read. The dashboard must not leak the
+   * existence or scale of another admin surface to a user who lacks that permission.
+   */
+  async overview(scope: TenantScope, permissions: Permission[]) {
+    const scoped = tenantScopeWhere(scope);
+    const can = (perm: Permission) => permissions.includes(perm);
+
+    const counts = {
+      tenants: null as number | null,
+      wallets: null as number | null,
+      assets: null as number | null,
+      stablecoins: null as number | null,
+      reserveAccounts: null as number | null,
+      treasuryPending: null as number | null,
+      complianceOpen: null as number | null,
+      reconciliationOpen: null as number | null,
+      flagOverrides: null as number | null,
+      recentAuditEvents: null as number | null,
+    };
+
+    const jobs: Array<Promise<void>> = [];
+
+    if (can('tenant:read')) {
+      jobs.push(
+        this.prisma.tenant
+          .count({ where: scope ? { id: { in: scope } } : {} })
+          .then((n) => void (counts.tenants = n)),
+      );
+    }
+    if (can('wallet:read')) {
+      jobs.push(this.prisma.wallet.count({ where: scoped }).then((n) => void (counts.wallets = n)));
+    }
+    if (can('asset:read')) {
+      jobs.push(this.prisma.asset.count({ where: scoped }).then((n) => void (counts.assets = n)));
+    }
+    if (can('stablecoin:read')) {
+      jobs.push(this.prisma.stablecoinConfig.count({ where: scoped }).then((n) => void (counts.stablecoins = n)));
+    }
+    if (can('reserve:read')) {
+      jobs.push(this.prisma.reserveAccount.count({ where: scoped }).then((n) => void (counts.reserveAccounts = n)));
+    }
+    if (can('treasury:read')) {
+      jobs.push(
+        this.prisma.treasuryMovement
+          .count({ where: { ...scoped, status: 'PENDING_APPROVAL' } })
+          .then((n) => void (counts.treasuryPending = n)),
+      );
+    }
+    if (can('compliance:read')) {
+      jobs.push(
+        this.prisma.monitoringAlert
+          .count({ where: { ...scoped, status: { in: ['OPEN', 'HELD'] } } })
+          .then((n) => void (counts.complianceOpen = n)),
+      );
+    }
+    if (can('reconciliation:read')) {
+      jobs.push(
+        this.prisma.reconciliationException
+          .count({ where: { ...scoped, status: 'OPEN' } })
+          .then((n) => void (counts.reconciliationOpen = n)),
+      );
+    }
+    if (can('flags:read')) {
+      jobs.push(
+        this.prisma.featureFlag
+          .count({ where: scope ? { tenantId: { in: scope } } : { tenantId: { not: GLOBAL_TENANT } } })
+          .then((n) => void (counts.flagOverrides = n)),
+      );
+    }
+    if (can('audit:read')) {
+      jobs.push(this.prisma.auditLog.count({ where: scoped }).then((n) => void (counts.recentAuditEvents = n)));
+    }
+
+    await Promise.all(jobs);
+    const readiness = can('readiness:read') ? await this.readiness.summary() : null;
+
+    return {
+      readiness: readiness
+        ? {
+            productionReady: readiness.productionReady,
+            mandatoryPassed: readiness.mandatoryPassed,
+            mandatoryTotal: readiness.mandatoryTotal,
+            blockedBy: readiness.blockedBy,
+          }
+        : null,
+      counts,
+    };
   }
 
 }

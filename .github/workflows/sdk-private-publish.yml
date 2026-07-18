@@ -1,0 +1,137 @@
+name: SDK Private Publish
+
+on:
+  push:
+    tags:
+      - 'sdk-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SDK version to package and publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve SDK version
+        id: version
+        shell: bash
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#sdk-v}"
+          fi
+
+          if [ -z "$VERSION" ]; then
+            echo "::error::Unable to determine SDK version"
+            exit 1
+          fi
+
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://packages.paychain.cambobia.com/npm/
+
+      - uses: dart-lang/setup-dart@v1
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check SDK post-processing
+        run: node scripts/postprocess-sdk-packages.mjs --check
+
+      - name: Package SDK artifacts
+        run: bash scripts/package-sdk-artifacts.sh "${{ steps.version.outputs.value }}" release-assets
+
+      - name: Publish TypeScript SDK to private npm
+        working-directory: packages/sdk-typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PAYCHAIN_NPM_TOKEN }}
+        run: npm publish --registry=https://packages.paychain.cambobia.com/npm/
+
+      - name: Publish Dart SDK to private pub server
+        working-directory: packages/sdk-dart
+        env:
+          PUB_HOSTED_URL: https://packages.paychain.cambobia.com/dart/
+          PAYCHAIN_DART_CREDENTIALS: ${{ secrets.PAYCHAIN_DART_CREDENTIALS }}
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.config/dart"
+          printf '%s' "$PAYCHAIN_DART_CREDENTIALS" > "$HOME/.config/dart/pub-credentials.json"
+          dart pub publish -f
+
+      - name: Publish Kotlin SDK to private Maven
+        working-directory: packages/sdk-kotlin
+        env:
+          PAYCHAIN_MAVEN_URL: ${{ secrets.PAYCHAIN_MAVEN_URL }}
+          PAYCHAIN_MAVEN_USERNAME: ${{ secrets.PAYCHAIN_MAVEN_USERNAME }}
+          PAYCHAIN_MAVEN_PASSWORD: ${{ secrets.PAYCHAIN_MAVEN_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew publish -Pversion="${{ steps.version.outputs.value }}"
+
+      - name: Publish .NET SDK to private NuGet
+        env:
+          PAYCHAIN_NUGET_SOURCE: ${{ secrets.PAYCHAIN_NUGET_SOURCE }}
+          PAYCHAIN_NUGET_API_KEY: ${{ secrets.PAYCHAIN_NUGET_API_KEY }}
+        run: |
+          dotnet nuget push "release-assets/PayChain.Sdk.${{ steps.version.outputs.value }}.nupkg" \
+            --source "$PAYCHAIN_NUGET_SOURCE" \
+            --api-key "$PAYCHAIN_NUGET_API_KEY" \
+            --skip-duplicate
+          if [ -f "release-assets/PayChain.Sdk.${{ steps.version.outputs.value }}.snupkg" ]; then
+            dotnet nuget push "release-assets/PayChain.Sdk.${{ steps.version.outputs.value }}.snupkg" \
+              --source "$PAYCHAIN_NUGET_SOURCE" \
+              --api-key "$PAYCHAIN_NUGET_API_KEY" \
+              --skip-duplicate
+          fi
+
+      - name: Publish PHP archive and SDK bundle to private object storage
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.PAYCHAIN_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.PAYCHAIN_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.PAYCHAIN_AWS_REGION }}
+          PAYCHAIN_S3_ENDPOINT: ${{ secrets.PAYCHAIN_S3_ENDPOINT }}
+          PAYCHAIN_SDK_BUCKET: ${{ secrets.PAYCHAIN_SDK_BUCKET }}
+        shell: bash
+        run: |
+          aws --endpoint-url "$PAYCHAIN_S3_ENDPOINT" s3 cp \
+            "release-assets/paychain-sdk-php-${{ steps.version.outputs.value }}.tar.gz" \
+            "s3://$PAYCHAIN_SDK_BUCKET/php/paychain-sdk-php-${{ steps.version.outputs.value }}.tar.gz"
+          aws --endpoint-url "$PAYCHAIN_S3_ENDPOINT" s3 cp \
+            "release-assets/paychain-sdk-php-latest.tar.gz" \
+            "s3://$PAYCHAIN_SDK_BUCKET/php/paychain-sdk-php-latest.tar.gz"
+          aws --endpoint-url "$PAYCHAIN_S3_ENDPOINT" s3 sync release-assets/ "s3://$PAYCHAIN_SDK_BUCKET/all/${{ steps.version.outputs.value }}/"
+
+      - name: Upload packaged SDK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-private-release-assets
+          path: release-assets/*

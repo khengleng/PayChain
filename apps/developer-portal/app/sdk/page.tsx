@@ -1,7 +1,7 @@
-const REPO_BASE = 'https://github.com/khengleng/PayChain/tree/main';
 const OPENAPI_URL = 'https://api.paychain.cambobia.com/api/v1/openapi.json';
 
-const TYPESCRIPT_INSTALL = `npm install https://github.com/khengleng/PayChain/releases/latest/download/paychain-sdk-latest.tgz`;
+const TYPESCRIPT_INSTALL = `# Access is provisioned by PayChain
+npm install @paychain/sdk --registry=https://packages.paychain.cambobia.com/npm/`;
 
 const OPENAPI_SNIPPET = `curl -O ${OPENAPI_URL}
 
@@ -64,24 +64,22 @@ export default function Sdk() {
       <h1>SDKs</h1>
       <p className="lead">
         PayChain supports one maintained TypeScript SDK plus generated Dart, PHP, Kotlin, and
-        .NET packages from the public OpenAPI contract.
+        .NET packages from the public OpenAPI contract. SDK distributions are PayChain-owned
+        packages for approved partners and internal teams.
       </p>
 
       <div className="grid">
         {SDKS.map((sdk) => (
-          <a
-            key={sdk.name}
-            className="card"
-            href={`${REPO_BASE}/${sdk.packagePath}`}
-            target="_blank"
-            rel="noreferrer"
-          >
+          <div key={sdk.name} className="card">
             <h3>{sdk.name}</h3>
             <p>
               <span className="mono">{sdk.status}</span>
             </p>
+            <p style={{ marginTop: 8 }} className="mono">
+              {sdk.packagePath}
+            </p>
             <p style={{ marginTop: 8 }}>{sdk.docs}</p>
-          </a>
+          </div>
         ))}
       </div>
 
@@ -101,7 +99,7 @@ export default function Sdk() {
             </tr>
             <tr>
               <td className="mono">PHP / Kotlin / .NET</td>
-              <td>Use the generated package source in this repo or regenerate from OpenAPI.</td>
+              <td>Use the PayChain-provided package from your approved private artifact feed.</td>
             </tr>
             <tr>
               <td className="mono">Any other platform</td>
@@ -115,8 +113,8 @@ export default function Sdk() {
 
       <h2>TypeScript install</h2>
       <p className="lead" style={{ fontSize: 14 }}>
-        The TypeScript SDK is the most complete client today. It is not on the public npm
-        registry yet, so install from the latest GitHub release tarball.
+        The TypeScript SDK is the most complete client today. It is distributed through a
+        PayChain-controlled private registry rather than a public source repository.
       </p>
       <pre>
         <code>{TYPESCRIPT_INSTALL}</code>
@@ -148,9 +146,9 @@ export default function Sdk() {
           </tr>
           <tr>
             <td className="mono" style={{ whiteSpace: 'nowrap', paddingRight: 16 }}>
-              Generated SDKs
+              SDK distribution
             </td>
-            <td>Current generated packages are committed in this repository under <span className="mono">packages/</span>.</td>
+            <td>Language SDKs are distributed as PayChain proprietary packages. Contact PayChain to provision registry access.</td>
           </tr>
           <tr>
             <td className="mono" style={{ whiteSpace: 'nowrap', paddingRight: 16 }}>

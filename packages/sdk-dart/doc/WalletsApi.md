@@ -24,7 +24,7 @@ Creates the Stellar account and records the wallet under the caller tenant.
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getWalletsApi();
@@ -71,7 +71,7 @@ Get a wallet
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getWalletsApi();
@@ -118,7 +118,7 @@ Refreshes the rebuildable balance read model from chain before returning balance
 ### Example
 ```dart
 import 'package:paychain_sdk/api.dart';
-// TODO Configure OAuth2 access token for authorization: oauth2ClientCredentials
+// Configure OAuth2 client credentials before calling authenticated endpoints.
 //defaultApiClient.getAuthentication<OAuth>('oauth2ClientCredentials').accessToken = 'YOUR_ACCESS_TOKEN';
 
 final api = PaychainSdk().getWalletsApi();

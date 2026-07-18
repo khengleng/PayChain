@@ -282,7 +282,7 @@ open class ApiClient(val baseUrl: String, val client: Call.Factory = defaultClie
                 }
                 textualContent.toRequestBody(mediaType.toMediaTypeOrNull())
             }
-            // TODO: this should be extended with other serializers
+            // NOTE: extend this serializer map if new custom scalar types are added.
             else -> throw UnsupportedOperationException("requestBody currently only supports JSON body, text body, byte body and File body.")
         }
 
@@ -333,7 +333,7 @@ open class ApiClient(val baseUrl: String, val client: Call.Factory = defaultClie
                 }
             }
 
-            // Attention: if you are developing an android app that supports API Level 25 and below, please check flag supportAndroidApiLevel25AndBelow in https://openapi-generator.tech/docs/generators/kotlin#config-options
+            // Attention: if you are developing an android app that supports API Level 25 and below, please check flag supportAndroidApiLevel25AndBelow in https://developer.paychain.cambobia.com/sdk
             val tempFile = java.nio.file.Files.createTempFile(prefix, suffix).toFile()
             tempFile.deleteOnExit()
             body.byteStream().use { inputStream ->
@@ -396,7 +396,7 @@ open class ApiClient(val baseUrl: String, val client: Call.Factory = defaultClie
         }
 
         val contentType = if (headers[CONTENT_TYPE] != null) {
-            // TODO: support multiple contentType options here.
+            // NOTE: this implementation currently assumes one content type per operation.
             (headers[CONTENT_TYPE] as String).substringBefore(";").lowercase(Locale.US)
         } else {
             null
@@ -422,7 +422,7 @@ open class ApiClient(val baseUrl: String, val client: Call.Factory = defaultClie
 
         val accept = response.header(CONTENT_TYPE)?.substringBefore(";")?.lowercase(Locale.US)
 
-        // TODO: handle specific mapping types. e.g. Map<int, Class<?>>
+        // NOTE: add explicit mapping support here if strongly typed map keys are introduced.
         @Suppress("UNNECESSARY_SAFE_CALL")
         return response.use {
             when {
