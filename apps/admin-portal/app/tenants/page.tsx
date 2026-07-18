@@ -21,6 +21,7 @@ export default function TenantsPage() {
   const [items, setItems] = useState<TenantRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [canWrite, setCanWrite] = useState(false);
+  const [myRole, setMyRole] = useState<string>('');
   const [name, setName] = useState('');
   const [type, setType] = useState<'DIRECT' | 'WHOLESALER' | 'RETAILER'>('DIRECT');
   const [parentTenantId, setParentTenantId] = useState('');
@@ -40,7 +41,10 @@ export default function TenantsPage() {
     // they can use is as bad as showing one they cannot.
     void fetch('/api/access-model')
       .then((r) => (r.ok ? r.json() : null))
-      .then((m) => setCanWrite(Boolean(m?.me?.permissions?.includes('tenant:write'))))
+      .then((m) => {
+        setCanWrite(Boolean(m?.me?.permissions?.includes('tenant:write')));
+        setMyRole(m?.me?.role ?? '');
+      })
       .catch(() => undefined);
   }, [load]);
 
@@ -58,7 +62,7 @@ export default function TenantsPage() {
     if (res.ok) {
       setNotice(`Created tenant "${data.name}" — issue its API credentials to let it integrate.`);
       setName('');
-      setType('DIRECT');
+      setType(myRole === 'WHOLESALE_ADMIN' ? 'RETAILER' : 'DIRECT');
       setParentTenantId('');
       void load();
     } else {
@@ -109,7 +113,12 @@ export default function TenantsPage() {
             </div>
             <div style={{ minWidth: 180 }}>
               <label className="login-label">Tenant type</label>
-              <select className="login-input" value={type} onChange={(e) => setType(e.target.value as never)}>
+              <select
+                className="login-input"
+                value={type}
+                onChange={(e) => setType(e.target.value as never)}
+                disabled={myRole === 'WHOLESALE_ADMIN'}
+              >
                 <option value="DIRECT">DIRECT</option>
                 <option value="WHOLESALER">WHOLESALER</option>
                 <option value="RETAILER">RETAILER</option>
@@ -120,7 +129,7 @@ export default function TenantsPage() {
               <select className="login-input" value={parentTenantId} onChange={(e) => setParentTenantId(e.target.value)} disabled={type !== 'RETAILER'}>
                 <option value="">None</option>
                 {items
-                  .filter((item) => item.type !== 'RETAILER')
+                  .filter((item) => item.type === 'WHOLESALER')
                   .map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name} ({item.type})
@@ -173,18 +182,8 @@ export default function TenantsPage() {
                 <td>
                   <div className="row-actions">
                     <Link className="btn-sm" href={`/tenants/${t.id}/clients`}>API credentials</Link>
-                    {canWrite && t.type !== 'RETAILER' && (
-                      <button
-                        className="btn-sm"
-                        onClick={() => {
-                          setType('RETAILER');
-                          setParentTenantId(t.id);
-                          setName('');
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                      >
-                        Add retailer
-                      </button>
+                    {t.type === 'WHOLESALER' && (
+                      <Link className="btn-sm" href={`/tenants/${t.id}`}>Manage retailers</Link>
                     )}
                     {canWrite && (
                       <button

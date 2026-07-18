@@ -19,6 +19,22 @@ export interface TenantView {
   assets: number;
 }
 
+export interface RetailerTenantView extends TenantView {
+  wholesalerTenantId: string;
+  wholesalerTenantName: string;
+}
+
+export interface WholesalerRetailersView {
+  wholesaler: TenantView;
+  summary: {
+    retailers: number;
+    apiClients: number;
+    wallets: number;
+    assets: number;
+  };
+  items: RetailerTenantView[];
+}
+
 /**
  * Tenant provisioning (§7).
  *
@@ -48,19 +64,7 @@ export class AdminTenantsService {
     // the problem.
     const items = rows
       .filter((t) => isPermitted(admin, t.id))
-      .map((t) => ({
-        id: t.id,
-        name: t.name,
-        type: t.type,
-        parentTenantId: t.parentTenantId,
-        parentTenantName: t.parentTenant?.name ?? null,
-        status: t.status,
-        createdAt: t.createdAt,
-        childTenants: t._count.childTenants,
-        apiClients: t._count.apiClients,
-        wallets: t._count.wallets,
-        assets: t._count.assets,
-      }));
+      .map((t) => this.toTenantView(t));
     return { items };
   }
 
@@ -89,10 +93,13 @@ export class AdminTenantsService {
       assertPermittedByAttributes(admin, { tenantId: parent.id });
     }
     if (type === 'RETAILER' && !parent) {
-      throw new ConflictException('A retailer tenant must belong to a wholesaler or parent tenant');
+      throw new ConflictException('A retailer tenant must belong to a wholesaler tenant');
     }
     if (type !== 'RETAILER' && parent) {
       throw new ConflictException('Only retailer tenants may be created under a parent tenant');
+    }
+    if (type === 'RETAILER' && parent?.type !== 'WHOLESALER') {
+      throw new ConflictException('Retailer tenants may only be created under a WHOLESALER tenant');
     }
     if (admin.role === 'WHOLESALE_ADMIN') {
       if (type !== 'RETAILER' || !parent) {
@@ -125,6 +132,54 @@ export class AdminTenantsService {
     return tenant;
   }
 
+  async retailers(admin: AdminContext, wholesalerTenantId: string): Promise<WholesalerRetailersView> {
+    const wholesaler = await this.prisma.tenant.findUnique({
+      where: { id: wholesalerTenantId },
+      include: {
+        parentTenant: { select: { id: true, name: true } },
+        _count: { select: { childTenants: true, apiClients: true, wallets: true, assets: true } },
+      },
+    });
+    if (!wholesaler) throw new NotFoundException('Tenant not found');
+    assertPermittedByAttributes(admin, { tenantId: wholesaler.id });
+    if (wholesaler.type !== 'WHOLESALER') {
+      throw new ConflictException('Only WHOLESALER tenants have downstream retailer management');
+    }
+
+    const rows = await this.prisma.tenant.findMany({
+      where: { parentTenantId: wholesaler.id, type: 'RETAILER' },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        parentTenant: { select: { id: true, name: true } },
+        _count: { select: { childTenants: true, apiClients: true, wallets: true, assets: true } },
+      },
+    });
+    const items = rows.map((tenant) => this.toRetailerView(tenant, wholesaler));
+    return {
+      wholesaler: this.toTenantView(wholesaler),
+      summary: {
+        retailers: items.length,
+        apiClients: items.reduce((sum, item) => sum + item.apiClients, 0),
+        wallets: items.reduce((sum, item) => sum + item.wallets, 0),
+        assets: items.reduce((sum, item) => sum + item.assets, 0),
+      },
+      items,
+    };
+  }
+
+  async createRetailer(
+    admin: AdminContext,
+    wholesalerTenantId: string,
+    input: { name: string },
+    correlationId: string,
+  ) {
+    return this.create(
+      admin,
+      { name: input.name, type: 'RETAILER', parentTenantId: wholesalerTenantId },
+      correlationId,
+    );
+  }
+
   async setStatus(
     admin: AdminContext,
     tenantId: string,
@@ -152,6 +207,33 @@ export class AdminTenantsService {
 
     return updated;
   }
+
+  private toTenantView(tenant: TenantWithCounts): TenantView {
+    return {
+      id: tenant.id,
+      name: tenant.name,
+      type: tenant.type,
+      parentTenantId: tenant.parentTenantId,
+      parentTenantName: tenant.parentTenant?.name ?? null,
+      status: tenant.status,
+      createdAt: tenant.createdAt,
+      childTenants: tenant._count.childTenants,
+      apiClients: tenant._count.apiClients,
+      wallets: tenant._count.wallets,
+      assets: tenant._count.assets,
+    };
+  }
+
+  private toRetailerView(
+    tenant: TenantWithCounts,
+    wholesaler: TenantWithCounts,
+  ): RetailerTenantView {
+    return {
+      ...this.toTenantView(tenant),
+      wholesalerTenantId: wholesaler.id,
+      wholesalerTenantName: wholesaler.name,
+    };
+  }
 }
 
 /** A tenant-scoped WHOLESALE_ADMIN creates retailers by default; platform roles create direct tenants by default. */
@@ -165,3 +247,8 @@ function isPermitted(admin: AdminContext, tenantId: string): boolean {
   if (!Array.isArray(tenants) || tenants.length === 0) return true; // unscoped
   return (tenants as string[]).includes(tenantId);
 }
+
+type TenantWithCounts = Awaited<ReturnType<PrismaService['tenant']['findFirst']>> & {
+  _count: { childTenants: number; apiClients: number; wallets: number; assets: number };
+  parentTenant?: { id: string; name: string } | null;
+};
