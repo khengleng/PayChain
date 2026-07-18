@@ -30,6 +30,17 @@ export default async function AccessControlPage() {
         enforces them · authorization always checks a permission, never a role name
       </p>
 
+      {model.me.role === 'SUPER_ADMIN' && (
+        <div className="banner ready">
+          <div className="big">Super admin role</div>
+          <div style={{ color: 'var(--muted)', marginTop: 6 }}>
+            This role currently carries the full permission catalog and is the only role intended
+            to own end-to-end control-plane alignment across partner onboarding, trustee
+            verification, readiness, emergency controls, and admin lifecycle management.
+          </div>
+        </div>
+      )}
+
       <div className="section-title">Your access</div>
       <div className="form-card" style={{ maxWidth: 900 }}>
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>

@@ -110,7 +110,9 @@ export default function AdminsPage() {
   return (
     <>
       <h1>Admins</h1>
-      <p className="subtitle">Manage platform administrators, roles, and access</p>
+      <p className="subtitle">
+        Manage platform administrators, super-admin ownership, roles, and tenant-scoped access
+      </p>
 
       {notice && <div className="ok-note">{notice}</div>}
       {error && <div className="login-error" style={{ maxWidth: 600 }}>{error}</div>}
@@ -154,6 +156,8 @@ export default function AdminsPage() {
           <a href="/access-control">Access Control</a> for what each role can do.
           Use <span className="mono">tenantRoots</span> for a wholesaler such as PayKH so its
           scope expands automatically to downstream retailer tenants.
+          Reserve <span className="mono">SUPER_ADMIN</span> for operators who own the full platform
+          control plane rather than one domain.
         </p>
       </form>
 
