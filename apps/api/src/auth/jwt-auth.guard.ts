@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { PrismaService } from '../prisma/prisma.service';
 import type { AuthContext, AuthedRequest } from './auth-context';
 
 interface AccessTokenClaims {
@@ -12,6 +13,7 @@ interface AccessTokenClaims {
   tid: string; // tenantId
   scopes: string[];
   typ?: string;
+  ver?: number;
 }
 
 /**
@@ -20,7 +22,10 @@ interface AccessTokenClaims {
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly jwt: JwtService) {}
+  constructor(
+    private readonly jwt: JwtService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthedRequest & { headers: Record<string, string> }>();
@@ -39,10 +44,21 @@ export class JwtAuthGuard implements CanActivate {
     if (claims.typ === 'admin' || !claims.tid) {
       throw new UnauthorizedException('This token is not valid for tenant API access');
     }
+    const client = await this.prisma.apiClient.findUnique({
+      where: { clientId: claims.sub },
+      select: { id: true, tenantId: true, status: true, scopes: true, tokenVersion: true },
+    });
+    if (!client || client.status !== 'ACTIVE' || client.tenantId !== claims.tid) {
+      throw new UnauthorizedException('This client is no longer authorized');
+    }
+    if ((claims.ver ?? 1) !== client.tokenVersion) {
+      throw new UnauthorizedException('This token has been superseded by a credential change');
+    }
     const auth: AuthContext = {
+      apiClientId: client.id,
       tenantId: claims.tid,
       clientId: claims.sub,
-      scopes: claims.scopes ?? [],
+      scopes: client.scopes,
     };
     req.auth = auth;
     return true;

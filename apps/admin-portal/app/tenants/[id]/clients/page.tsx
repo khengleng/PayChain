@@ -10,6 +10,11 @@ interface ClientRow {
   scopes: string[];
   status: string;
   createdBy: string | null;
+  ownerEmail: string | null;
+  lastTokenIssuedAt: string | null;
+  lastApiRequestAt: string | null;
+  requestCount24h: number;
+  errorCount24h: number;
   createdAt: string;
 }
 
@@ -33,6 +38,7 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
   const [canWrite, setCanWrite] = useState(false);
   const [name, setName] = useState('');
   const [prefix, setPrefix] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [issued, setIssued] = useState<Issued | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,12 +77,18 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
     const res = await fetch(`/api/tenants/${tenantId}/clients`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, scopes: selected, ...(prefix ? { clientIdPrefix: prefix } : {}) }),
+      body: JSON.stringify({
+        name,
+        scopes: selected,
+        ...(prefix ? { clientIdPrefix: prefix } : {}),
+        ...(ownerEmail ? { ownerEmail } : {}),
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       setIssued(data as Issued);
       setName('');
+      setOwnerEmail('');
       void load();
     } else {
       setError(data.message ?? 'Could not issue credentials');
@@ -139,6 +151,16 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
               <input className="login-input" value={prefix} onChange={(e) => setPrefix(e.target.value)}
                 placeholder="paykh" pattern="[a-z0-9-]{1,16}" />
             </div>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <label className="login-label">Owner email</label>
+              <input
+                className="login-input"
+                type="email"
+                value={ownerEmail}
+                onChange={(e) => setOwnerEmail(e.target.value)}
+                placeholder="required for sensitive scopes"
+              />
+            </div>
           </div>
 
           <div className="login-label" style={{ marginTop: 12 }}>Scopes</div>
@@ -170,18 +192,32 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Label</th><th>Client ID</th><th>Scopes</th><th>Status</th><th>Issued by</th><th>Actions</th></tr>
+            <tr>
+              <th>Label</th><th>Client ID</th><th>Owner</th><th>Scopes</th><th>Status</th>
+              <th>Last token</th><th>Last API use</th><th>24h</th><th>Issued by</th><th>Actions</th>
+            </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td colSpan={6} style={{ color: 'var(--muted)' }}>No credentials issued for this tenant yet.</td></tr>
+              <tr><td colSpan={10} style={{ color: 'var(--muted)' }}>No credentials issued for this tenant yet.</td></tr>
             )}
             {rows.map((c) => (
               <tr key={c.id}>
                 <td>{c.name}</td>
                 <td className="mono" style={{ fontSize: 12 }}>{c.clientId}</td>
-                <td style={{ fontSize: 11, color: 'var(--muted)' }}>{c.scopes.length} scope(s)</td>
+                <td style={{ fontSize: 12 }}>{c.ownerEmail ?? '—'}</td>
+                <td style={{ fontSize: 11, color: 'var(--muted)' }} title={c.scopes.join(', ')}>
+                  {c.scopes.length} scope(s)
+                </td>
                 <td><span className={`pill ${c.status === 'ACTIVE' ? 'PASSED' : 'BLOCKED'}`}>{c.status}</span></td>
+                <td style={{ fontSize: 12 }}>{c.lastTokenIssuedAt ? new Date(c.lastTokenIssuedAt).toLocaleString() : '—'}</td>
+                <td style={{ fontSize: 12 }}>{c.lastApiRequestAt ? new Date(c.lastApiRequestAt).toLocaleString() : '—'}</td>
+                <td style={{ fontSize: 12 }}>
+                  {c.requestCount24h} req
+                  <div style={{ color: c.errorCount24h > 0 ? 'var(--err)' : 'var(--muted)' }}>
+                    {c.errorCount24h} err
+                  </div>
+                </td>
                 <td style={{ fontSize: 12 }}>{c.createdBy ?? '—'}</td>
                 <td>
                   {canWrite && (
@@ -200,8 +236,9 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
         </table>
       </div>
       <p className="subtitle" style={{ fontSize: 12 }}>
-        Rotating issues a new secret and kills the old one immediately; the client id and scopes stay
-        the same, so the partner changes one environment variable rather than re-onboarding.
+        Rotating or revoking now invalidates existing bearer tokens immediately. The activity
+        columns show whether a credential is actually active in production, not only marked active
+        on paper.
       </p>
     </>
   );

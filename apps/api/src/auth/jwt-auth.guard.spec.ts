@@ -10,20 +10,42 @@ function contextFor(header: string | undefined): { ctx: never; req: AuthedReques
 
 describe('JwtAuthGuard (security)', () => {
   it('accepts a valid tenant/machine token and sets tenant context', async () => {
-    const g = new JwtAuthGuard({ verifyAsync: jest.fn().mockResolvedValue({ sub: 'c1', tid: 't1', scopes: ['wallet.read'] }) } as never);
+    const g = new JwtAuthGuard(
+      { verifyAsync: jest.fn().mockResolvedValue({ sub: 'c1', tid: 't1', scopes: ['wallet.read'], ver: 3 }) } as never,
+      { apiClient: { findUnique: jest.fn().mockResolvedValue({ id: 'db1', tenantId: 't1', status: 'ACTIVE', scopes: ['wallet.read'], tokenVersion: 3 }) } } as never,
+    );
     const { ctx, req } = contextFor('Bearer x');
     await expect(g.canActivate(ctx)).resolves.toBe(true);
     expect(req.auth?.tenantId).toBe('t1');
+    expect(req.auth?.apiClientId).toBe('db1');
   });
 
   it('rejects an admin (human) token on tenant endpoints', async () => {
-    const g = new JwtAuthGuard({ verifyAsync: jest.fn().mockResolvedValue({ sub: 'u1', typ: 'admin' }) } as never);
+    const g = new JwtAuthGuard({ verifyAsync: jest.fn().mockResolvedValue({ sub: 'u1', typ: 'admin' }) } as never, {} as never);
     const { ctx } = contextFor('Bearer x');
     await expect(g.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('rejects a token with no tenant id', async () => {
-    const g = new JwtAuthGuard({ verifyAsync: jest.fn().mockResolvedValue({ sub: 'c1', scopes: [] }) } as never);
+    const g = new JwtAuthGuard({ verifyAsync: jest.fn().mockResolvedValue({ sub: 'c1', scopes: [] }) } as never, {} as never);
+    const { ctx } = contextFor('Bearer x');
+    await expect(g.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects a revoked client immediately even with a still-valid token', async () => {
+    const g = new JwtAuthGuard(
+      { verifyAsync: jest.fn().mockResolvedValue({ sub: 'c1', tid: 't1', scopes: ['wallet.read'], ver: 1 }) } as never,
+      { apiClient: { findUnique: jest.fn().mockResolvedValue({ id: 'db1', tenantId: 't1', status: 'REVOKED', scopes: ['wallet.read'], tokenVersion: 1 }) } } as never,
+    );
+    const { ctx } = contextFor('Bearer x');
+    await expect(g.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects a token after credential rotation or scope change increments the token version', async () => {
+    const g = new JwtAuthGuard(
+      { verifyAsync: jest.fn().mockResolvedValue({ sub: 'c1', tid: 't1', scopes: ['wallet.read'], ver: 1 }) } as never,
+      { apiClient: { findUnique: jest.fn().mockResolvedValue({ id: 'db1', tenantId: 't1', status: 'ACTIVE', scopes: ['wallet.read'], tokenVersion: 2 }) } } as never,
+    );
     const { ctx } = contextFor('Bearer x');
     await expect(g.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
   });

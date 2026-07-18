@@ -55,8 +55,13 @@ export class AuthService {
       }
     }
 
+    await this.prisma.apiClient.update({
+      where: { id: client.id },
+      data: { lastTokenIssuedAt: new Date() },
+    });
+
     const token = await this.jwt.signAsync(
-      { sub: client.clientId, tid: client.tenantId, scopes: client.scopes },
+      { sub: client.clientId, tid: client.tenantId, scopes: client.scopes, ver: client.tokenVersion },
       { expiresIn: this.ttlSeconds },
     );
     return {

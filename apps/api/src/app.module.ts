@@ -33,6 +33,7 @@ import { HealthModule } from './health/health.module';
 import { DocsModule } from './docs/docs.module';
 import { CorrelationMiddleware } from './common/correlation.middleware';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { ApiClientUsageMiddleware } from './auth/api-client-usage.middleware';
 
 @Module({
   imports: [
@@ -73,11 +74,12 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    ApiClientUsageMiddleware,
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // Runs before guards so guard-rejected responses still carry a correlation id.
-    consumer.apply(CorrelationMiddleware).forRoutes('*');
+    consumer.apply(CorrelationMiddleware, ApiClientUsageMiddleware).forRoutes('*');
   }
 }

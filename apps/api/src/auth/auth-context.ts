@@ -6,6 +6,7 @@ import { UnauthorizedException, createParamDecorator, type ExecutionContext } fr
  * supplied in a request body/param is never trusted (§7).
  */
 export interface AuthContext {
+  apiClientId?: string;
   tenantId: string;
   clientId: string;
   scopes: string[];

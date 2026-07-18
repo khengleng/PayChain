@@ -32,6 +32,10 @@ export interface ApiClientView {
   status: ApiClientStatus;
   createdBy: string | null;
   ownerEmail: string | null;
+  lastTokenIssuedAt: Date | null;
+  lastApiRequestAt: Date | null;
+  requestCount24h: number;
+  errorCount24h: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -55,7 +59,8 @@ export class AdminClientsService {
 
   async list(admin: AdminContext, tenantId: string): Promise<ApiClientView[]> {
     assertPermittedByAttributes(admin, { tenantId });
-    return this.prisma.apiClient.findMany({
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const rows = await this.prisma.apiClient.findMany({
       where: { tenantId },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -67,12 +72,33 @@ export class AdminClientsService {
         status: true,
         createdBy: true,
         ownerEmail: true,
+        lastTokenIssuedAt: true,
+        lastApiRequestAt: true,
         createdAt: true,
         updatedAt: true,
         // clientSecretHash is deliberately never selected — it must not reach a response body,
         // a log, or a developer's console tab.
       },
     });
+    const [counts24h, errors24h] = await Promise.all([
+      this.prisma.apiClientRequestLog.groupBy({
+        by: ['apiClientId'],
+        where: { tenantId, createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      this.prisma.apiClientRequestLog.groupBy({
+        by: ['apiClientId'],
+        where: { tenantId, createdAt: { gte: since }, statusCode: { gte: 400 } },
+        _count: { _all: true },
+      }),
+    ]);
+    const requestCountById = new Map(counts24h.map((row) => [row.apiClientId, row._count._all]));
+    const errorCountById = new Map(errors24h.map((row) => [row.apiClientId, row._count._all]));
+    return rows.map((row) => ({
+      ...row,
+      requestCount24h: requestCountById.get(row.id) ?? 0,
+      errorCount24h: errorCountById.get(row.id) ?? 0,
+    }));
   }
 
   async issue(
@@ -100,6 +126,7 @@ export class AdminClientsService {
         clientSecretHash: hashClientSecret(clientSecret),
         scopes,
         status: 'ACTIVE',
+        tokenVersion: 1,
         createdBy: admin.email,
         ownerEmail: input.ownerEmail?.toLowerCase() ?? null,
       },
@@ -147,7 +174,10 @@ export class AdminClientsService {
 
     await this.prisma.apiClient.update({
       where: { id: client.id },
-      data: { clientSecretHash: hashClientSecret(clientSecret) },
+      data: {
+        clientSecretHash: hashClientSecret(clientSecret),
+        tokenVersion: { increment: 1 },
+      },
     });
 
     await this.audit.record({
@@ -172,7 +202,6 @@ export class AdminClientsService {
     };
   }
 
-  /** Revokes a client. Tokens already minted stay valid until they expire — see the note below. */
   async setStatus(
     admin: AdminContext,
     id: string,
@@ -186,7 +215,7 @@ export class AdminClientsService {
 
     const updated = await this.prisma.apiClient.update({
       where: { id: client.id },
-      data: { status },
+      data: { status, tokenVersion: { increment: 1 } },
       select: {
         id: true,
         clientId: true,
@@ -196,6 +225,8 @@ export class AdminClientsService {
         status: true,
         createdBy: true,
         ownerEmail: true,
+        lastTokenIssuedAt: true,
+        lastApiRequestAt: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -211,7 +242,7 @@ export class AdminClientsService {
       metadata: { clientId: client.clientId, from: client.status, to: status, role: admin.role },
     });
 
-    return updated;
+    return { ...updated, requestCount24h: 0, errorCount24h: 0 };
   }
 
   async updateScopes(
@@ -228,7 +259,7 @@ export class AdminClientsService {
 
     const updated = await this.prisma.apiClient.update({
       where: { id: client.id },
-      data: { scopes: next },
+      data: { scopes: next, tokenVersion: { increment: 1 } },
       select: {
         id: true,
         clientId: true,
@@ -238,6 +269,8 @@ export class AdminClientsService {
         status: true,
         createdBy: true,
         ownerEmail: true,
+        lastTokenIssuedAt: true,
+        lastApiRequestAt: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -260,7 +293,7 @@ export class AdminClientsService {
       },
     });
 
-    return updated;
+    return { ...updated, requestCount24h: 0, errorCount24h: 0 };
   }
 
   /**

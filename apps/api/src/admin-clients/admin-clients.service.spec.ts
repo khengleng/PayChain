@@ -13,9 +13,11 @@ const admin = (attributes: Record<string, unknown> = {}): AdminContext => ({
 
 function fakePrisma() {
   const clients: Record<string, Record<string, unknown>> = {};
+  const requestLogs: Array<Record<string, unknown>> = [];
   let n = 0;
   return {
     clients,
+    requestLogs,
     tenant: {
       findUnique: async ({ where }: { where: { id: string } }) =>
         where.id === 't1' ? { id: 't1', name: 'PayKH Sandbox' } : null,
@@ -39,8 +41,43 @@ function fakePrisma() {
             : row,
         ),
       update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
-        clients[where.id] = { ...clients[where.id], ...data };
+        const current = clients[where.id]!;
+        const next: Record<string, unknown> = { ...current };
+        for (const [key, value] of Object.entries(data)) {
+          if (
+            typeof value === 'object' &&
+            value !== null &&
+            'increment' in value &&
+            typeof (value as { increment?: unknown }).increment === 'number'
+          ) {
+            next[key] = Number(current[key] ?? 0) + Number((value as { increment: number }).increment);
+          } else {
+            next[key] = value;
+          }
+        }
+        next.updatedAt = new Date();
+        clients[where.id] = next;
         return clients[where.id];
+      },
+    },
+    apiClientRequestLog: {
+      groupBy: async ({
+        where,
+      }: {
+        where: { tenantId: string; createdAt: { gte: Date }; statusCode?: { gte: number } };
+      }) => {
+        const filtered = requestLogs.filter((row) => {
+          if (row.tenantId !== where.tenantId) return false;
+          if (!(row.createdAt instanceof Date) || row.createdAt < where.createdAt.gte) return false;
+          if (where.statusCode && Number(row.statusCode) < where.statusCode.gte) return false;
+          return true;
+        });
+        const counts = new Map<string, number>();
+        for (const row of filtered) {
+          const key = String(row.apiClientId);
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+        }
+        return [...counts.entries()].map(([apiClientId, count]) => ({ apiClientId, _count: { _all: count } }));
       },
     },
   };
@@ -80,6 +117,19 @@ describe('AdminClientsService — issuing partner credentials (§34)', () => {
     await svc.issue(admin(), 't1', { name: 'PayKH', scopes: LOYALTY }, 'corr');
     const rows = await svc.list(admin(), 't1');
     for (const r of rows) expect(r).not.toHaveProperty('clientSecretHash');
+  });
+
+  it('shows recent request and error counts in list()', async () => {
+    const { svc, prisma } = build();
+    const issued = await svc.issue(admin(), 't1', { name: 'PayKH', scopes: LOYALTY }, 'corr');
+    prisma.requestLogs.push(
+      { apiClientId: issued.id, tenantId: 't1', statusCode: 200, createdAt: new Date() },
+      { apiClientId: issued.id, tenantId: 't1', statusCode: 403, createdAt: new Date() },
+    );
+
+    const [row] = await svc.list(admin(), 't1');
+    expect(row?.requestCount24h).toBe(2);
+    expect(row?.errorCount24h).toBe(1);
   });
 
   it('issues unique credentials every time', async () => {
@@ -216,6 +266,24 @@ describe('AdminClientsService — rotation and revocation', () => {
     const revoked = await svc.setStatus(admin(), issued.id, 'REVOKED', 'corr');
     expect(revoked.status).toBe('REVOKED');
     expect(audit.record.mock.calls.some((c) => c[0].action === 'api_client.revoked')).toBe(true);
+  });
+
+  it('bumps tokenVersion on rotation, revoke/reactivate, and scope changes', async () => {
+    const { svc, prisma } = build();
+    const issued = await svc.issue(admin(), 't1', { name: 'PayKH', scopes: LOYALTY }, 'corr');
+    expect(prisma.clients[issued.id]!.tokenVersion).toBe(1);
+
+    await svc.rotateSecret(admin(), issued.id, 'corr');
+    expect(prisma.clients[issued.id]!.tokenVersion).toBe(2);
+
+    await svc.setStatus(admin(), issued.id, 'REVOKED', 'corr');
+    expect(prisma.clients[issued.id]!.tokenVersion).toBe(3);
+
+    await svc.setStatus(admin(), issued.id, 'ACTIVE', 'corr');
+    expect(prisma.clients[issued.id]!.tokenVersion).toBe(4);
+
+    await svc.updateScopes(admin(), issued.id, [...LOYALTY, 'transaction.read'], 'corr');
+    expect(prisma.clients[issued.id]!.tokenVersion).toBe(5);
   });
 
   it('ABAC: cannot rotate a credential belonging to another tenant', async () => {

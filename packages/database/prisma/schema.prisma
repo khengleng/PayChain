@@ -349,6 +349,7 @@ model Tenant {
   updatedAt DateTime     @updatedAt
 
   apiClients   ApiClient[]
+  apiClientRequestLogs ApiClientRequestLog[]
   wallets      Wallet[]
   assets       Asset[]
   transactions Transaction[]
@@ -364,6 +365,7 @@ model ApiClient {
   clientSecretHash String
   scopes           String[]        @default([])
   status           ApiClientStatus @default(ACTIVE)
+  tokenVersion     Int             @default(1)
   /// Admin who issued this credential.
   createdBy        String?
   /// The human accountable for this credential — who holds and uses it.
@@ -373,13 +375,35 @@ model ApiClient {
   /// admin is an email, so comparing them can never match and the check silently never fires.
   /// Required before a credential may hold sensitive scopes (see SENSITIVE_SCOPES).
   ownerEmail       String?
+  lastTokenIssuedAt DateTime?
+  lastApiRequestAt  DateTime?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant      Tenant                @relation(fields: [tenantId], references: [id])
+  requestLogs ApiClientRequestLog[]
 
   @@index([tenantId])
   @@map("api_clients")
+}
+
+model ApiClientRequestLog {
+  id          String   @id @default(uuid())
+  tenantId    String
+  apiClientId String
+  method      String
+  route       String
+  statusCode  Int
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  tenant Tenant   @relation(fields: [tenantId], references: [id])
+  client ApiClient @relation(fields: [apiClientId], references: [id])
+
+  @@index([apiClientId, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("api_client_request_logs")
 }
 
 model Wallet {
