@@ -322,10 +322,17 @@ enum AdminRole {
   SUPER_ADMIN
   SECURITY_ADMIN
   OPERATIONS_ADMIN
+  WHOLESALE_ADMIN
   COMPLIANCE_ADMIN
   TREASURY_ADMIN
   SUPPORT_ADMIN
   AUDITOR
+}
+
+enum TenantType {
+  DIRECT
+  WHOLESALER
+  RETAILER
 }
 
 enum AdminUserStatus {
@@ -342,19 +349,24 @@ enum ReconciliationStatus {
 // --- models ----------------------------------------------------------------
 
 model Tenant {
-  id        String       @id @default(uuid())
-  name      String
-  status    TenantStatus @default(ACTIVE)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  id             String       @id @default(uuid())
+  name           String
+  type           TenantType   @default(DIRECT)
+  parentTenantId String?
+  status         TenantStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   apiClients            ApiClient[]
   apiClientAuthAttempts ApiClientAuthAttempt[]
-  apiClientRequestLogs ApiClientRequestLog[]
-  wallets      Wallet[]
-  assets       Asset[]
-  transactions Transaction[]
+  apiClientRequestLogs  ApiClientRequestLog[]
+  parentTenant          Tenant?             @relation("TenantHierarchy", fields: [parentTenantId], references: [id])
+  childTenants          Tenant[]            @relation("TenantHierarchy")
+  wallets               Wallet[]
+  assets                Asset[]
+  transactions          Transaction[]
 
+  @@index([parentTenantId])
   @@map("tenants")
 }
 

@@ -48,6 +48,13 @@ export class AccessModelController {
             enforced: true,
           },
           {
+            key: 'tenantRoots',
+            type: 'string[]',
+            description:
+              'Wholesaler/distributor root tenants. On each request these expand to the full descendant retailer scope and are enforced as tenant ids.',
+            enforced: true,
+          },
+          {
             key: 'region',
             type: 'string',
             description: 'Geographic scope. Declared in policy but no resource currently supplies a region.',

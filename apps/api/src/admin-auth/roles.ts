@@ -78,6 +78,15 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'flags:read',
     'audit:read',
   ],
+  WHOLESALE_ADMIN: [
+    'tenant:read',
+    'tenant:write',
+    'client:read',
+    'client:write',
+    'wallet:read',
+    'asset:read',
+    'audit:read',
+  ],
   COMPLIANCE_ADMIN: [
     'readiness:read',
     'compliance:read',

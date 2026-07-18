@@ -8,8 +8,15 @@ function contextFor(header: string | undefined): { ctx: never; req: AdminedReque
   return { ctx, req };
 }
 
-function guard(verify: jest.Mock, findUnique: jest.Mock): AdminAuthGuard {
-  return new AdminAuthGuard({ verifyAsync: verify } as never, { adminUser: { findUnique } } as never);
+function guard(
+  verify: jest.Mock,
+  findUnique: jest.Mock,
+  findMany: jest.Mock = jest.fn().mockResolvedValue([]),
+): AdminAuthGuard {
+  return new AdminAuthGuard(
+    { verifyAsync: verify } as never,
+    { adminUser: { findUnique }, tenant: { findMany } } as never,
+  );
 }
 
 describe('AdminAuthGuard (security)', () => {
@@ -47,5 +54,27 @@ describe('AdminAuthGuard (security)', () => {
     // The forged high-privilege permissions are NOT granted.
     expect(req.admin?.permissions).not.toContain('emergency:execute');
     expect(req.admin?.permissions).not.toContain('mainnet:enable');
+  });
+
+  it('expands tenantRoots into descendant retailer tenant scope for wholesaler admins', async () => {
+    const findMany = jest
+      .fn()
+      .mockResolvedValueOnce([{ id: 'retailer-a' }, { id: 'retailer-b' }])
+      .mockResolvedValueOnce([{ id: 'retailer-a-1' }])
+      .mockResolvedValueOnce([]);
+    const g = guard(
+      jest.fn().mockResolvedValue({ sub: 'u1', typ: 'admin' }),
+      jest.fn().mockResolvedValue({
+        id: 'u1',
+        email: 'wholesale@paykh',
+        role: 'WHOLESALE_ADMIN',
+        status: 'ACTIVE',
+        attributes: { tenantRoots: ['wh-1'] },
+      }),
+      findMany,
+    );
+    const { ctx, req } = contextFor('Bearer x');
+    await expect(g.canActivate(ctx)).resolves.toBe(true);
+    expect(req.admin?.attributes.tenants).toEqual(['wh-1', 'retailer-a', 'retailer-b', 'retailer-a-1']);
   });
 });

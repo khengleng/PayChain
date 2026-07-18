@@ -14,12 +14,30 @@ interface Admin {
 }
 
 /** Fallback only — the live list comes from /api/access-model so this cannot drift from roles.ts. */
-const FALLBACK_ROLES = ['SUPER_ADMIN', 'SECURITY_ADMIN', 'OPERATIONS_ADMIN', 'COMPLIANCE_ADMIN', 'TREASURY_ADMIN', 'SUPPORT_ADMIN', 'AUDITOR'];
+const FALLBACK_ROLES = ['SUPER_ADMIN', 'SECURITY_ADMIN', 'OPERATIONS_ADMIN', 'WHOLESALE_ADMIN', 'COMPLIANCE_ADMIN', 'TREASURY_ADMIN', 'SUPPORT_ADMIN', 'AUDITOR'];
 
 /** Reads the ABAC tenant scope off an admin's attributes. Empty means unscoped (all tenants). */
 function tenantScope(a: Admin): string[] {
   const t = (a.attributes as Record<string, unknown> | undefined)?.tenants;
   return Array.isArray(t) ? (t as string[]) : [];
+}
+
+function tenantRoots(a: Admin): string[] {
+  const t = (a.attributes as Record<string, unknown> | undefined)?.tenantRoots;
+  return Array.isArray(t) ? (t as string[]) : [];
+}
+
+function scopeAttributes(raw: string, rootsRaw = ''): Record<string, unknown> {
+  const tenants = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  const tenantRoots = rootsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+  return {
+    ...(tenants.length > 0 ? { tenants } : {}),
+    ...(tenantRoots.length > 0 ? { tenantRoots } : {}),
+  };
+}
+
+function attrsFor(_a: Admin, tenantRaw: string, rootRaw: string): Record<string, unknown> {
+  return scopeAttributes(tenantRaw, rootRaw);
 }
 
 export default function AdminsPage() {
@@ -30,6 +48,7 @@ export default function AdminsPage() {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('AUDITOR');
   const [scope, setScope] = useState('');
+  const [tenantRootScope, setTenantRootScope] = useState('');
 
   const load = useCallback(async () => {
     const res = await fetch('/api/admins');
@@ -50,12 +69,6 @@ export default function AdminsPage() {
       .catch(() => undefined);
   }, [load]);
 
-  /** Parses the comma-separated tenant scope input into ABAC attributes. */
-  function scopeAttributes(raw: string): Record<string, unknown> {
-    const tenants = raw.split(',').map((s) => s.trim()).filter(Boolean);
-    return { tenants };
-  }
-
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setNotice('');
@@ -63,13 +76,14 @@ export default function AdminsPage() {
     const res = await fetch('/api/admins', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, role, attributes: scopeAttributes(scope) }),
+      body: JSON.stringify({ email, role, attributes: scopeAttributes(scope, tenantRootScope) }),
     });
     const data = await res.json();
     if (res.ok) {
       setNotice(`Created ${data.email} — temporary password: ${data.tempPassword}`);
       setEmail('');
       setScope('');
+      setTenantRootScope('');
       void load();
     } else {
       setError(data.error ?? 'Could not create admin');
@@ -123,19 +137,30 @@ export default function AdminsPage() {
               placeholder="blank = all tenants"
             />
           </div>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <label className="login-label">Tenant roots</label>
+            <input
+              className="login-input"
+              value={tenantRootScope}
+              onChange={(e) => setTenantRootScope(e.target.value)}
+              placeholder="wholesaler root tenant ids"
+            />
+          </div>
           <button className="login-btn" style={{ width: 'auto', marginTop: 0, padding: '11px 18px' }} type="submit">Create</button>
         </div>
         <p className="subtitle" style={{ fontSize: 12, marginBottom: 0 }}>
           Comma-separated tenant ids. Leaving this blank creates an <strong>unscoped</strong> admin
           who can act on every tenant — scope deliberately, not by default. See{' '}
           <a href="/access-control">Access Control</a> for what each role can do.
+          Use <span className="mono">tenantRoots</span> for a wholesaler such as PayKH so its
+          scope expands automatically to downstream retailer tenants.
         </p>
       </form>
 
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Email</th><th>Role</th><th>Tenant scope (ABAC)</th><th>Status</th><th>MFA</th><th>Actions</th></tr>
+            <tr><th>Email</th><th>Role</th><th>Tenant scope (ABAC)</th><th>Tenant roots</th><th>Status</th><th>MFA</th><th>Actions</th></tr>
           </thead>
           <tbody>
             {admins.map((a) => (
@@ -154,8 +179,23 @@ export default function AdminsPage() {
                     placeholder="all tenants"
                     onBlur={(e) => {
                       const next = scopeAttributes(e.target.value);
-                      if (JSON.stringify(next.tenants) !== JSON.stringify(tenantScope(a))) {
-                        void patch(a.id, { attributes: next });
+                      const merged = attrsFor(a, e.target.value, tenantRoots(a).join(', '));
+                      if (JSON.stringify(merged.tenants ?? []) !== JSON.stringify(tenantScope(a))) {
+                        void patch(a.id, { attributes: merged });
+                      }
+                    }}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="login-input"
+                    style={{ padding: '4px 8px', fontSize: 12, minWidth: 160 }}
+                    defaultValue={tenantRoots(a).join(', ')}
+                    placeholder="none"
+                    onBlur={(e) => {
+                      const merged = attrsFor(a, tenantScope(a).join(', '), e.target.value);
+                      if (JSON.stringify(merged.tenantRoots ?? []) !== JSON.stringify(tenantRoots(a))) {
+                        void patch(a.id, { attributes: merged });
                       }
                     }}
                   />

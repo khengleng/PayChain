@@ -1,5 +1,5 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import type { TenantStatus } from '@paychain/database';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import type { TenantStatus, TenantType } from '@paychain/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { assertPermittedByAttributes } from '../admin-auth/abac';
@@ -8,8 +8,12 @@ import type { AdminContext } from '../admin-auth/admin-context';
 export interface TenantView {
   id: string;
   name: string;
+  type: TenantType;
+  parentTenantId: string | null;
+  parentTenantName: string | null;
   status: TenantStatus;
   createdAt: Date;
+  childTenants: number;
   apiClients: number;
   wallets: number;
   assets: number;
@@ -34,7 +38,10 @@ export class AdminTenantsService {
   async list(admin: AdminContext): Promise<{ items: TenantView[] }> {
     const rows = await this.prisma.tenant.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { apiClients: true, wallets: true, assets: true } } },
+      include: {
+        parentTenant: { select: { id: true, name: true } },
+        _count: { select: { apiClients: true, wallets: true, assets: true, childTenants: true } },
+      },
     });
     // Tenant-scoped admins see only their tenants. Reads elsewhere are not yet ABAC-filtered
     // (see the gap register); doing it here keeps the new surface honest rather than adding to
@@ -44,8 +51,12 @@ export class AdminTenantsService {
       .map((t) => ({
         id: t.id,
         name: t.name,
+        type: t.type,
+        parentTenantId: t.parentTenantId,
+        parentTenantName: t.parentTenant?.name ?? null,
         status: t.status,
         createdAt: t.createdAt,
+        childTenants: t._count.childTenants,
         apiClients: t._count.apiClients,
         wallets: t._count.wallets,
         assets: t._count.assets,
@@ -53,8 +64,13 @@ export class AdminTenantsService {
     return { items };
   }
 
-  async create(admin: AdminContext, input: { name: string }, correlationId: string) {
+  async create(
+    admin: AdminContext,
+    input: { name: string; type?: TenantType; parentTenantId?: string },
+    correlationId: string,
+  ) {
     const name = input.name.trim();
+    const type = input.type ?? defaultTypeFor(admin);
 
     // Tenant names are how an operator identifies who they are granting credentials to; two
     // "PayKH Sandbox" rows is a mis-issuance waiting to happen.
@@ -63,7 +79,32 @@ export class AdminTenantsService {
       throw new ConflictException(`A tenant named "${name}" already exists`);
     }
 
-    const tenant = await this.prisma.tenant.create({ data: { name } });
+    const parent = input.parentTenantId
+      ? await this.prisma.tenant.findUnique({ where: { id: input.parentTenantId } })
+      : null;
+    if (input.parentTenantId && !parent) {
+      throw new NotFoundException('Parent tenant not found');
+    }
+    if (parent) {
+      assertPermittedByAttributes(admin, { tenantId: parent.id });
+    }
+    if (type === 'RETAILER' && !parent) {
+      throw new ConflictException('A retailer tenant must belong to a wholesaler or parent tenant');
+    }
+    if (type !== 'RETAILER' && parent) {
+      throw new ConflictException('Only retailer tenants may be created under a parent tenant');
+    }
+    if (admin.role === 'WHOLESALE_ADMIN') {
+      if (type !== 'RETAILER' || !parent) {
+        throw new ForbiddenException(
+          'WHOLESALE_ADMIN may only provision downstream retailer tenants under an allowed parent tenant',
+        );
+      }
+    }
+
+    const tenant = await this.prisma.tenant.create({
+      data: { name, type, parentTenantId: parent?.id ?? null },
+    });
 
     await this.audit.record({
       tenantId: tenant.id,
@@ -72,7 +113,13 @@ export class AdminTenantsService {
       resourceType: 'tenant',
       resourceId: tenant.id,
       correlationId,
-      metadata: { name, role: admin.role },
+      metadata: {
+        name,
+        type,
+        parentTenantId: parent?.id ?? null,
+        parentTenantName: parent?.name ?? null,
+        role: admin.role,
+      },
     });
 
     return tenant;
@@ -105,6 +152,11 @@ export class AdminTenantsService {
 
     return updated;
   }
+}
+
+/** A tenant-scoped WHOLESALE_ADMIN creates retailers by default; platform roles create direct tenants by default. */
+function defaultTypeFor(admin: AdminContext): TenantType {
+  return admin.role === 'WHOLESALE_ADMIN' ? 'RETAILER' : 'DIRECT';
 }
 
 /** Non-throwing ABAC check, for filtering lists rather than refusing a single resource. */

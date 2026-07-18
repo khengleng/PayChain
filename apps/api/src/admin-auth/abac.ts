@@ -8,6 +8,8 @@ import type { AdminContext } from './admin-context';
  *
  * Current attributes:
  *  - tenants: string[] — if present and non-empty, the user is scoped to those tenant ids.
+ *  - tenantRoots: string[] — wholesaler roots expanded to descendants at auth time, then enforced
+ *    through `tenants`.
  *  - region: string    — optional geographic scope.
  *  - clearance: number — optional minimum-clearance gate.
  */

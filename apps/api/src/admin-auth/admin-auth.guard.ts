@@ -47,14 +47,45 @@ export class AdminAuthGuard implements CanActivate {
       throw new UnauthorizedException('Admin account is not active');
     }
 
+    const attributes = ((user.attributes as Record<string, unknown>) ?? {});
     const admin: AdminContext = {
       userId: user.id,
       email: user.email,
       role: user.role,
       permissions: permissionsForRole(user.role),
-      attributes: (user.attributes as Record<string, unknown>) ?? {},
+      attributes: await this.expandTenantScope(attributes),
     };
     req.admin = admin;
     return true;
+  }
+
+  private async expandTenantScope(
+    attributes: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const roots = Array.isArray(attributes.tenantRoots)
+      ? (attributes.tenantRoots as unknown[]).filter((value): value is string => typeof value === 'string' && value.length > 0)
+      : [];
+    if (roots.length === 0) return attributes;
+
+    const explicit = Array.isArray(attributes.tenants)
+      ? (attributes.tenants as unknown[]).filter((value): value is string => typeof value === 'string' && value.length > 0)
+      : [];
+    const seen = new Set<string>([...explicit, ...roots]);
+    let frontier = [...roots];
+
+    while (frontier.length > 0) {
+      const children = await this.prisma.tenant.findMany({
+        where: { parentTenantId: { in: frontier } },
+        select: { id: true },
+      });
+      frontier = [];
+      for (const child of children) {
+        if (seen.has(child.id)) continue;
+        seen.add(child.id);
+        frontier.push(child.id);
+      }
+    }
+
+    return { ...attributes, tenants: [...seen] };
   }
 }

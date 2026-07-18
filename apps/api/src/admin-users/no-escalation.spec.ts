@@ -39,6 +39,7 @@ describe('no-escalation — granting roles (§7)', () => {
     // OPERATIONS_ADMIN can still create read-only staff.
     expect(() => assertCanGrantRole(as('OPERATIONS_ADMIN'), 'SUPPORT_ADMIN')).not.toThrow();
     expect(() => assertCanGrantRole(as('SECURITY_ADMIN'), 'SECURITY_ADMIN')).not.toThrow();
+    expect(() => assertCanGrantRole(as('WHOLESALE_ADMIN'), 'WHOLESALE_ADMIN')).not.toThrow();
   });
 });
 
@@ -71,5 +72,10 @@ describe('no-escalation — acting on other accounts (the quiet takeover path)',
     // SUPPORT_ADMIN holds asset:read/tenant:read which SECURITY_ADMIN lacks; that must not block.
     expect(() => assertCanActOn(as('SECURITY_ADMIN'), target('SUPPORT_ADMIN'))).not.toThrow();
     expect(() => assertCanGrantRole(as('SECURITY_ADMIN'), 'SUPPORT_ADMIN')).not.toThrow();
+  });
+
+  it('blocks a wholesaler admin from taking a platform admin lane it does not hold', () => {
+    expect(() => assertCanGrantRole(as('WHOLESALE_ADMIN'), 'OPERATIONS_ADMIN')).toThrow(ForbiddenException);
+    expect(() => assertCanActOn(as('WHOLESALE_ADMIN'), target('TREASURY_ADMIN'))).toThrow(ForbiddenException);
   });
 });

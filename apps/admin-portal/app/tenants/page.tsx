@@ -6,7 +6,11 @@ import Link from 'next/link';
 interface TenantRow {
   id: string;
   name: string;
+  type: 'DIRECT' | 'WHOLESALER' | 'RETAILER';
+  parentTenantId: string | null;
+  parentTenantName: string | null;
   status: string;
+  childTenants: number;
   apiClients: number;
   wallets: number;
   assets: number;
@@ -18,6 +22,8 @@ export default function TenantsPage() {
   const [loaded, setLoaded] = useState(false);
   const [canWrite, setCanWrite] = useState(false);
   const [name, setName] = useState('');
+  const [type, setType] = useState<'DIRECT' | 'WHOLESALER' | 'RETAILER'>('DIRECT');
+  const [parentTenantId, setParentTenantId] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -46,12 +52,14 @@ export default function TenantsPage() {
     const res = await fetch('/api/tenants', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, type, parentTenantId: parentTenantId || undefined }),
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       setNotice(`Created tenant "${data.name}" — issue its API credentials to let it integrate.`);
       setName('');
+      setType('DIRECT');
+      setParentTenantId('');
       void load();
     } else {
       setError(data.message ?? data.error ?? 'Could not create tenant');
@@ -86,8 +94,8 @@ export default function TenantsPage() {
 
       {canWrite && (
         <form className="form-card" style={{ maxWidth: 640, marginBottom: 24 }} onSubmit={create}>
-          <div className="section-title" style={{ marginTop: 0 }}>Provision a tenant</div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+        <div className="section-title" style={{ marginTop: 0 }}>Provision a tenant</div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div style={{ flex: 1 }}>
               <label className="login-label">Organization name</label>
               <input
@@ -99,6 +107,27 @@ export default function TenantsPage() {
                 required
               />
             </div>
+            <div style={{ minWidth: 180 }}>
+              <label className="login-label">Tenant type</label>
+              <select className="login-input" value={type} onChange={(e) => setType(e.target.value as never)}>
+                <option value="DIRECT">DIRECT</option>
+                <option value="WHOLESALER">WHOLESALER</option>
+                <option value="RETAILER">RETAILER</option>
+              </select>
+            </div>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <label className="login-label">Parent tenant</label>
+              <select className="login-input" value={parentTenantId} onChange={(e) => setParentTenantId(e.target.value)} disabled={type !== 'RETAILER'}>
+                <option value="">None</option>
+                {items
+                  .filter((item) => item.type !== 'RETAILER')
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} ({item.type})
+                    </option>
+                  ))}
+              </select>
+            </div>
             <button
               className="login-btn"
               style={{ width: 'auto', marginTop: 0, padding: '11px 18px' }}
@@ -109,6 +138,7 @@ export default function TenantsPage() {
             </button>
           </div>
           <p className="subtitle" style={{ fontSize: 12, marginBottom: 0 }}>
+            Use `WHOLESALER` for a channel partner like PayKH and create `RETAILER` tenants beneath it.
             A tenant cannot do anything until it holds API credentials — issue them from its row below.
           </p>
         </form>
@@ -118,14 +148,14 @@ export default function TenantsPage() {
         <table>
           <thead>
             <tr>
-              <th>Name</th><th>Status</th><th style={{ textAlign: 'right' }}>API clients</th>
+              <th>Name</th><th>Type</th><th>Parent</th><th>Status</th><th style={{ textAlign: 'right' }}>Children</th><th style={{ textAlign: 'right' }}>API clients</th>
               <th style={{ textAlign: 'right' }}>Wallets</th><th style={{ textAlign: 'right' }}>Assets</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {items.length === 0 && loaded && (
-              <tr><td colSpan={6} style={{ color: 'var(--muted)' }}>No tenants provisioned yet.</td></tr>
+              <tr><td colSpan={9} style={{ color: 'var(--muted)' }}>No tenants provisioned yet.</td></tr>
             )}
             {items.map((t) => (
               <tr key={t.id}>
@@ -133,13 +163,29 @@ export default function TenantsPage() {
                   {t.name}
                   <div className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{t.id}</div>
                 </td>
+                <td><span className="mono">{t.type}</span></td>
+                <td>{t.parentTenantName ?? '—'}</td>
                 <td><span className={`pill ${t.status === 'ACTIVE' ? 'PASSED' : 'BLOCKED'}`}>{t.status}</span></td>
+                <td style={{ textAlign: 'right' }}>{t.childTenants}</td>
                 <td style={{ textAlign: 'right' }}>{t.apiClients}</td>
                 <td style={{ textAlign: 'right' }}>{t.wallets}</td>
                 <td style={{ textAlign: 'right' }}>{t.assets}</td>
                 <td>
                   <div className="row-actions">
                     <Link className="btn-sm" href={`/tenants/${t.id}/clients`}>API credentials</Link>
+                    {canWrite && t.type !== 'RETAILER' && (
+                      <button
+                        className="btn-sm"
+                        onClick={() => {
+                          setType('RETAILER');
+                          setParentTenantId(t.id);
+                          setName('');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                      >
+                        Add retailer
+                      </button>
+                    )}
                     {canWrite && (
                       <button
                         className="btn-sm"
