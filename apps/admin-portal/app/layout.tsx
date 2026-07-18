@@ -5,8 +5,8 @@ import { can, getSession } from '../lib/session';
 import { LogoutButton } from './logout-button';
 
 export const metadata: Metadata = {
-  title: 'PayChain Admin',
-  description: 'PayChain administration portal',
+  title: 'PayChain Super Admin',
+  description: 'PayChain super-admin control plane',
 };
 
 // force-dynamic so the session cookie is read per-request (never statically cached).
@@ -49,7 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <img src="/brand/paychain-icon.svg" alt="" className="brand-mark" width={26} height={26} />
                 <span className="brand-word">Pay<span>Chain</span></span>
               </div>
-              <div className="brand-sub">Admin Portal</div>
+              <div className="brand-sub">Super Admin Portal</div>
               <nav className="nav">
                 {NAV.filter((item) => !item.perm || can(session, item.perm)).map((item) => (
                   <Link key={item.href} href={item.href}>

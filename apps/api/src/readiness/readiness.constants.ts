@@ -30,5 +30,6 @@ export const READINESS_GATES: GateSeed[] = [
   { key: 'stablecoin_pilot', category: 'Stablecoin', title: 'Stablecoin pilot readiness (closed mainnet)', mandatory: true, initialStatus: 'PENDING' },
   { key: 'key_management', category: 'Security', title: 'Key management (HSM/MPC issuer keys)', mandatory: true, initialStatus: 'BLOCKED', evidence: 'Dev-encrypted keys only; HSM/MPC is a hard pre-pilot gate (§0.6)' },
   { key: 'khr_legal_signoff', category: 'Stablecoin', title: 'KHR legal sign-off (NBC/Bakong policy)', mandatory: true, initialStatus: 'BLOCKED', evidence: 'KHR stablecoins pinned in LEGAL_REVIEW (§0.6)' },
+  { key: 'trustee_integration', category: 'Integration', title: 'Trustee integration readiness', mandatory: true, initialStatus: 'PENDING', evidence: 'Requires trustee read-only API surface, docs, onboarding, and operational sign-off' },
   { key: 'paykh_migration', category: 'Migration', title: 'PayKH migration approval', mandatory: true, initialStatus: 'PENDING' },
 ];

@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { TenantStatus, TenantType } from '@paychain/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -11,6 +11,12 @@ export interface TenantView {
   type: TenantType;
   parentTenantId: string | null;
   parentTenantName: string | null;
+  apiClientDefaultRequestsPerMinuteLimit: number | null;
+  apiClientDefaultWriteRequestsPerMinuteLimit: number | null;
+  effectiveRequestsPerMinuteLimit: number;
+  effectiveWriteRequestsPerMinuteLimit: number;
+  policySourceTenantId: string | null;
+  policySourceTenantName: string | null;
   status: TenantStatus;
   createdAt: Date;
   childTenants: number;
@@ -63,7 +69,14 @@ export class AdminTenantsService {
     const rows = await this.prisma.tenant.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
-        parentTenant: { select: { id: true, name: true } },
+        parentTenant: {
+          select: {
+            id: true,
+            name: true,
+            apiClientDefaultRequestsPerMinuteLimit: true,
+            apiClientDefaultWriteRequestsPerMinuteLimit: true,
+          },
+        },
         _count: { select: { apiClients: true, wallets: true, assets: true, childTenants: true } },
       },
     });
@@ -92,7 +105,16 @@ export class AdminTenantsService {
     }
 
     const parent = input.parentTenantId
-      ? await this.prisma.tenant.findUnique({ where: { id: input.parentTenantId } })
+      ? await this.prisma.tenant.findUnique({
+          where: { id: input.parentTenantId },
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            apiClientDefaultRequestsPerMinuteLimit: true,
+            apiClientDefaultWriteRequestsPerMinuteLimit: true,
+          },
+        })
       : null;
     if (input.parentTenantId && !parent) {
       throw new NotFoundException('Parent tenant not found');
@@ -140,11 +162,111 @@ export class AdminTenantsService {
     return tenant;
   }
 
+  async updatePolicy(
+    admin: AdminContext,
+    tenantId: string,
+    input: {
+      requestsPerMinuteLimit?: number;
+      writeRequestsPerMinuteLimit?: number;
+      inheritFromParent?: boolean;
+    },
+    correlationId: string,
+  ): Promise<TenantView> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: {
+        parentTenant: {
+          select: {
+            id: true,
+            name: true,
+            apiClientDefaultRequestsPerMinuteLimit: true,
+            apiClientDefaultWriteRequestsPerMinuteLimit: true,
+          },
+        },
+        _count: { select: { apiClients: true, wallets: true, assets: true, childTenants: true } },
+      },
+    });
+    if (!tenant) throw new NotFoundException('Tenant not found');
+    assertPermittedByAttributes(admin, { tenantId });
+    if (input.inheritFromParent && !tenant.parentTenantId) {
+      throw new ConflictException('Only child tenants may inherit policy from a parent tenant');
+    }
+    if (tenant.type === 'WHOLESALER' && input.inheritFromParent) {
+      throw new ConflictException('Wholesaler tenants must define their own defaults or remain platform-default');
+    }
+    const currentPolicy = resolveEffectivePolicy(tenant);
+    if (
+      !input.inheritFromParent &&
+      input.requestsPerMinuteLimit === undefined &&
+      input.writeRequestsPerMinuteLimit === undefined
+    ) {
+      throw new BadRequestException('Provide policy values or inheritFromParent=true');
+    }
+    const nextRequestsPerMinuteLimit =
+      input.requestsPerMinuteLimit ??
+      tenant.apiClientDefaultRequestsPerMinuteLimit ??
+      currentPolicy.requestsPerMinuteLimit;
+    const nextWriteRequestsPerMinuteLimit =
+      input.writeRequestsPerMinuteLimit ??
+      tenant.apiClientDefaultWriteRequestsPerMinuteLimit ??
+      currentPolicy.writeRequestsPerMinuteLimit;
+
+    const updated = await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: input.inheritFromParent
+        ? {
+            apiClientDefaultRequestsPerMinuteLimit: null,
+            apiClientDefaultWriteRequestsPerMinuteLimit: null,
+          }
+        : {
+            apiClientDefaultRequestsPerMinuteLimit: nextRequestsPerMinuteLimit,
+            apiClientDefaultWriteRequestsPerMinuteLimit: nextWriteRequestsPerMinuteLimit,
+          },
+      include: {
+        parentTenant: {
+          select: {
+            id: true,
+            name: true,
+            apiClientDefaultRequestsPerMinuteLimit: true,
+            apiClientDefaultWriteRequestsPerMinuteLimit: true,
+          },
+        },
+        _count: { select: { apiClients: true, wallets: true, assets: true, childTenants: true } },
+      },
+    });
+
+    await this.audit.record({
+      tenantId,
+      actor: admin.email,
+      action: 'tenant.policy_changed',
+      resourceType: 'tenant',
+      resourceId: tenantId,
+      correlationId,
+      metadata: {
+        inheritFromParent: input.inheritFromParent ?? false,
+        requestsPerMinuteLimit:
+          updated.apiClientDefaultRequestsPerMinuteLimit,
+        writeRequestsPerMinuteLimit:
+          updated.apiClientDefaultWriteRequestsPerMinuteLimit,
+        role: admin.role,
+      },
+    });
+
+    return this.toTenantView(updated);
+  }
+
   async retailers(admin: AdminContext, wholesalerTenantId: string): Promise<WholesalerRetailersView> {
     const wholesaler = await this.prisma.tenant.findUnique({
       where: { id: wholesalerTenantId },
       include: {
-        parentTenant: { select: { id: true, name: true } },
+        parentTenant: {
+          select: {
+            id: true,
+            name: true,
+            apiClientDefaultRequestsPerMinuteLimit: true,
+            apiClientDefaultWriteRequestsPerMinuteLimit: true,
+          },
+        },
         _count: { select: { childTenants: true, apiClients: true, wallets: true, assets: true } },
       },
     });
@@ -158,7 +280,14 @@ export class AdminTenantsService {
       where: { parentTenantId: wholesaler.id, type: 'RETAILER' },
       orderBy: { createdAt: 'desc' },
       include: {
-        parentTenant: { select: { id: true, name: true } },
+        parentTenant: {
+          select: {
+            id: true,
+            name: true,
+            apiClientDefaultRequestsPerMinuteLimit: true,
+            apiClientDefaultWriteRequestsPerMinuteLimit: true,
+          },
+        },
         _count: { select: { childTenants: true, apiClients: true, wallets: true, assets: true } },
       },
     });
@@ -220,12 +349,19 @@ export class AdminTenantsService {
   }
 
   private toTenantView(tenant: TenantWithCounts): TenantView {
+    const policy = resolveEffectivePolicy(tenant);
     return {
       id: tenant.id,
       name: tenant.name,
       type: tenant.type,
       parentTenantId: tenant.parentTenantId,
       parentTenantName: tenant.parentTenant?.name ?? null,
+      apiClientDefaultRequestsPerMinuteLimit: tenant.apiClientDefaultRequestsPerMinuteLimit,
+      apiClientDefaultWriteRequestsPerMinuteLimit: tenant.apiClientDefaultWriteRequestsPerMinuteLimit,
+      effectiveRequestsPerMinuteLimit: policy.requestsPerMinuteLimit,
+      effectiveWriteRequestsPerMinuteLimit: policy.writeRequestsPerMinuteLimit,
+      policySourceTenantId: policy.sourceTenantId,
+      policySourceTenantName: policy.sourceTenantName,
       status: tenant.status,
       createdAt: tenant.createdAt,
       childTenants: tenant._count.childTenants,
@@ -320,5 +456,59 @@ function isPermitted(admin: AdminContext, tenantId: string): boolean {
 
 type TenantWithCounts = Awaited<ReturnType<PrismaService['tenant']['findFirst']>> & {
   _count: { childTenants: number; apiClients: number; wallets: number; assets: number };
-  parentTenant?: { id: string; name: string } | null;
+  parentTenant?: {
+    id: string;
+    name: string;
+    apiClientDefaultRequestsPerMinuteLimit: number | null;
+    apiClientDefaultWriteRequestsPerMinuteLimit: number | null;
+  } | null;
 };
+
+export function resolveEffectivePolicy(tenant: {
+  id: string;
+  name: string;
+  apiClientDefaultRequestsPerMinuteLimit: number | null;
+  apiClientDefaultWriteRequestsPerMinuteLimit: number | null;
+  parentTenantId: string | null;
+  parentTenant?: {
+    id: string;
+    name: string;
+    apiClientDefaultRequestsPerMinuteLimit: number | null;
+    apiClientDefaultWriteRequestsPerMinuteLimit: number | null;
+  } | null;
+}): {
+  requestsPerMinuteLimit: number;
+  writeRequestsPerMinuteLimit: number;
+  sourceTenantId: string | null;
+  sourceTenantName: string | null;
+} {
+  if (
+    tenant.apiClientDefaultRequestsPerMinuteLimit != null &&
+    tenant.apiClientDefaultWriteRequestsPerMinuteLimit != null
+  ) {
+    return {
+      requestsPerMinuteLimit: tenant.apiClientDefaultRequestsPerMinuteLimit,
+      writeRequestsPerMinuteLimit: tenant.apiClientDefaultWriteRequestsPerMinuteLimit,
+      sourceTenantId: tenant.id,
+      sourceTenantName: tenant.name,
+    };
+  }
+  if (
+    tenant.parentTenant &&
+    tenant.parentTenant.apiClientDefaultRequestsPerMinuteLimit != null &&
+    tenant.parentTenant.apiClientDefaultWriteRequestsPerMinuteLimit != null
+  ) {
+    return {
+      requestsPerMinuteLimit: tenant.parentTenant.apiClientDefaultRequestsPerMinuteLimit,
+      writeRequestsPerMinuteLimit: tenant.parentTenant.apiClientDefaultWriteRequestsPerMinuteLimit,
+      sourceTenantId: tenant.parentTenant.id,
+      sourceTenantName: tenant.parentTenant.name,
+    };
+  }
+  return {
+    requestsPerMinuteLimit: 120,
+    writeRequestsPerMinuteLimit: 30,
+    sourceTenantId: null,
+    sourceTenantName: 'Platform default',
+  };
+}

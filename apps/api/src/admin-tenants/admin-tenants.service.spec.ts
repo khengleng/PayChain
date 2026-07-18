@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AdminTenantsService } from './admin-tenants.service';
 import type { AdminContext } from '../admin-auth/admin-context';
 
@@ -17,6 +17,8 @@ function tenantRow(overrides: Record<string, unknown> = {}) {
     type: 'WHOLESALER',
     parentTenantId: null,
     parentTenant: null,
+    apiClientDefaultRequestsPerMinuteLimit: null,
+    apiClientDefaultWriteRequestsPerMinuteLimit: null,
     status: 'ACTIVE',
     createdAt: new Date('2026-07-18T10:00:00Z'),
     _count: { childTenants: 0, apiClients: 1, wallets: 2, assets: 3 },
@@ -72,10 +74,41 @@ describe('AdminTenantsService', () => {
   });
 
   it('returns downstream retailer summary for a wholesaler', async () => {
-    const wholesaler = tenantRow({ id: 'wh1', name: 'PayKH', type: 'WHOLESALER', _count: { childTenants: 2, apiClients: 1, wallets: 0, assets: 0 } });
+    const wholesaler = tenantRow({
+      id: 'wh1',
+      name: 'PayKH',
+      type: 'WHOLESALER',
+      apiClientDefaultRequestsPerMinuteLimit: 240,
+      apiClientDefaultWriteRequestsPerMinuteLimit: 60,
+      _count: { childTenants: 2, apiClients: 1, wallets: 0, assets: 0 },
+    });
     const retailers = [
-      tenantRow({ id: 'ret1', name: 'Retail A', type: 'RETAILER', parentTenantId: 'wh1', parentTenant: { id: 'wh1', name: 'PayKH' }, _count: { childTenants: 0, apiClients: 1, wallets: 2, assets: 3 } }),
-      tenantRow({ id: 'ret2', name: 'Retail B', type: 'RETAILER', parentTenantId: 'wh1', parentTenant: { id: 'wh1', name: 'PayKH' }, _count: { childTenants: 0, apiClients: 2, wallets: 4, assets: 5 } }),
+      tenantRow({
+        id: 'ret1',
+        name: 'Retail A',
+        type: 'RETAILER',
+        parentTenantId: 'wh1',
+        parentTenant: {
+          id: 'wh1',
+          name: 'PayKH',
+          apiClientDefaultRequestsPerMinuteLimit: 240,
+          apiClientDefaultWriteRequestsPerMinuteLimit: 60,
+        },
+        _count: { childTenants: 0, apiClients: 1, wallets: 2, assets: 3 },
+      }),
+      tenantRow({
+        id: 'ret2',
+        name: 'Retail B',
+        type: 'RETAILER',
+        parentTenantId: 'wh1',
+        parentTenant: {
+          id: 'wh1',
+          name: 'PayKH',
+          apiClientDefaultRequestsPerMinuteLimit: 240,
+          apiClientDefaultWriteRequestsPerMinuteLimit: 60,
+        },
+        _count: { childTenants: 0, apiClients: 2, wallets: 4, assets: 5 },
+      }),
     ];
     const prismaMock = {
       tenant: {
@@ -125,6 +158,7 @@ describe('AdminTenantsService', () => {
       failedAuthAttempts24h: 3,
     });
     expect(view.items[0]?.wholesalerTenantName).toBe('PayKH');
+    expect(view.items[0]?.effectiveRequestsPerMinuteLimit).toBe(240);
     expect(view.items[0]?.requestCount24h).toBe(7);
     expect(view.items[1]?.errorCount24h).toBe(3);
     expect(view.items[0]?.failedAuthAttempts24h).toBe(2);
@@ -150,5 +184,100 @@ describe('AdminTenantsService', () => {
     const svc = new AdminTenantsService(prisma, { record: jest.fn() } as never);
 
     await expect(svc.retailers(admin(), 'missing')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('updates wholesaler defaults and lets retailers inherit them', async () => {
+    const prismaMock = {
+      tenant: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(
+            tenantRow({
+              id: 'wh1',
+              name: 'PayKH',
+              type: 'WHOLESALER',
+              apiClientDefaultRequestsPerMinuteLimit: null,
+              apiClientDefaultWriteRequestsPerMinuteLimit: null,
+            }),
+          ),
+        update: jest.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) =>
+          tenantRow({
+            id: 'wh1',
+            name: 'PayKH',
+            type: 'WHOLESALER',
+            apiClientDefaultRequestsPerMinuteLimit: data.apiClientDefaultRequestsPerMinuteLimit,
+            apiClientDefaultWriteRequestsPerMinuteLimit: data.apiClientDefaultWriteRequestsPerMinuteLimit,
+          }),
+        ),
+      },
+    };
+    const svc = new AdminTenantsService(prismaMock as never, { record: jest.fn() } as never);
+    const updated = await svc.updatePolicy(
+      admin(),
+      'wh1',
+      { requestsPerMinuteLimit: 300, writeRequestsPerMinuteLimit: 80 },
+      'corr',
+    );
+    expect(updated.effectiveRequestsPerMinuteLimit).toBe(300);
+    expect(updated.effectiveWriteRequestsPerMinuteLimit).toBe(80);
+  });
+
+  it('can reset a retailer override back to inherited wholesaler policy', async () => {
+    const prismaMock = {
+      tenant: {
+        findUnique: jest.fn().mockResolvedValue(
+          tenantRow({
+            id: 'ret1',
+            name: 'Retail A',
+            type: 'RETAILER',
+            parentTenantId: 'wh1',
+            apiClientDefaultRequestsPerMinuteLimit: 180,
+            apiClientDefaultWriteRequestsPerMinuteLimit: 50,
+            parentTenant: {
+              id: 'wh1',
+              name: 'PayKH',
+              apiClientDefaultRequestsPerMinuteLimit: 240,
+              apiClientDefaultWriteRequestsPerMinuteLimit: 60,
+            },
+          }),
+        ),
+        update: jest.fn().mockResolvedValue(
+          tenantRow({
+            id: 'ret1',
+            name: 'Retail A',
+            type: 'RETAILER',
+            parentTenantId: 'wh1',
+            apiClientDefaultRequestsPerMinuteLimit: null,
+            apiClientDefaultWriteRequestsPerMinuteLimit: null,
+            parentTenant: {
+              id: 'wh1',
+              name: 'PayKH',
+              apiClientDefaultRequestsPerMinuteLimit: 240,
+              apiClientDefaultWriteRequestsPerMinuteLimit: 60,
+            },
+          }),
+        ),
+      },
+    };
+    const svc = new AdminTenantsService(prismaMock as never, { record: jest.fn() } as never);
+    const updated = await svc.updatePolicy(
+      admin('WHOLESALE_ADMIN', { tenants: ['wh1', 'ret1'] }),
+      'ret1',
+      { inheritFromParent: true },
+      'corr',
+    );
+    expect(updated.apiClientDefaultRequestsPerMinuteLimit).toBeNull();
+    expect(updated.effectiveRequestsPerMinuteLimit).toBe(240);
+    expect(updated.policySourceTenantName).toBe('PayKH');
+  });
+
+  it('rejects empty tenant policy updates', async () => {
+    const prisma = {
+      tenant: {
+        findUnique: jest.fn().mockResolvedValue(tenantRow({ id: 'wh1' })),
+      },
+    } as never;
+    const svc = new AdminTenantsService(prisma, { record: jest.fn() } as never);
+    await expect(svc.updatePolicy(admin(), 'wh1', {}, 'corr')).rejects.toBeInstanceOf(BadRequestException);
   });
 });

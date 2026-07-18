@@ -2,6 +2,7 @@
 // to each admin section.
 import Link from 'next/link';
 import { apiGet, API_BASE } from '../lib/api';
+import { getSession } from '../lib/session';
 
 // Always render per request (live health + readiness).
 export const dynamic = 'force-dynamic';
@@ -58,16 +59,25 @@ const SECTIONS = [
   { title: 'Audit Logs', href: '/audit-logs', desc: 'Privileged + financial actions', key: 'recentAuditEvents' },
 ];
 
+const SUPER_ADMIN_SECTIONS = [
+  { title: 'Tenants', href: '/tenants', desc: 'Provision partners such as PayKH/trustee, create wholesaler and retailer trees.' },
+  { title: 'Admins', href: '/admins', desc: 'Assign platform roles, tenant scopes, and super-admin ownership boundaries.' },
+  { title: 'Access Control', href: '/access-control', desc: 'Inspect the live RBAC/ABAC model enforced by the API.' },
+  { title: 'Readiness', href: '/readiness', desc: 'Approve gates, review evidence, and control the mainnet readiness path.' },
+];
+
 function Dot({ ok }: { ok: boolean }) {
   return <span className={`dot ${ok ? 'ok' : 'err'}`} />;
 }
 
 export default async function Page() {
+  const session = getSession();
   const [health, overview] = await Promise.all([
     getHealth(),
     apiGet<OverviewData>('/admin/overview'),
   ]);
   const summary = overview?.readiness;
+  const isSuperAdmin = session?.role === 'SUPER_ADMIN';
 
   function sectionMeta(section: (typeof SECTIONS)[number]) {
     if (!overview) return null;
@@ -89,7 +99,21 @@ export default async function Page() {
   return (
     <>
       <h1>Overview</h1>
-      <p className="subtitle">PayChain platform status</p>
+      <p className="subtitle">
+        {isSuperAdmin
+          ? 'Super-admin command center for the PayChain control plane'
+          : 'PayChain platform status'}
+      </p>
+
+      {isSuperAdmin && (
+        <div className="banner ready">
+          <div className="big">Super admin scope</div>
+          <div style={{ color: 'var(--muted)', marginTop: 6 }}>
+            Full platform visibility and role management, plus tenant onboarding, readiness control,
+            reserve/treasury governance, and audit oversight for the PayKH-aligned control plane.
+          </div>
+        </div>
+      )}
 
       <div className="tiles">
         <div className="tile">
@@ -133,6 +157,20 @@ export default async function Page() {
           </Link>
         ))}
       </div>
+
+      {isSuperAdmin && (
+        <>
+          <div className="section-title" style={{ marginTop: 32 }}>Super Admin Focus</div>
+          <div className="cards">
+            {SUPER_ADMIN_SECTIONS.map((s) => (
+              <Link className="card" key={s.href} href={s.href} style={{ display: 'block' }}>
+                <h3>{s.title}</h3>
+                <p>{s.desc}</p>
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="footer">
         PayChain Admin Portal. Production stablecoin features remain behind disabled feature flags

@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, Max, MinLength } from 'class-validator';
 
 export class CreateTenantDto {
   @IsString()
@@ -20,6 +20,24 @@ export class CreateRetailerTenantDto {
   @MinLength(2)
   @MaxLength(120)
   name!: string;
+}
+
+export class UpdateTenantPolicyDto {
+  @IsOptional()
+  @IsInt()
+  @Min(10)
+  @Max(5000)
+  requestsPerMinuteLimit?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(2000)
+  writeRequestsPerMinuteLimit?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  inheritFromParent?: boolean;
 }
 
 /** Mirrors the TenantStatus enum. */

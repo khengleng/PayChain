@@ -218,6 +218,12 @@ export class StablecoinWorkflowController {
     return this.reserve.rejectMovement(auth, movementId, dto.reason, corr);
   }
 
+  @Get('reserve/movements')
+  @RequireScopes('reserve.read')
+  listReserveMovements(@CurrentAuth() auth: AuthContext) {
+    return this.reserve.listMovements(auth.tenantId);
+  }
+
   // --- proof of reserve (§24) ---
   /**
    * Records an external attestation. Requires reserve.manage: publishing one asserts a third
@@ -301,6 +307,12 @@ export class StablecoinWorkflowController {
   @Get('treasury/movements')
   @RequireScopes('treasury.manage')
   listTreasury(@CurrentAuth() auth: AuthContext) {
+    return this.treasury.list(auth);
+  }
+
+  @Get('treasury/movements/history')
+  @RequireScopes('treasury.read')
+  listTreasuryHistory(@CurrentAuth() auth: AuthContext) {
     return this.treasury.list(auth);
   }
 
