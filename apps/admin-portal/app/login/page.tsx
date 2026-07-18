@@ -88,7 +88,7 @@ export default function LoginPage() {
             <Image src="/brand/paychain-icon.svg" alt="" className="brand-mark" width={30} height={30} />
             <span className="brand-word">Pay<span>Chain</span></span>
           </div>
-          <div className="brand-sub" style={{ marginBottom: 24 }}>Admin Portal — sign in</div>
+          <div className="brand-sub" style={{ marginBottom: 24 }}>Super Admin Portal — sign in</div>
           {error && <div className="login-error">{error}</div>}
           <label className="login-label">Email</label>
           <input className="login-input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
