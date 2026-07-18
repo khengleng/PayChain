@@ -1,4 +1,4 @@
-import { ArrayNotEmpty, IsArray, IsEmail, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsEmail, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 
 export class IssueClientDto {
   @IsString()
@@ -42,4 +42,16 @@ export class UpdateScopesDto {
 export class SetClientStatusDto {
   @IsIn(['ACTIVE', 'REVOKED'])
   status!: 'ACTIVE' | 'REVOKED';
+}
+
+export class UpdateClientPolicyDto {
+  @IsInt()
+  @Min(10)
+  @Max(5000)
+  requestsPerMinuteLimit!: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(2000)
+  writeRequestsPerMinuteLimit!: number;
 }

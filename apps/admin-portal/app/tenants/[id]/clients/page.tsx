@@ -11,8 +11,12 @@ interface ClientRow {
   status: string;
   createdBy: string | null;
   ownerEmail: string | null;
+  requestsPerMinuteLimit: number;
+  writeRequestsPerMinuteLimit: number;
   lastTokenIssuedAt: string | null;
   lastApiRequestAt: string | null;
+  failedAuthAttempts24h: number;
+  lastFailedAuthAt: string | null;
   requestCount24h: number;
   errorCount24h: number;
   createdAt: string;
@@ -40,6 +44,7 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
   const [prefix, setPrefix] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
+  const [policyDrafts, setPolicyDrafts] = useState<Record<string, { rpm: number; writeRpm: number }>>({});
   const [issued, setIssued] = useState<Issued | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -107,6 +112,13 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
     if (!res.ok) return setError(data.message ?? 'Action failed');
     if (path === 'rotate-secret') setIssued(data as Issued);
     void load();
+  }
+
+  function draftFor(row: ClientRow) {
+    return policyDrafts[row.id] ?? {
+      rpm: row.requestsPerMinuteLimit,
+      writeRpm: row.writeRequestsPerMinuteLimit,
+    };
   }
 
   return (
@@ -194,22 +206,70 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
           <thead>
             <tr>
               <th>Label</th><th>Client ID</th><th>Owner</th><th>Scopes</th><th>Status</th>
-              <th>Last token</th><th>Last API use</th><th>24h</th><th>Issued by</th><th>Actions</th>
+              <th>Rate policy</th><th>Last token</th><th>Last API use</th><th>24h</th><th>Auth failures</th><th>Issued by</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td colSpan={10} style={{ color: 'var(--muted)' }}>No credentials issued for this tenant yet.</td></tr>
+              <tr><td colSpan={12} style={{ color: 'var(--muted)' }}>No credentials issued for this tenant yet.</td></tr>
             )}
             {rows.map((c) => (
               <tr key={c.id}>
-                <td>{c.name}</td>
+                <td><Link href={`/tenants/${tenantId}/clients/${c.id}`}>{c.name}</Link></td>
                 <td className="mono" style={{ fontSize: 12 }}>{c.clientId}</td>
                 <td style={{ fontSize: 12 }}>{c.ownerEmail ?? '—'}</td>
                 <td style={{ fontSize: 11, color: 'var(--muted)' }} title={c.scopes.join(', ')}>
                   {c.scopes.length} scope(s)
                 </td>
                 <td><span className={`pill ${c.status === 'ACTIVE' ? 'PASSED' : 'BLOCKED'}`}>{c.status}</span></td>
+                <td style={{ fontSize: 12, minWidth: 180 }}>
+                  {canWrite ? (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input
+                        className="login-input"
+                        style={{ width: 72, padding: '4px 6px', fontSize: 12 }}
+                        type="number"
+                        min={10}
+                        max={5000}
+                        value={draftFor(c).rpm}
+                        onChange={(e) =>
+                          setPolicyDrafts((prev) => ({
+                            ...prev,
+                            [c.id]: { ...draftFor(c), rpm: Number(e.target.value) || 0 },
+                          }))
+                        }
+                      />
+                      <span style={{ color: 'var(--muted)' }}>/</span>
+                      <input
+                        className="login-input"
+                        style={{ width: 72, padding: '4px 6px', fontSize: 12 }}
+                        type="number"
+                        min={1}
+                        max={2000}
+                        value={draftFor(c).writeRpm}
+                        onChange={(e) =>
+                          setPolicyDrafts((prev) => ({
+                            ...prev,
+                            [c.id]: { ...draftFor(c), writeRpm: Number(e.target.value) || 0 },
+                          }))
+                        }
+                      />
+                      <button
+                        className="btn-sm"
+                        onClick={() =>
+                          act(c.id, 'policy', {
+                            requestsPerMinuteLimit: draftFor(c).rpm,
+                            writeRequestsPerMinuteLimit: draftFor(c).writeRpm,
+                          })}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  ) : (
+                    <span>{c.requestsPerMinuteLimit}/{c.writeRequestsPerMinuteLimit}</span>
+                  )}
+                  <div style={{ color: 'var(--muted)' }}>all/write per min</div>
+                </td>
                 <td style={{ fontSize: 12 }}>{c.lastTokenIssuedAt ? new Date(c.lastTokenIssuedAt).toLocaleString() : '—'}</td>
                 <td style={{ fontSize: 12 }}>{c.lastApiRequestAt ? new Date(c.lastApiRequestAt).toLocaleString() : '—'}</td>
                 <td style={{ fontSize: 12 }}>
@@ -218,10 +278,17 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
                     {c.errorCount24h} err
                   </div>
                 </td>
+                <td style={{ fontSize: 12 }}>
+                  {c.failedAuthAttempts24h} fail
+                  <div style={{ color: 'var(--muted)' }}>
+                    {c.lastFailedAuthAt ? new Date(c.lastFailedAuthAt).toLocaleString() : '—'}
+                  </div>
+                </td>
                 <td style={{ fontSize: 12 }}>{c.createdBy ?? '—'}</td>
                 <td>
                   {canWrite && (
                     <div className="row-actions">
+                      <Link className="btn-sm" href={`/tenants/${tenantId}/clients/${c.id}`}>Activity</Link>
                       <button className="btn-sm" onClick={() => act(c.id, 'rotate-secret')}>Rotate secret</button>
                       <button className="btn-sm" onClick={() =>
                         act(c.id, 'status', { status: c.status === 'ACTIVE' ? 'REVOKED' : 'ACTIVE' })}>
@@ -238,7 +305,7 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
       <p className="subtitle" style={{ fontSize: 12 }}>
         Rotating or revoking now invalidates existing bearer tokens immediately. The activity
         columns show whether a credential is actually active in production, not only marked active
-        on paper.
+        on paper, and the rate policy is enforced per client at runtime.
       </p>
     </>
   );

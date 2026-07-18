@@ -1,6 +1,8 @@
 import {
   CanActivate,
   ExecutionContext,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -46,7 +48,15 @@ export class JwtAuthGuard implements CanActivate {
     }
     const client = await this.prisma.apiClient.findUnique({
       where: { clientId: claims.sub },
-      select: { id: true, tenantId: true, status: true, scopes: true, tokenVersion: true },
+      select: {
+        id: true,
+        tenantId: true,
+        status: true,
+        scopes: true,
+        tokenVersion: true,
+        requestsPerMinuteLimit: true,
+        writeRequestsPerMinuteLimit: true,
+      },
     });
     if (!client || client.status !== 'ACTIVE' || client.tenantId !== claims.tid) {
       throw new UnauthorizedException('This client is no longer authorized');
@@ -54,6 +64,7 @@ export class JwtAuthGuard implements CanActivate {
     if ((claims.ver ?? 1) !== client.tokenVersion) {
       throw new UnauthorizedException('This token has been superseded by a credential change');
     }
+    await this.enforceRateLimits(req, client);
     const auth: AuthContext = {
       apiClientId: client.id,
       tenantId: claims.tid,
@@ -62,5 +73,40 @@ export class JwtAuthGuard implements CanActivate {
     };
     req.auth = auth;
     return true;
+  }
+
+  private async enforceRateLimits(
+    req: AuthedRequest & {
+      method?: string;
+      originalUrl?: string;
+      route?: { path?: string };
+      baseUrl?: string;
+      path?: string;
+    },
+    client: {
+      id: string;
+      requestsPerMinuteLimit: number;
+      writeRequestsPerMinuteLimit: number;
+    },
+  ): Promise<void> {
+    const since = new Date(Date.now() - 60_000);
+    const allRequests = await this.prisma.apiClientRequestLog.count({
+      where: { apiClientId: client.id, createdAt: { gte: since } },
+    });
+    if (allRequests >= client.requestsPerMinuteLimit) {
+      throw new HttpException('Per-client request rate exceeded', HttpStatus.TOO_MANY_REQUESTS);
+    }
+    const method = (req.method ?? 'GET').toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+    const writeRequests = await this.prisma.apiClientRequestLog.count({
+      where: {
+        apiClientId: client.id,
+        createdAt: { gte: since },
+        method: { in: ['POST', 'PUT', 'PATCH', 'DELETE'] },
+      },
+    });
+    if (writeRequests >= client.writeRequestsPerMinuteLimit) {
+      throw new HttpException('Per-client write rate exceeded', HttpStatus.TOO_MANY_REQUESTS);
+    }
   }
 }

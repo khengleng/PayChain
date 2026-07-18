@@ -32,12 +32,37 @@ export interface ApiClientView {
   status: ApiClientStatus;
   createdBy: string | null;
   ownerEmail: string | null;
+  requestsPerMinuteLimit: number;
+  writeRequestsPerMinuteLimit: number;
   lastTokenIssuedAt: Date | null;
   lastApiRequestAt: Date | null;
+  failedAuthAttempts24h: number;
+  lastFailedAuthAt: Date | null;
   requestCount24h: number;
   errorCount24h: number;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ApiClientActivity {
+  client: ApiClientView;
+  recentRequests: Array<{
+    id: string;
+    method: string;
+    route: string;
+    statusCode: number;
+    ip: string | null;
+    userAgent: string | null;
+    createdAt: Date;
+  }>;
+  recentAuthAttempts: Array<{
+    id: string;
+    success: boolean;
+    failureReason: string | null;
+    ip: string | null;
+    userAgent: string | null;
+    createdAt: Date;
+  }>;
 }
 
 /**
@@ -57,9 +82,60 @@ export class AdminClientsService {
     private readonly audit: AuditService,
   ) {}
 
+  private async withUsage(rows: Array<{
+    id: string;
+    clientId: string;
+    name: string;
+    tenantId: string;
+    scopes: string[];
+    status: ApiClientStatus;
+    createdBy: string | null;
+    ownerEmail: string | null;
+    requestsPerMinuteLimit: number;
+    writeRequestsPerMinuteLimit: number;
+    lastTokenIssuedAt: Date | null;
+    lastApiRequestAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }>, tenantId: string): Promise<ApiClientView[]> {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [counts24h, errors24h, failedAuths24h, lastFailedAuths] = await Promise.all([
+      this.prisma.apiClientRequestLog.groupBy({
+        by: ['apiClientId'],
+        where: { tenantId, createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      this.prisma.apiClientRequestLog.groupBy({
+        by: ['apiClientId'],
+        where: { tenantId, createdAt: { gte: since }, statusCode: { gte: 400 } },
+        _count: { _all: true },
+      }),
+      this.prisma.apiClientAuthAttempt.groupBy({
+        by: ['apiClientId'],
+        where: { tenantId, createdAt: { gte: since }, success: false, apiClientId: { not: null } },
+        _count: { _all: true },
+      }),
+      this.prisma.apiClientAuthAttempt.groupBy({
+        by: ['apiClientId'],
+        where: { tenantId, success: false, apiClientId: { not: null } },
+        _max: { createdAt: true },
+      }),
+    ]);
+    const requestCountById = new Map(counts24h.map((row) => [row.apiClientId, row._count._all]));
+    const errorCountById = new Map(errors24h.map((row) => [row.apiClientId, row._count._all]));
+    const failedAuthCountById = new Map(failedAuths24h.map((row) => [row.apiClientId!, row._count._all]));
+    const lastFailedAuthById = new Map(lastFailedAuths.map((row) => [row.apiClientId!, row._max.createdAt ?? null]));
+    return rows.map((row) => ({
+      ...row,
+      requestCount24h: requestCountById.get(row.id) ?? 0,
+      errorCount24h: errorCountById.get(row.id) ?? 0,
+      failedAuthAttempts24h: failedAuthCountById.get(row.id) ?? 0,
+      lastFailedAuthAt: lastFailedAuthById.get(row.id) ?? null,
+    }));
+  }
+
   async list(admin: AdminContext, tenantId: string): Promise<ApiClientView[]> {
     assertPermittedByAttributes(admin, { tenantId });
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const rows = await this.prisma.apiClient.findMany({
       where: { tenantId },
       orderBy: { createdAt: 'desc' },
@@ -72,6 +148,8 @@ export class AdminClientsService {
         status: true,
         createdBy: true,
         ownerEmail: true,
+        requestsPerMinuteLimit: true,
+        writeRequestsPerMinuteLimit: true,
         lastTokenIssuedAt: true,
         lastApiRequestAt: true,
         createdAt: true,
@@ -80,25 +158,7 @@ export class AdminClientsService {
         // a log, or a developer's console tab.
       },
     });
-    const [counts24h, errors24h] = await Promise.all([
-      this.prisma.apiClientRequestLog.groupBy({
-        by: ['apiClientId'],
-        where: { tenantId, createdAt: { gte: since } },
-        _count: { _all: true },
-      }),
-      this.prisma.apiClientRequestLog.groupBy({
-        by: ['apiClientId'],
-        where: { tenantId, createdAt: { gte: since }, statusCode: { gte: 400 } },
-        _count: { _all: true },
-      }),
-    ]);
-    const requestCountById = new Map(counts24h.map((row) => [row.apiClientId, row._count._all]));
-    const errorCountById = new Map(errors24h.map((row) => [row.apiClientId, row._count._all]));
-    return rows.map((row) => ({
-      ...row,
-      requestCount24h: requestCountById.get(row.id) ?? 0,
-      errorCount24h: errorCountById.get(row.id) ?? 0,
-    }));
+    return this.withUsage(rows, tenantId);
   }
 
   async issue(
@@ -127,6 +187,8 @@ export class AdminClientsService {
         scopes,
         status: 'ACTIVE',
         tokenVersion: 1,
+        requestsPerMinuteLimit: 120,
+        writeRequestsPerMinuteLimit: 30,
         createdBy: admin.email,
         ownerEmail: input.ownerEmail?.toLowerCase() ?? null,
       },
@@ -225,6 +287,8 @@ export class AdminClientsService {
         status: true,
         createdBy: true,
         ownerEmail: true,
+        requestsPerMinuteLimit: true,
+        writeRequestsPerMinuteLimit: true,
         lastTokenIssuedAt: true,
         lastApiRequestAt: true,
         createdAt: true,
@@ -242,7 +306,13 @@ export class AdminClientsService {
       metadata: { clientId: client.clientId, from: client.status, to: status, role: admin.role },
     });
 
-    return { ...updated, requestCount24h: 0, errorCount24h: 0 };
+    return {
+      ...updated,
+      failedAuthAttempts24h: 0,
+      lastFailedAuthAt: null,
+      requestCount24h: 0,
+      errorCount24h: 0,
+    };
   }
 
   async updateScopes(
@@ -293,7 +363,109 @@ export class AdminClientsService {
       },
     });
 
-    return { ...updated, requestCount24h: 0, errorCount24h: 0 };
+    return {
+      ...updated,
+      requestsPerMinuteLimit: client.requestsPerMinuteLimit,
+      writeRequestsPerMinuteLimit: client.writeRequestsPerMinuteLimit,
+      failedAuthAttempts24h: 0,
+      lastFailedAuthAt: null,
+      requestCount24h: 0,
+      errorCount24h: 0,
+    };
+  }
+
+  async updatePolicy(
+    admin: AdminContext,
+    id: string,
+    policy: { requestsPerMinuteLimit: number; writeRequestsPerMinuteLimit: number },
+    correlationId: string,
+  ): Promise<ApiClientView> {
+    const client = await this.requireClient(admin, id);
+    const updated = await this.prisma.apiClient.update({
+      where: { id: client.id },
+      data: {
+        requestsPerMinuteLimit: policy.requestsPerMinuteLimit,
+        writeRequestsPerMinuteLimit: policy.writeRequestsPerMinuteLimit,
+      },
+      select: {
+        id: true,
+        clientId: true,
+        name: true,
+        tenantId: true,
+        scopes: true,
+        status: true,
+        createdBy: true,
+        ownerEmail: true,
+        requestsPerMinuteLimit: true,
+        writeRequestsPerMinuteLimit: true,
+        lastTokenIssuedAt: true,
+        lastApiRequestAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    await this.audit.record({
+      tenantId: client.tenantId,
+      actor: admin.email,
+      action: 'api_client.policy_changed',
+      resourceType: 'api_client',
+      resourceId: client.id,
+      correlationId,
+      metadata: {
+        clientId: client.clientId,
+        from: {
+          requestsPerMinuteLimit: client.requestsPerMinuteLimit,
+          writeRequestsPerMinuteLimit: client.writeRequestsPerMinuteLimit,
+        },
+        to: policy,
+        role: admin.role,
+      },
+    });
+    return {
+      ...updated,
+      failedAuthAttempts24h: 0,
+      lastFailedAuthAt: null,
+      requestCount24h: 0,
+      errorCount24h: 0,
+    };
+  }
+
+  async activity(admin: AdminContext, id: string): Promise<ApiClientActivity> {
+    const client = await this.requireClient(admin, id);
+    const [clientView] = await this.withUsage([
+      {
+        id: client.id,
+        clientId: client.clientId,
+        name: client.name,
+        tenantId: client.tenantId,
+        scopes: client.scopes,
+        status: client.status,
+        createdBy: client.createdBy,
+        ownerEmail: client.ownerEmail,
+        requestsPerMinuteLimit: client.requestsPerMinuteLimit,
+        writeRequestsPerMinuteLimit: client.writeRequestsPerMinuteLimit,
+        lastTokenIssuedAt: client.lastTokenIssuedAt,
+        lastApiRequestAt: client.lastApiRequestAt,
+        createdAt: client.createdAt,
+        updatedAt: client.updatedAt,
+      },
+    ], client.tenantId);
+    if (!clientView) {
+      throw new NotFoundException('Client activity not found');
+    }
+    const [recentRequests, recentAuthAttempts] = await Promise.all([
+      this.prisma.apiClientRequestLog.findMany({
+        where: { apiClientId: client.id },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+      this.prisma.apiClientAuthAttempt.findMany({
+        where: { apiClientId: client.id },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+    ]);
+    return { client: clientView, recentRequests, recentAuthAttempts };
   }
 
   /**

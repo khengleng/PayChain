@@ -5,7 +5,7 @@ import { AdminPermissionGuard, RequireAdminPermission } from '../admin-auth/admi
 import { CurrentAdmin, type AdminContext } from '../admin-auth/admin-context';
 import { AdminClientsService } from './admin-clients.service';
 import { API_SCOPES, LOYALTY_INTEGRATION_SCOPES, SENSITIVE_SCOPES } from './api-scopes';
-import { IssueClientDto, SetClientStatusDto, UpdateScopesDto } from './dto';
+import { IssueClientDto, SetClientStatusDto, UpdateClientPolicyDto, UpdateScopesDto } from './dto';
 
 /**
  * API client management (§34) — how a partner such as PayKH is given working credentials.
@@ -72,6 +72,15 @@ export class AdminClientsController {
     return this.clients.setStatus(admin, id, dto.status, corr);
   }
 
+  @Get('clients/:id/activity')
+  @RequireAdminPermission('client:read')
+  activity(
+    @CurrentAdmin() admin: AdminContext,
+    @Param('id') id: string,
+  ) {
+    return this.clients.activity(admin, id);
+  }
+
   @Post('clients/:id/scopes')
   @RequireAdminPermission('client:write')
   updateScopes(
@@ -81,5 +90,16 @@ export class AdminClientsController {
     @Body() dto: UpdateScopesDto,
   ) {
     return this.clients.updateScopes(admin, id, dto.scopes, corr);
+  }
+
+  @Post('clients/:id/policy')
+  @RequireAdminPermission('client:write')
+  updatePolicy(
+    @CurrentAdmin() admin: AdminContext,
+    @CorrelationId() corr: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateClientPolicyDto,
+  ) {
+    return this.clients.updatePolicy(admin, id, dto, corr);
   }
 }

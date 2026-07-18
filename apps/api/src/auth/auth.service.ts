@@ -10,6 +10,11 @@ export interface TokenResponse {
   scope: string;
 }
 
+export interface AuthAttemptMeta {
+  ip?: string | null;
+  userAgent?: string | null;
+}
+
 /**
  * OAuth 2.0 client-credentials grant (§34). Exchanges a tenant API client's
  * clientId/clientSecret for a short-lived JWT carrying tenant id and granted scopes.
@@ -25,14 +30,23 @@ export class AuthService {
     private readonly ttlSeconds: number,
   ) {}
 
-  async issueToken(clientId: string, clientSecret: string): Promise<TokenResponse> {
+  async issueToken(clientId: string, clientSecret: string, meta: AuthAttemptMeta = {}): Promise<TokenResponse> {
     const client = await this.prisma.apiClient.findUnique({ where: { clientId } });
     if (!client || client.status !== 'ACTIVE') {
+      await this.recordAttempt({ clientIdValue: clientId, success: false, failureReason: 'INVALID_CREDENTIALS', ...meta });
       throw new UnauthorizedException('Invalid client credentials');
     }
 
     const { ok, needsRehash } = verifyClientSecret(clientSecret, client.clientSecretHash);
     if (!ok) {
+      await this.recordAttempt({
+        apiClientId: client.id,
+        tenantId: client.tenantId,
+        clientIdValue: clientId,
+        success: false,
+        failureReason: 'INVALID_CREDENTIALS',
+        ...meta,
+      });
       throw new UnauthorizedException('Invalid client credentials');
     }
 
@@ -60,6 +74,15 @@ export class AuthService {
       data: { lastTokenIssuedAt: new Date() },
     });
 
+    await this.recordAttempt({
+      apiClientId: client.id,
+      tenantId: client.tenantId,
+      clientIdValue: clientId,
+      success: true,
+      failureReason: null,
+      ...meta,
+    });
+
     const token = await this.jwt.signAsync(
       { sub: client.clientId, tid: client.tenantId, scopes: client.scopes, ver: client.tokenVersion },
       { expiresIn: this.ttlSeconds },
@@ -70,5 +93,27 @@ export class AuthService {
       expires_in: this.ttlSeconds,
       scope: client.scopes.join(' '),
     };
+  }
+
+  private async recordAttempt(input: {
+    apiClientId?: string;
+    tenantId?: string;
+    clientIdValue: string;
+    success: boolean;
+    failureReason: string | null;
+    ip?: string | null;
+    userAgent?: string | null;
+  }): Promise<void> {
+    await this.prisma.apiClientAuthAttempt.create({
+      data: {
+        apiClientId: input.apiClientId ?? null,
+        tenantId: input.tenantId ?? null,
+        clientIdValue: input.clientIdValue,
+        success: input.success,
+        failureReason: input.failureReason,
+        ip: input.ip ?? null,
+        userAgent: input.userAgent ?? null,
+      },
+    });
   }
 }

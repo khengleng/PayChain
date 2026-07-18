@@ -348,7 +348,8 @@ model Tenant {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  apiClients   ApiClient[]
+  apiClients            ApiClient[]
+  apiClientAuthAttempts ApiClientAuthAttempt[]
   apiClientRequestLogs ApiClientRequestLog[]
   wallets      Wallet[]
   assets       Asset[]
@@ -366,6 +367,8 @@ model ApiClient {
   scopes           String[]        @default([])
   status           ApiClientStatus @default(ACTIVE)
   tokenVersion     Int             @default(1)
+  requestsPerMinuteLimit Int       @default(120)
+  writeRequestsPerMinuteLimit Int  @default(30)
   /// Admin who issued this credential.
   createdBy        String?
   /// The human accountable for this credential — who holds and uses it.
@@ -381,10 +384,31 @@ model ApiClient {
   updatedAt        DateTime        @updatedAt
 
   tenant      Tenant                @relation(fields: [tenantId], references: [id])
+  authAttempts ApiClientAuthAttempt[]
   requestLogs ApiClientRequestLog[]
 
   @@index([tenantId])
   @@map("api_clients")
+}
+
+model ApiClientAuthAttempt {
+  id            String   @id @default(uuid())
+  tenantId      String?
+  apiClientId   String?
+  clientIdValue String
+  success       Boolean
+  failureReason String?
+  ip            String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+
+  tenant Tenant?   @relation(fields: [tenantId], references: [id])
+  client ApiClient? @relation(fields: [apiClientId], references: [id])
+
+  @@index([apiClientId, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([clientIdValue, createdAt])
+  @@map("api_client_auth_attempts")
 }
 
 model ApiClientRequestLog {

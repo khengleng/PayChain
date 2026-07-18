@@ -69,6 +69,18 @@ export class AdminReadController {
     return this.svc.reconciliation(tenantScopeOf(admin));
   }
 
+  @Get('operations/webhooks')
+  @RequireAdminPermission('audit:read')
+  webhookFailures(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.webhookFailures(tenantScopeOf(admin));
+  }
+
+  @Get('operations/outbox')
+  @RequireAdminPermission('audit:read')
+  outboxFailures(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.outboxFailures(tenantScopeOf(admin));
+  }
+
   @Get('flags')
   @RequireAdminPermission('flags:read')
   flags(@CurrentAdmin() admin: AdminContext) {

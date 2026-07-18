@@ -26,6 +26,8 @@ const NAV: Array<{ label: string; href: string; perm?: string }> = [
   { label: 'Feature Flags', href: '/feature-flags', perm: 'flags:read' },
   { label: 'Emergency', href: '/emergency', perm: 'readiness:read' },
   { label: 'Audit Logs', href: '/audit-logs', perm: 'audit:read' },
+  { label: 'Webhook Ops', href: '/operations/webhooks', perm: 'audit:read' },
+  { label: 'Outbox Ops', href: '/operations/outbox', perm: 'audit:read' },
   // No perm: every admin (including AUDITOR, who holds no write permission) must be able to
   // review the access model that governs them.
   { label: 'Access Control', href: '/access-control' },

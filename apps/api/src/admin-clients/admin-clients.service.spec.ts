@@ -13,10 +13,12 @@ const admin = (attributes: Record<string, unknown> = {}): AdminContext => ({
 
 function fakePrisma() {
   const clients: Record<string, Record<string, unknown>> = {};
+  const authAttempts: Array<Record<string, unknown>> = [];
   const requestLogs: Array<Record<string, unknown>> = [];
   let n = 0;
   return {
     clients,
+    authAttempts,
     requestLogs,
     tenant: {
       findUnique: async ({ where }: { where: { id: string } }) =>
@@ -25,7 +27,14 @@ function fakePrisma() {
     apiClient: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         n += 1;
-        const row = { id: `c${n}`, createdAt: new Date(), updatedAt: new Date(), ...data };
+        const row = {
+          id: `c${n}`,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          lastTokenIssuedAt: null,
+          lastApiRequestAt: null,
+          ...data,
+        };
         clients[row.id] = row;
         return row;
       },
@@ -61,6 +70,10 @@ function fakePrisma() {
       },
     },
     apiClientRequestLog: {
+      findMany: async ({ where }: { where?: { apiClientId?: string } } = {}) =>
+        requestLogs
+          .filter((row) => !where?.apiClientId || row.apiClientId === where.apiClientId)
+          .sort((a, b) => Number((b.createdAt as Date).getTime()) - Number((a.createdAt as Date).getTime())),
       groupBy: async ({
         where,
       }: {
@@ -78,6 +91,45 @@ function fakePrisma() {
           counts.set(key, (counts.get(key) ?? 0) + 1);
         }
         return [...counts.entries()].map(([apiClientId, count]) => ({ apiClientId, _count: { _all: count } }));
+      },
+    },
+    apiClientAuthAttempt: {
+      findMany: async ({ where }: { where?: { apiClientId?: string } } = {}) =>
+        authAttempts
+          .filter((row) => !where?.apiClientId || row.apiClientId === where.apiClientId)
+          .sort((a, b) => Number((b.createdAt as Date).getTime()) - Number((a.createdAt as Date).getTime())),
+      groupBy: async ({
+        where,
+        _count,
+        _max,
+      }: {
+        where: { tenantId: string; createdAt?: { gte: Date }; success?: boolean; apiClientId?: { not: null } };
+        _count?: { _all: true };
+        _max?: { createdAt: true };
+      }) => {
+        const filtered = authAttempts.filter((row) => {
+          if (row.tenantId !== where.tenantId) return false;
+          if (where.success !== undefined && row.success !== where.success) return false;
+          if (where.createdAt && (!(row.createdAt instanceof Date) || row.createdAt < where.createdAt.gte)) return false;
+          if (where.apiClientId?.not === null) return true;
+          return row.apiClientId != null;
+        });
+        const grouped = new Map<string, Array<Record<string, unknown>>>();
+        for (const row of filtered) {
+          const key = String(row.apiClientId);
+          grouped.set(key, [...(grouped.get(key) ?? []), row]);
+        }
+        return [...grouped.entries()].map(([apiClientId, rows]) => ({
+          apiClientId,
+          _count: _count ? { _all: rows.length } : undefined,
+          _max: _max
+            ? { createdAt: rows.reduce<Date | null>((best, row) => {
+                const createdAt = row.createdAt as Date;
+                if (!best || createdAt > best) return createdAt;
+                return best;
+              }, null) }
+            : undefined,
+        }));
       },
     },
   };
@@ -126,10 +178,14 @@ describe('AdminClientsService — issuing partner credentials (§34)', () => {
       { apiClientId: issued.id, tenantId: 't1', statusCode: 200, createdAt: new Date() },
       { apiClientId: issued.id, tenantId: 't1', statusCode: 403, createdAt: new Date() },
     );
+    prisma.authAttempts.push(
+      { apiClientId: issued.id, tenantId: 't1', success: false, createdAt: new Date() },
+    );
 
     const [row] = await svc.list(admin(), 't1');
     expect(row?.requestCount24h).toBe(2);
     expect(row?.errorCount24h).toBe(1);
+    expect(row?.failedAuthAttempts24h).toBe(1);
   });
 
   it('issues unique credentials every time', async () => {
@@ -302,5 +358,26 @@ describe('AdminClientsService — rotation and revocation', () => {
     const entry = audit.record.mock.calls.find((c) => c[0].action === 'api_client.scopes_changed');
     expect(entry?.[0].metadata.added).toEqual(['transaction.read']);
     expect(entry?.[0].metadata.removed).toEqual(expect.arrayContaining(['wallet.write', 'asset.issue']));
+  });
+
+  it('updates runtime request policy and exposes activity drill-down', async () => {
+    const { svc, prisma } = build();
+    const issued = await svc.issue(admin(), 't1', { name: 'PayKH', scopes: LOYALTY }, 'corr');
+    prisma.requestLogs.push({ id: 'r1', apiClientId: issued.id, tenantId: 't1', method: 'POST', route: '/api/v1/wallets', statusCode: 200, createdAt: new Date() });
+    prisma.authAttempts.push({ id: 'a1', apiClientId: issued.id, tenantId: 't1', success: false, failureReason: 'INVALID_CREDENTIALS', createdAt: new Date() });
+
+    const updated = await svc.updatePolicy(
+      admin(),
+      issued.id,
+      { requestsPerMinuteLimit: 240, writeRequestsPerMinuteLimit: 60 },
+      'corr',
+    );
+    expect(updated.requestsPerMinuteLimit).toBe(240);
+    expect(updated.writeRequestsPerMinuteLimit).toBe(60);
+
+    const activity = await svc.activity(admin(), issued.id);
+    expect(activity.recentRequests).toHaveLength(1);
+    expect(activity.recentAuthAttempts).toHaveLength(1);
+    expect(activity.client.clientId).toBe(issued.clientId);
   });
 });

@@ -200,6 +200,62 @@ export class AdminReadService {
     };
   }
 
+  async webhookFailures(scope: TenantScope) {
+    const [deliveries, tenants] = await Promise.all([
+      this.prisma.webhookDelivery.findMany({
+        where: {
+          ...(scope ? { tenantId: { in: scope } } : {}),
+          status: { in: ['FAILED', 'DEAD'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: MAX,
+        include: { endpoint: { select: { url: true, status: true } } },
+      }),
+      this.tenantNames(),
+    ]);
+    return {
+      items: deliveries.map((d) => ({
+        id: d.id,
+        tenant: tenants.get(d.tenantId) ?? d.tenantId,
+        endpointUrl: d.endpoint.url,
+        endpointStatus: d.endpoint.status,
+        eventType: d.eventType,
+        eventId: d.eventId,
+        status: d.status,
+        attempts: d.attempts,
+        lastError: d.lastError,
+        correlationId: d.correlationId,
+        createdAt: d.createdAt,
+        deliveredAt: d.deliveredAt,
+      })),
+    };
+  }
+
+  async outboxFailures(scope: TenantScope) {
+    const rows = await this.prisma.outboxEvent.findMany({
+      where: {
+        ...(scope ? { tenantId: { in: scope } } : {}),
+        status: { in: ['FAILED', 'PENDING', 'PROCESSING'] },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: MAX,
+    });
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        tenantId: row.tenantId,
+        aggregateType: row.aggregateType,
+        aggregateId: row.aggregateId,
+        eventType: row.eventType,
+        status: row.status,
+        attempts: row.attempts,
+        correlationId: row.correlationId,
+        createdAt: row.createdAt,
+        processedAt: row.processedAt,
+      })),
+    };
+  }
+
   /**
    * Feature flags for the GLOBAL scope, plus any tenant overrides. Every declared
    * stablecoin.* flag is shown even without a DB row — its effective value is then OFF,
