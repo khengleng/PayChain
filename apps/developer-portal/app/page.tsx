@@ -41,6 +41,10 @@ export default function Page() {
           <h3>API reference</h3>
           <p>Wallets, assets, transactions, stablecoin workflows</p>
         </a>
+        <a className="card" href="/trustee-integration">
+          <h3>Trustee verification</h3>
+          <p>Read-only readiness, reserve, attestation, and treasury verification flow</p>
+        </a>
         <a className="card" href="/webhooks">
           <h3>Webhooks</h3>
           <p>Signed events with replay protection</p>
@@ -58,7 +62,8 @@ export default function Page() {
       <div className="footer">
         API base: {API_BASE} · Reference partner sample: {PAYKH_BASE} · Docs: {DOCS_BASE} ·
         PayKH is the reference B2B integration for other partners to follow, and remains
-        loyalty-only until PayChain stablecoin readiness gates pass.
+        loyalty-only until PayChain stablecoin readiness gates pass. Trustee verification is
+        read-only and does not bypass the blocked stablecoin/security gates.
       </div>
     </div>
   );

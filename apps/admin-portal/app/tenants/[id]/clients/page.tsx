@@ -32,8 +32,10 @@ interface Issued {
 interface ScopeCatalog {
   scopes: string[];
   sensitive: string[];
-  presets: { loyaltyIntegration: string[] };
+  presets: { loyaltyIntegration: string[]; trusteeIntegration: string[] };
 }
+
+type PresetKey = 'loyaltyIntegration' | 'trusteeIntegration';
 
 export default function TenantClientsPage({ params }: { params: { id: string } }) {
   const tenantId = params.id;
@@ -44,6 +46,7 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
   const [prefix, setPrefix] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
+  const [preset, setPreset] = useState<PresetKey>('loyaltyIntegration');
   const [policyDrafts, setPolicyDrafts] = useState<Record<string, { rpm: number; writeRpm: number }>>({});
   const [issued, setIssued] = useState<Issued | null>(null);
   const [busy, setBusy] = useState(false);
@@ -72,6 +75,11 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
 
   function toggle(scope: string) {
     setSelected((s) => (s.includes(scope) ? s.filter((x) => x !== scope) : [...s, scope]));
+  }
+
+  function applyPreset(next: PresetKey) {
+    setPreset(next);
+    if (catalog) setSelected(catalog.presets[next]);
   }
 
   async function issue(e: React.FormEvent) {
@@ -177,9 +185,27 @@ export default function TenantClientsPage({ params }: { params: { id: string } }
 
           <div className="login-label" style={{ marginTop: 12 }}>Scopes</div>
           <p className="subtitle" style={{ fontSize: 12, marginTop: 0 }}>
-            Defaults to the loyalty-integration preset. Scopes marked <strong>sensitive</strong> let a
+            Start from a preset, then adjust if needed. Scopes marked <strong>sensitive</strong> let a
             credential move or authorize value beyond ordinary loyalty traffic — grant deliberately.
           </p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <button
+              type="button"
+              className="btn-sm"
+              onClick={() => applyPreset('loyaltyIntegration')}
+              style={{ opacity: preset === 'loyaltyIntegration' ? 1 : 0.65 }}
+            >
+              Loyalty preset
+            </button>
+            <button
+              type="button"
+              className="btn-sm"
+              onClick={() => applyPreset('trusteeIntegration')}
+              style={{ opacity: preset === 'trusteeIntegration' ? 1 : 0.65 }}
+            >
+              Trustee preset
+            </button>
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
             {catalog.scopes.map((s) => {
               const on = selected.includes(s);

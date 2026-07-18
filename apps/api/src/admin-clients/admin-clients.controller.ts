@@ -4,7 +4,12 @@ import { AdminAuthGuard } from '../admin-auth/admin-auth.guard';
 import { AdminPermissionGuard, RequireAdminPermission } from '../admin-auth/admin-permission.guard';
 import { CurrentAdmin, type AdminContext } from '../admin-auth/admin-context';
 import { AdminClientsService } from './admin-clients.service';
-import { API_SCOPES, LOYALTY_INTEGRATION_SCOPES, SENSITIVE_SCOPES } from './api-scopes';
+import {
+  API_SCOPES,
+  LOYALTY_INTEGRATION_SCOPES,
+  SENSITIVE_SCOPES,
+  TRUSTEE_INTEGRATION_SCOPES,
+} from './api-scopes';
 import { IssueClientDto, SetClientStatusDto, UpdateClientPolicyDto, UpdateScopesDto } from './dto';
 
 /**
@@ -29,6 +34,7 @@ export class AdminClientsController {
       sensitive: SENSITIVE_SCOPES,
       presets: {
         loyaltyIntegration: LOYALTY_INTEGRATION_SCOPES,
+        trusteeIntegration: TRUSTEE_INTEGRATION_SCOPES,
       },
     };
   }

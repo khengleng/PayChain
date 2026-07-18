@@ -170,6 +170,13 @@ export class ReserveService {
     return movement;
   }
 
+  async listMovements(tenantId: string) {
+    return this.prisma.reserveMovement.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   /**
    * Approves and applies a pending movement (§23 maker-checker).
    *

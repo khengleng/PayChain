@@ -23,8 +23,10 @@ export const API_SCOPES = [
   'stablecoin.read',
   'stablecoin.manage',
   'stablecoin.approve',
+  'reserve.read',
   'reserve.manage',
   'reserve.approve',
+  'treasury.read',
   'treasury.manage',
   'treasury.approve',
   'platform.readiness',
@@ -50,6 +52,18 @@ export const LOYALTY_INTEGRATION_SCOPES: ApiScope[] = [
 ];
 
 /**
+ * Read-only trustee / verifier integration. Lets an external verifier inspect readiness,
+ * stablecoin state, reserve evidence, and treasury history without granting any mutation path.
+ */
+export const TRUSTEE_INTEGRATION_SCOPES: ApiScope[] = [
+  'stablecoin.read',
+  'reserve.read',
+  'treasury.read',
+  'platform.readiness',
+  'transaction.read',
+];
+
+/**
  * Scopes that let a client move or authorize value beyond ordinary loyalty traffic. Granting one
  * is flagged in the audit metadata so an approval trail exists for privileged credentials.
  */
@@ -58,8 +72,10 @@ export const SENSITIVE_SCOPES: ApiScope[] = [
   'transaction.approve',
   'stablecoin.manage',
   'stablecoin.approve',
+  'reserve.read',
   'reserve.manage',
   'reserve.approve',
+  'treasury.read',
   'treasury.manage',
   'treasury.approve',
   'platform.readiness',

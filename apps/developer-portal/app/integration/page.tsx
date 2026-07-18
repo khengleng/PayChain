@@ -53,6 +53,11 @@ export default function Integration() {
         <strong>not</strong> part of the PayChain control plane. Its backend calls PayChain over
         approved APIs.
       </p>
+      <p className="lead" style={{ fontSize: 14 }}>
+        If you are integrating a trustee or external verifier instead of a loyalty client, use the
+        dedicated <a href="/trustee-integration">trustee integration guide</a>. That path is
+        read-only by design.
+      </p>
 
       <h2>Before you write code — read this</h2>
       <p className="lead" style={{ fontSize: 14 }}>
