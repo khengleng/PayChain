@@ -46,8 +46,9 @@ export default function Integration() {
     <div className="wrap">
       <h1>Integration guide</h1>
       <p className="lead">
-        How an existing app becomes a PayChain client. Written for the PayKH loyalty integration;
-        the pattern is the same for any tenant. PayKH operates on{' '}
+        How an existing app becomes a PayChain client. Written around the PayKH loyalty
+        integration, which serves as the reference B2B sample for other partners. The pattern is
+        the same for any tenant. PayKH operates on{' '}
         <span className="mono">{PAYKH_BASE}</span> as a PayChain client tenant; it is{' '}
         <strong>not</strong> part of the PayChain control plane. Its backend calls PayChain over
         approved APIs.

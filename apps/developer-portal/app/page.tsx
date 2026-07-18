@@ -56,9 +56,9 @@ export default function Page() {
       </div>
 
       <div className="footer">
-        API base: {API_BASE} · Example client tenant: {PAYKH_BASE} · Docs: {DOCS_BASE} · The
-        first PayKH integration is loyalty-only; PayKH stablecoin features remain disabled until
-        PayChain stablecoin readiness gates pass.
+        API base: {API_BASE} · Reference partner sample: {PAYKH_BASE} · Docs: {DOCS_BASE} ·
+        PayKH is the reference B2B integration for other partners to follow, and remains
+        loyalty-only until PayChain stablecoin readiness gates pass.
       </div>
     </div>
   );

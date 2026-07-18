@@ -1,8 +1,9 @@
 # PayKH → PayChain Integration Guide (Loyalty-Only)
 
 This guide explains how the **existing PayKH app** integrates PayChain for loyalty. PayKH is
-**not modified or converted** — it becomes PayChain's first client via the SDK (§2, §44). The
-reference implementation is `examples/paykh-adapter/` (sample code, not the real PayKH).
+**not modified or converted** — it becomes PayChain's reference B2B client via the SDK (§2, §44),
+and other partners should follow the same integration pattern. The reference implementation is
+`examples/paykh-adapter/` (sample code, not the real PayKH).
 
 > **Scope guardrail:** the first integration is **loyalty-only**. PayKH stablecoin capabilities
 > are designed (`stablecoin-preview.ts`) but stay disabled until PayChain's stablecoin readiness
