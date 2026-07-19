@@ -18,6 +18,7 @@ import { assertValidAmount } from '../common/money';
 import type { AuthContext } from '../auth/auth-context';
 import { assertWalletCanTransact } from '../wallets/wallet-status';
 import { WalletPolicyService } from '../wallets/wallet-policy.service';
+import { BalanceService } from '../wallets/balance.service';
 import { FIAT_PAYOUT_PROVIDER, type FiatPayoutProvider } from './providers/providers.module';
 
 /**
@@ -37,7 +38,25 @@ export class RedemptionService {
     @Inject(FIAT_PAYOUT_PROVIDER) private readonly payout: FiatPayoutProvider,
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
     private readonly walletPolicy: WalletPolicyService,
+    private readonly balances: BalanceService,
   ) {}
+
+  /**
+   * Refresh the redeemer wallet's balance read model from chain after the burn confirms.
+   * Best-effort: the chain is authoritative and the reconciler catches residual drift, so this
+   * never fails the saga — it just keeps the cache current so the balance reconciler does not
+   * (correctly) flag BALANCE_DRIFT after a redemption burn, as AssetsService already does.
+   */
+  private async refreshBalances(tenantId: string, walletId: string): Promise<void> {
+    try {
+      const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId } });
+      if (wallet) {
+        await this.balances.refreshFromChain({ tenantId, walletId, stellarAccountId: wallet.stellarAccountId });
+      }
+    } catch {
+      // swallow — cache freshness is best-effort; the reconciler is the backstop.
+    }
+  }
 
   async request(
     auth: AuthContext,
@@ -281,6 +300,7 @@ export class RedemptionService {
         where: { blockchainHash: r.burnHash, type: 'ASSET_BURNED' },
         data: { status: 'CONFIRMED', confirmedAt: new Date(), failureReason: null, failureCode: null },
       });
+      await this.refreshBalances(r.tenantId, r.walletId); // cache reflects the burned tokens
       return this.set(r.id, { status: 'BURN_CONFIRMED' });
     }
     if (onChain.status === 'failed') {

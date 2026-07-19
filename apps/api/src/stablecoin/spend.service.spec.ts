@@ -26,6 +26,7 @@ function deps(over: {
   escrow?: unknown;
 } = {}) {
   const audit = { record: jest.fn() };
+  const balances = { refreshFromChain: jest.fn().mockResolvedValue(undefined) };
   const svc = new SpendService(
     (over.prisma ?? {}) as never,
     { decrypt: () => 'S' } as never,
@@ -33,8 +34,9 @@ function deps(over: {
     (over.flags ?? { requireEnabled: jest.fn().mockResolvedValue(undefined) }) as never,
     (over.chain ?? { burnAsset: jest.fn(), getTransaction: jest.fn() }) as never,
     (over.escrow ?? { assertSpendable: jest.fn().mockResolvedValue(undefined) }) as never,
+    balances as never,
   );
-  return { svc, audit };
+  return { svc, audit, balances };
 }
 
 // A stateful stand-in for the stablecoin_spends row, exercising the claim-then-write ordering.
@@ -145,7 +147,7 @@ describe('SpendService saga — burn reduces supply only once confirmed', () => 
       .fn()
       .mockResolvedValueOnce({ status: 'pending' }) // not yet confirmed → stays BURN_PENDING
       .mockResolvedValueOnce({ status: 'confirmed' });
-    const { svc } = deps({ prisma, chain: { burnAsset, getTransaction } });
+    const { svc, balances } = deps({ prisma, chain: { burnAsset, getTransaction } });
 
     await svc.advance('t1', 'sp1'); // REQUESTED -> BURN_PENDING (broadcast once)
     expect(prisma.store().status).toBe('BURN_PENDING');
@@ -160,6 +162,7 @@ describe('SpendService saga — burn reduces supply only once confirmed', () => 
 
     await svc.advance('t1', 'sp1'); // confirmed
     expect(prisma.store().status).toBe('BURN_CONFIRMED');
+    expect(balances.refreshFromChain).toHaveBeenCalled(); // cache refreshed post-burn (no BALANCE_DRIFT)
 
     await svc.advance('t1', 'sp1'); // BURN_CONFIRMED -> COMPLETED
     expect(prisma.store().status).toBe('COMPLETED');

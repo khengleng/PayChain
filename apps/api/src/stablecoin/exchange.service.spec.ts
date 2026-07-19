@@ -33,6 +33,7 @@ function make(over: {
     (over.mint ?? { assertMintAllowed: jest.fn().mockResolvedValue(undefined) }) as never,
     (over.walletPolicy ?? { assertAllowed: jest.fn().mockResolvedValue(undefined) }) as never,
     (over.escrow ?? { assertSpendable: jest.fn().mockResolvedValue(undefined) }) as never,
+    { refreshFromChain: jest.fn().mockResolvedValue(undefined) } as never,
   );
   return { svc, audit };
 }
