@@ -247,12 +247,13 @@ export class ExchangeService {
     if (!wallet) throw new NotFoundException('Exchange wallet not found');
     if (!to.issuerSecretEnc) throw new BadRequestException('Destination issuer has no managed key');
 
+    // PRE-BROADCAST leg: everything up to and including issueAsset. A failure here means the
+    // destination was NOT minted (or the broadcast failed), so the source burn must be undone —
+    // compensate. §22/§23: reuse the one mint gate; §27: the wallet must be RECEIVE-eligible. The
+    // breach/policy failures live here on purpose so an unmintable destination cleanly aborts the
+    // swap (re-issue source) rather than stranding the holder's already-burned coins.
+    let result: { transactionHash: string };
     try {
-      // §22/§23: the destination is a reserve-backed coin. Reuse the one mint gate (reserve
-      // sufficiency + freshness + daily limit) rather than a second minting path — a swap can only
-      // mint the destination if the destination coin is itself funded. A breach here is INSIDE the
-      // try on purpose: the source is already burned, so an unmintable destination must COMPENSATE
-      // (re-issue the source and cleanly abort), not strand the holder's coins in manual review.
       await this.mint.assertMintAllowed({
         tenantId: e.tenantId,
         assetId: e.toAssetId,
@@ -261,7 +262,6 @@ export class ExchangeService {
         resourceType: 'stablecoin_exchange',
         correlationId: e.correlationId,
       });
-      // §27: the destination wallet must be stablecoin-enabled to RECEIVE the minted coin.
       await this.walletPolicy.assertAllowed({
         tenantId: e.tenantId,
         walletId: wallet.id,
@@ -269,8 +269,7 @@ export class ExchangeService {
         operation: 'RECEIVE',
         amount: e.toAmount,
       });
-
-      const result = await this.chain.issueAsset({
+      result = await this.chain.issueAsset({
         correlationId: e.correlationId,
         assetCode: to.assetCode,
         issuerPublicKey: to.issuerPublicKey,
@@ -278,41 +277,8 @@ export class ExchangeService {
         destinationPublicKey: wallet.stellarAccountId,
         amount: e.toAmount,
       });
-      await this.prisma.transaction.create({
-        data: {
-          tenantId: e.tenantId,
-          type: 'ASSET_ISSUED',
-          status: 'PENDING_CONFIRMATION',
-          blockchainHash: result.transactionHash,
-          assetId: e.toAssetId,
-          amount: e.toAmount,
-          correlationId: e.correlationId,
-          destinationWalletId: wallet.id,
-          createdBy: 'system:exchange',
-          businessReason: 'cross-peg exchange destination mint',
-          submittedAt: new Date(),
-        },
-      });
-      // Record the mint so the destination supply is VISIBLE to getState (it sums CONFIRMED
-      // StablecoinMintRequest rows). Same fix ConversionService.stepMint makes — an on-chain issue
-      // with no mint row is invisible supply and silently over-reports the reserve ratio.
-      const mintRecord = await this.prisma.stablecoinMintRequest.create({
-        data: {
-          tenantId: e.tenantId,
-          assetId: e.toAssetId,
-          destinationWalletId: e.walletId,
-          amount: e.toAmount,
-          status: 'CONFIRMED',
-          fundingReference: `exchange:${e.id}`,
-          reserveConfirmed: true,
-          requestedBy: 'system:exchange',
-          blockchainHash: result.transactionHash,
-          correlationId: e.correlationId,
-        },
-      });
-      return this.set(e.id, { status: 'COMPLETED', mintRequestId: mintRecord.id });
     } catch (err) {
-      // Mint failed AFTER the source was burned → compensate (re-issue the source coin).
+      // Destination not minted → compensate (re-issue the source coin).
       await this.audit.record({
         tenantId: e.tenantId,
         actor: 'system:exchange',
@@ -324,26 +290,80 @@ export class ExchangeService {
       });
       return this.set(e.id, { status: 'COMPENSATING', failureReason: 'destination mint failed after source burn' });
     }
+
+    // POST-BROADCAST leg: the destination IS minted on-chain. From here we must NEVER compensate —
+    // re-issuing the source now would leave the holder with BOTH coins (double value) and leave the
+    // just-minted destination unbacked. Record the mint FIRST (the solvency-critical row that makes
+    // the new supply visible to getState — same fix ConversionService.stepMint makes), then the
+    // audit Transaction, then COMPLETED. If a write here throws, the row stays DEST_MINT_PENDING and
+    // advance() routes it to FAILED (manual reconciliation) — the mint landed and must be recorded,
+    // not doubled. This is NOT inside the compensating try, deliberately.
+    const mintRecord = await this.prisma.stablecoinMintRequest.create({
+      data: {
+        tenantId: e.tenantId,
+        assetId: e.toAssetId,
+        destinationWalletId: e.walletId,
+        amount: e.toAmount,
+        status: 'CONFIRMED',
+        fundingReference: `exchange:${e.id}`,
+        reserveConfirmed: true,
+        requestedBy: 'system:exchange',
+        blockchainHash: result.transactionHash,
+        correlationId: e.correlationId,
+      },
+    });
+    await this.prisma.transaction.create({
+      data: {
+        tenantId: e.tenantId,
+        type: 'ASSET_ISSUED',
+        status: 'PENDING_CONFIRMATION',
+        blockchainHash: result.transactionHash,
+        assetId: e.toAssetId,
+        amount: e.toAmount,
+        correlationId: e.correlationId,
+        destinationWalletId: wallet.id,
+        createdBy: 'system:exchange',
+        businessReason: 'cross-peg exchange destination mint',
+        submittedAt: new Date(),
+      },
+    });
+    return this.set(e.id, { status: 'COMPLETED', mintRequestId: mintRecord.id });
   }
 
   private async stepCompensate(e: StablecoinExchange): Promise<StablecoinExchange> {
+    // Concurrency guard: the re-issue is an on-chain broadcast and must happen AT MOST ONCE, like
+    // every other broadcast in this saga. Atomically claim COMPENSATING → COMPENSATED so only one
+    // racing advance() re-issues; the loser sees 0 rows and returns without a second re-issue (which
+    // would put unbacked source coins into circulation). If the broadcast then fails we revert to
+    // COMPENSATING so a later advance can retry — never leave a COMPENSATED row whose coins were
+    // never restored.
+    const claimed = await this.claim(e.id, 'COMPENSATING', 'COMPENSATED');
+    if (!claimed) return this.load(e.tenantId, e.id);
+
     // Re-issue the burned source coins back to the holder. Unconditional (no reserve gate): the
     // holder's coins were already burned and must be restored — restoring prior supply that was
     // backed a moment ago cannot itself breach. getState stops subtracting once COMPENSATED, so the
-    // restored coins are counted again.
+    // restored coins are counted as supply again.
     const from = await this.loadAsset(e.tenantId, e.fromAssetId);
     const wallet = await this.prisma.wallet.findUnique({ where: { id: e.walletId } });
     if (!wallet) throw new NotFoundException('Exchange wallet not found');
     if (!from.issuerSecretEnc) throw new BadRequestException('Source issuer has no managed key');
-    await this.chain.issueAsset({
-      correlationId: e.correlationId,
-      assetCode: from.assetCode,
-      issuerPublicKey: from.issuerPublicKey,
-      issuerSecretKey: this.crypto.decrypt(from.issuerSecretEnc),
-      destinationPublicKey: wallet.stellarAccountId,
-      amount: e.fromAmount,
-    });
-    return this.set(e.id, { status: 'COMPENSATED' });
+    try {
+      await this.chain.issueAsset({
+        correlationId: e.correlationId,
+        assetCode: from.assetCode,
+        issuerPublicKey: from.issuerPublicKey,
+        issuerSecretKey: this.crypto.decrypt(from.issuerSecretEnc),
+        destinationPublicKey: wallet.stellarAccountId,
+        amount: e.fromAmount,
+      });
+    } catch (err) {
+      // Broadcast failed — revert so a retry can re-attempt (the claim is released back to
+      // COMPENSATING). Without this the row would sit at COMPENSATED with the source never restored.
+      await this.set(e.id, { status: 'COMPENSATING', failureReason: 'source re-issue failed — will retry' });
+      throw err;
+    }
+    return this.load(e.tenantId, e.id);
   }
 
   // --- helpers -------------------------------------------------------------

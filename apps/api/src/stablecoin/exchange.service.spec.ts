@@ -209,6 +209,33 @@ describe('ExchangeService saga — burn source then mint destination', () => {
     expect(prisma.store().status).toBe('COMPENSATING');
   });
 
+  it('does NOT compensate when the destination already minted on-chain but a later record write fails', async () => {
+    // Regression: a throw AFTER a successful issueAsset must not re-issue the source (that would
+    // leave the holder with BOTH coins). The dest mint landed; the row stays DEST_MINT_PENDING for
+    // reconciliation, and the source is NOT re-issued.
+    const prisma: any = statefulPrisma(base({ status: 'SOURCE_BURNED' }));
+    prisma.stablecoinMintRequest = { create: jest.fn().mockRejectedValue(new Error('db down')) };
+    const issueAsset = jest.fn().mockResolvedValue({ transactionHash: 'M' });
+    const { svc } = make({ prisma, chain: { issueAsset, burnAsset: jest.fn(), getTransaction: jest.fn() } });
+
+    await expect(svc.advance('t1', 'ex1')).rejects.toThrow(/db down/);
+    expect(issueAsset).toHaveBeenCalledTimes(1); // destination minted ONCE; source NOT re-issued
+    expect(issueAsset).toHaveBeenCalledWith(expect.objectContaining({ assetCode: 'USDX' }));
+    expect(prisma.store().status).toBe('DEST_MINT_PENDING'); // → FAILED (manual review) next advance
+  });
+
+  it('never re-issues the source twice: the compensate re-issue is claim-guarded', async () => {
+    const prisma = statefulPrisma(base({ status: 'COMPENSATING' }));
+    const issueAsset = jest.fn().mockResolvedValue({ transactionHash: 'REISSUE' });
+    const { svc } = make({ prisma, chain: { issueAsset, burnAsset: jest.fn(), getTransaction: jest.fn() } });
+
+    await svc.advance('t1', 'ex1'); // COMPENSATING -> COMPENSATED, re-issue once
+    expect(prisma.store().status).toBe('COMPENSATED');
+    await svc.advance('t1', 'ex1'); // already COMPENSATED -> no-op, no second re-issue
+    await svc.advance('t1', 'ex1');
+    expect(issueAsset).toHaveBeenCalledTimes(1); // source restored exactly once
+  });
+
   it('marks FAILED when the source burn fails on chain', async () => {
     const prisma = statefulPrisma(base({ status: 'SOURCE_BURN_PENDING', sourceBurnHash: 'SB' }));
     const getTransaction = jest.fn().mockResolvedValue({ status: 'failed' });
