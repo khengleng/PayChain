@@ -259,6 +259,17 @@ export class StablecoinWorkflowController {
     return this.tieOut.tieOut(auth.tenantId, id);
   }
 
+  /**
+   * Records the tie-out as an alerting signal: a discrepancy opens/refreshes a ReconciliationException
+   * (RESERVE_SHORTFALL / SUPPLY_MISMATCH / STALE_RESERVE_DATA); a reconciled result auto-closes any
+   * open one. Distinct from the GET, which is a pure read. Requires reserve.manage — it writes.
+   */
+  @Post('stablecoins/:id/reserve/tie-out')
+  @RequireScopes('reserve.manage')
+  recordReserveTieOut(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
+    return this.tieOut.checkAndRecord(auth.tenantId, id, `client:${auth.clientId}`);
+  }
+
   @Post('stablecoins/:id/reserve-snapshots')
   @RequireScopes('reserve.manage')
   snapshotReserve(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {

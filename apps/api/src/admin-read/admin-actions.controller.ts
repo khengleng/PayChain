@@ -20,6 +20,12 @@ import {
 export class AdminActionsController {
   constructor(private readonly svc: AdminActionsService) {}
 
+  @Post('reserve/tie-out/check')
+  @RequireAdminPermission('reserve:manage')
+  checkReserveTieOuts(@CurrentAdmin() admin: AdminContext, @CorrelationId() corr: string) {
+    return this.svc.checkReserveTieOuts(admin, corr);
+  }
+
   @Post('wallets/:walletId/freeze')
   @RequireAdminPermission('wallet:freeze')
   freezeWallet(

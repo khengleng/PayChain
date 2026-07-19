@@ -5,7 +5,8 @@ import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { STABLECOIN_FLAGS, GLOBAL_TENANT } from '../feature-flags/feature-flags.constants';
 import { TreasuryService } from '../stablecoin/treasury.service';
 import { StablecoinService } from '../stablecoin/stablecoin.service';
-import { assertPermittedByAttributes } from '../admin-auth/abac';
+import { ReserveTieOutService } from '../stablecoin/reserve-tie-out.service';
+import { assertPermittedByAttributes, tenantScopeOf, tenantScopeWhere } from '../admin-auth/abac';
 import type { AdminContext } from '../admin-auth/admin-context';
 import type { ApproveGateDto, SuspendDto } from '../stablecoin/dto';
 import type { AuthContext } from '../auth/auth-context';
@@ -24,7 +25,34 @@ export class AdminActionsService {
     private readonly flags: FeatureFlagsService,
     private readonly treasury: TreasuryService,
     private readonly stablecoin: StablecoinService,
+    private readonly tieOut: ReserveTieOutService,
   ) {}
+
+  /**
+   * Runs the 3-way reserve tie-out for every ACTIVE coin in the admin's scope and records the
+   * outcome (§31): discrepancies open/refresh a ReconciliationException, reconciled coins auto-close
+   * theirs. The resulting exceptions surface in the admin Reconciliation view. Read-only compute
+   * lives on GET /admin/reserve/tie-out; this is the write/alert trigger.
+   */
+  async checkReserveTieOuts(admin: AdminContext, correlationId: string) {
+    const scope = tenantScopeOf(admin);
+    const configs = await this.prisma.stablecoinConfig.findMany({
+      where: { ...tenantScopeWhere(scope), lifecycleState: 'ACTIVE' },
+      select: { tenantId: true, assetId: true, asset: { select: { assetCode: true } } },
+      take: 200,
+    });
+    const items: Array<{ assetCode: string; assetId: string; status: string; exceptionId: string | null }> = [];
+    for (const c of configs) {
+      try {
+        const r = await this.tieOut.checkAndRecord(c.tenantId, c.assetId, `admin:${admin.email}`);
+        items.push({ assetCode: c.asset.assetCode, assetId: c.assetId, status: r.status, exceptionId: r.exceptionId });
+      } catch {
+        // Skip a coin whose tie-out cannot be computed; never fail the whole sweep.
+      }
+    }
+    void correlationId;
+    return { checked: items.length, openExceptions: items.filter((i) => i.exceptionId).length, items };
+  }
 
   /** Freeze a wallet (routine ops control — distinct from the emergency break-glass path). */
   async setWalletFrozen(admin: AdminContext, walletId: string, frozen: boolean, correlationId: string) {

@@ -117,6 +117,17 @@ export default function ReservePage() {
     else setError(data.message ?? 'Action failed');
   }
 
+  async function runTieOutCheck() {
+    setBusy(true); setNotice(''); setError('');
+    const res = await fetch('/api/reserve/tie-out/check', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setNotice(`Checked ${data.checked ?? 0} coin(s) · ${data.openExceptions ?? 0} with an open reconciliation exception.`);
+      void load();
+    } else setError(data.message ?? 'Tie-out check failed');
+    setBusy(false);
+  }
+
   const pending = movements.filter((m) => m.status === 'PENDING_APPROVAL');
 
   return (
@@ -141,11 +152,19 @@ export default function ReservePage() {
         yet. Present these numbers accordingly.
       </div>
 
-      <div className="section-title">3-way tie-out (per coin)</div>
+      <div className="head-row">
+        <div className="section-title" style={{ marginBottom: 0 }}>3-way tie-out (per coin)</div>
+        {canManage && (
+          <button className="btn-sm" onClick={runTieOutCheck} disabled={busy}>
+            {busy ? 'Checking…' : 'Run check'}
+          </button>
+        )}
+      </div>
       <p className="subtitle" style={{ fontSize: 12, marginTop: -4 }}>
         Internal ledger reserve ↔ on-chain liability (supply × unit value) ↔ trustee-attested fiat.
         RECONCILED = all three agree; SHORTFALL = reserve below the target; MISMATCH = ledger and
-        trustee disagree; UNATTESTED = no fresh trustee attestation.
+        trustee disagree; UNATTESTED = no fresh trustee attestation. "Run check" records the outcome —
+        a discrepancy opens a reconciliation exception (visible under Reconciliation).
       </p>
       <div className="table-wrap">
         <table>
