@@ -71,6 +71,8 @@ const envSchema = z.object({
   ADMIN_PORTAL_URL: z.string().url().default('https://paychain.cambobia.com'),
   PAYCHAIN_DOCS_URL: z.string().url().default('https://docs.paychain.cambobia.com'),
   PAYKH_CLIENT_URL: z.string().url().default('https://paykh.cambobia.com'),
+  // Developer portal base URL, used in onboarding emails (register/status/dashboard links).
+  PARTNER_PORTAL_URL: z.string().url().default('https://developer.paychain.cambobia.com'),
   API_ALLOWED_ORIGINS: z
     .string()
     .default(

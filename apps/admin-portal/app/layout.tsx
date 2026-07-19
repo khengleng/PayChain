@@ -16,6 +16,7 @@ const NAV: Array<{ label: string; href: string; perm?: string }> = [
   { label: 'Overview', href: '/' },
   { label: 'Readiness', href: '/readiness', perm: 'readiness:read' },
   { label: 'Tenants', href: '/tenants', perm: 'tenant:read' },
+  { label: 'Partner Applications', href: '/partner-applications', perm: 'partner:read' },
   { label: 'Wallets', href: '/wallets', perm: 'wallet:read' },
   { label: 'Assets', href: '/assets', perm: 'asset:read' },
   { label: 'Stablecoins', href: '/stablecoins', perm: 'stablecoin:read' },

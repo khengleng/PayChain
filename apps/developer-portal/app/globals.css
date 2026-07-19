@@ -48,3 +48,64 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .card h3 { margin: 0 0 4px; font-size: 14px; }
 .card p { margin: 0; color: var(--muted); font-size: 13px; }
 .footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
+
+/* ── Partner onboarding (registration, login, dashboard) ─────────────────────── */
+.form-card {
+  background: var(--card, #12141a);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 28px;
+  margin: 28px auto;
+}
+.field-label {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a7);
+  margin: 14px 0 6px;
+}
+.field-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: inherit;
+  padding: 11px 12px;
+  font-size: 14px;
+}
+.field-input:focus { outline: none; border-color: #6f7bf7; }
+.primary-btn {
+  display: inline-block;
+  margin-top: 18px;
+  background: #5b6cf0;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 11px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.primary-btn:disabled { opacity: 0.6; cursor: default; }
+.link-btn { background: none; border: none; color: var(--muted, #8b93a7); cursor: pointer; font-size: 13px; }
+.form-error {
+  background: rgba(240, 90, 90, 0.12);
+  border: 1px solid rgba(240, 90, 90, 0.4);
+  color: #f2a3a3;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.timeline { list-style: none; padding: 0; margin: 18px 0; max-width: 620px; }
+.timeline li { display: flex; align-items: center; gap: 10px; padding: 8px 0; color: var(--muted, #8b93a7); }
+.timeline li.done { color: inherit; }
+.timeline li .dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.2); }
+.timeline li.done .dot { background: #4ccf8e; }
+.secret-box { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 16px; margin-top: 12px; }
+.secret-box .mono { word-break: break-all; margin-bottom: 12px; }
+.secret-box .warn { color: #e6b35a; font-size: 13px; }

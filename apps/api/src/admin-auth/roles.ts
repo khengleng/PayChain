@@ -40,6 +40,11 @@ export const PERMISSIONS = [
   'flags:write',
   'audit:read',
   'admin:manage',
+  // Self-service partner onboarding: partner:read views applications; partner:review approves or
+  // rejects them (approval provisions a tenant + credentials, so reviewers also hold tenant/client
+  // write in their role).
+  'partner:read',
+  'partner:review',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -77,6 +82,9 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'reconciliation:read',
     'flags:read',
     'audit:read',
+    // View the onboarding queue, but not approve — approval creates a tenant and this role has no
+    // tenant:write. partner:review lives on roles that can already provision tenants.
+    'partner:read',
   ],
   WHOLESALE_ADMIN: [
     'tenant:read',
@@ -86,6 +94,8 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'wallet:read',
     'asset:read',
     'audit:read',
+    'partner:read',
+    'partner:review',
   ],
   COMPLIANCE_ADMIN: [
     'readiness:read',
