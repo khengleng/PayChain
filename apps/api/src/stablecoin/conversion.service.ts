@@ -14,6 +14,7 @@ import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { assertValidAmount, isValidAmount, normalizeAmount } from '../common/money';
 import type { AuthContext } from '../auth/auth-context';
 import { WalletPolicyService } from '../wallets/wallet-policy.service';
+import { BalanceService } from '../wallets/balance.service';
 import { MintService } from './mint.service';
 
 const QUOTE_TTL_MS = 5 * 60 * 1000;
@@ -34,7 +35,25 @@ export class ConversionService {
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
     private readonly mint: MintService,
     private readonly walletPolicy: WalletPolicyService,
+    private readonly balances: BalanceService,
   ) {}
+
+  /**
+   * Refresh the wallet's balance read model from chain after an on-chain change. Best-effort: the
+   * chain is authoritative and the balance reconciler catches residual drift, so this never fails
+   * the saga. Without it, a conversion burn/mint leaves the cached balance stale and the reconciler
+   * (correctly) flags BALANCE_DRIFT — AssetsService already refreshes on its own value paths.
+   */
+  private async refreshBalances(tenantId: string, walletId: string): Promise<void> {
+    try {
+      const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId } });
+      if (wallet) {
+        await this.balances.refreshFromChain({ tenantId, walletId, stellarAccountId: wallet.stellarAccountId });
+      }
+    } catch {
+      // swallow — cache freshness is best-effort; the reconciler is the backstop.
+    }
+  }
 
   async quote(
     auth: AuthContext,
@@ -156,6 +175,7 @@ export class ConversionService {
         where: { blockchainHash: c.pointsBurnHash, type: 'ASSET_BURNED' },
         data: { status: 'CONFIRMED', confirmedAt: new Date(), failureReason: null, failureCode: null },
       });
+      await this.refreshBalances(c.tenantId, c.walletId); // cache reflects the burned points
       return this.set(c.id, { status: 'POINTS_BURNED' });
     }
     if (onChain.status === 'failed') {
@@ -245,6 +265,7 @@ export class ConversionService {
         },
       });
 
+      await this.refreshBalances(c.tenantId, c.walletId); // cache reflects the minted stablecoin
       return this.set(c.id, { status: 'COMPLETED', mintRequestId: mintRecord.id });
     } catch (err) {
       // Mint failed AFTER points were burned → must compensate (re-issue points).
@@ -275,6 +296,7 @@ export class ConversionService {
       destinationPublicKey: wallet.stellarAccountId,
       amount: c.pointsAmount,
     });
+    await this.refreshBalances(c.tenantId, c.walletId); // cache reflects the re-issued points
     return this.set(c.id, { status: 'COMPENSATED' });
   }
 

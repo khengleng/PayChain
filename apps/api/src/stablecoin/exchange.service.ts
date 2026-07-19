@@ -16,6 +16,7 @@ import type { AuthContext } from '../auth/auth-context';
 import { assertWalletCanTransact } from '../wallets/wallet-status';
 import { WalletPolicyService } from '../wallets/wallet-policy.service';
 import { EscrowService } from '../wallets/escrow.service';
+import { BalanceService } from '../wallets/balance.service';
 import { MintService } from './mint.service';
 
 const QUOTE_TTL_MS = 5 * 60 * 1000;
@@ -54,7 +55,24 @@ export class ExchangeService {
     private readonly mint: MintService,
     private readonly walletPolicy: WalletPolicyService,
     private readonly escrow: EscrowService,
+    private readonly balances: BalanceService,
   ) {}
+
+  /**
+   * Refresh the wallet's balance read model from chain after an on-chain change. Best-effort: the
+   * chain is authoritative and the reconciler catches residual drift, so this never fails the saga.
+   * The swap's source and destination are the same wallet, so one refresh covers both legs.
+   */
+  private async refreshBalances(tenantId: string, walletId: string): Promise<void> {
+    try {
+      const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId } });
+      if (wallet) {
+        await this.balances.refreshFromChain({ tenantId, walletId, stellarAccountId: wallet.stellarAccountId });
+      }
+    } catch {
+      // swallow — cache freshness is best-effort; the reconciler is the backstop.
+    }
+  }
 
   async quote(
     auth: AuthContext,
@@ -226,6 +244,7 @@ export class ExchangeService {
         where: { blockchainHash: e.sourceBurnHash, type: 'ASSET_BURNED' },
         data: { status: 'CONFIRMED', confirmedAt: new Date(), failureReason: null, failureCode: null },
       });
+      await this.refreshBalances(e.tenantId, e.walletId); // cache reflects the burned source
       return this.set(e.id, { status: 'SOURCE_BURNED' }); // source supply now counted as reduced
     }
     if (onChain.status === 'failed') {
@@ -327,6 +346,7 @@ export class ExchangeService {
         submittedAt: new Date(),
       },
     });
+    await this.refreshBalances(e.tenantId, e.walletId); // cache reflects the newly minted destination
     return this.set(e.id, { status: 'COMPLETED', mintRequestId: mintRecord.id });
   }
 
@@ -363,6 +383,7 @@ export class ExchangeService {
       await this.set(e.id, { status: 'COMPENSATING', failureReason: 'source re-issue failed — will retry' });
       throw err;
     }
+    await this.refreshBalances(e.tenantId, e.walletId); // cache reflects the restored source
     return this.load(e.tenantId, e.id);
   }
 

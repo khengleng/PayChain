@@ -15,6 +15,7 @@ import { assertValidAmount } from '../common/money';
 import type { AuthContext } from '../auth/auth-context';
 import { assertWalletCanTransact } from '../wallets/wallet-status';
 import { EscrowService } from '../wallets/escrow.service';
+import { BalanceService } from '../wallets/balance.service';
 
 /**
  * Spend-for-goods saga (§25-adjacent). Disabled by default (stablecoin.spend flag OFF).
@@ -43,7 +44,25 @@ export class SpendService {
     private readonly flags: FeatureFlagsService,
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
     private readonly escrow: EscrowService,
+    private readonly balances: BalanceService,
   ) {}
+
+  /**
+   * Refresh the wallet's balance read model from chain after a burn confirms. Best-effort: the
+   * chain is authoritative and the reconciler catches any residual drift, so a refresh failure must
+   * never fail the saga — but keeping the cache current is what stops the balance reconciler from
+   * (correctly) flagging BALANCE_DRIFT after a saga burn, the way AssetsService already does.
+   */
+  private async refreshBalances(tenantId: string, walletId: string): Promise<void> {
+    try {
+      const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId } });
+      if (wallet) {
+        await this.balances.refreshFromChain({ tenantId, walletId, stellarAccountId: wallet.stellarAccountId });
+      }
+    } catch {
+      // swallow — cache freshness is best-effort; the reconciler is the backstop.
+    }
+  }
 
   async request(
     auth: AuthContext,
@@ -174,6 +193,7 @@ export class SpendService {
         where: { blockchainHash: s.burnHash, type: 'ASSET_BURNED' },
         data: { status: 'CONFIRMED', confirmedAt: new Date(), failureReason: null, failureCode: null },
       });
+      await this.refreshBalances(s.tenantId, s.walletId); // keep the cache current post-burn
       return this.set(s.id, { status: 'BURN_CONFIRMED' }); // now counted as supply reduction
     }
     if (onChain.status === 'failed') {
