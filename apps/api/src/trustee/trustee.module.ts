@@ -3,6 +3,7 @@ import { StablecoinModule } from '../stablecoin/stablecoin.module';
 import { TrusteeController } from './trustee.controller';
 import { TrusteeService } from './trustee.service';
 import { TrusteeKeyRegistry } from './trustee-key-registry.service';
+import { TrusteeIpAllowlistGuard } from './trustee-ip-allowlist.guard';
 
 /**
  * Inbound receiver for the external trustee platform's signed webhooks. AuditService,
@@ -12,6 +13,6 @@ import { TrusteeKeyRegistry } from './trustee-key-registry.service';
 @Module({
   imports: [StablecoinModule],
   controllers: [TrusteeController],
-  providers: [TrusteeService, TrusteeKeyRegistry],
+  providers: [TrusteeService, TrusteeKeyRegistry, TrusteeIpAllowlistGuard],
 })
 export class TrusteeModule {}
