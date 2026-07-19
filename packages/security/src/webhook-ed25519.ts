@@ -11,9 +11,17 @@ import { createPublicKey, verify as cryptoVerify, type KeyObject } from 'node:cr
  * Ed25519 in Node uses the one-shot API with a null algorithm (the hash is part of the scheme).
  */
 
-/** Parse a PEM SubjectPublicKeyInfo Ed25519 key once, failing loudly on a non-Ed25519 key. */
-export function loadEd25519PublicKey(pem: string): KeyObject {
-  const key = createPublicKey({ key: pem, format: 'pem' });
+/**
+ * Parse an Ed25519 SubjectPublicKeyInfo key, failing loudly on a non-Ed25519 key. Accepts either a
+ * full PEM block or a bare base64 SPKI blob (no `-----BEGIN-----` armor) — the latter is what a
+ * single-line env var often ends up holding when the armor is dropped. `\n`-escaped PEM is
+ * normalized to real newlines first, so a Railway-style single-line value works too.
+ */
+export function loadEd25519PublicKey(input: string): KeyObject {
+  const trimmed = input.trim().replace(/\\n/g, '\n');
+  const key = trimmed.includes('BEGIN')
+    ? createPublicKey({ key: trimmed, format: 'pem' })
+    : createPublicKey({ key: Buffer.from(trimmed, 'base64'), format: 'der', type: 'spki' });
   if (key.asymmetricKeyType !== 'ed25519') {
     throw new Error(`Expected an ed25519 public key, got ${key.asymmetricKeyType ?? 'unknown'}`);
   }

@@ -58,6 +58,19 @@ describe('TrusteeService', () => {
     await expect(svc.ingest(delivery())).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
+  it('degrades to 503 (does not crash) when the configured key is malformed', async () => {
+    const { svc, record } = build('not-a-valid-key');
+    await expect(svc.ingest(delivery())).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('accepts a bare base64 (no-PEM-armor) configured key', async () => {
+    const bare = publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+    const { svc } = build(bare);
+    const ack = await svc.ingest(delivery({ deliveryId: 'del_bare' }));
+    expect(ack.received).toBe(true);
+  });
+
   it('rejects a missing body with 400', async () => {
     const { svc } = build(PUBLIC_PEM);
     await expect(svc.ingest(delivery({ rawBody: undefined }))).rejects.toBeInstanceOf(

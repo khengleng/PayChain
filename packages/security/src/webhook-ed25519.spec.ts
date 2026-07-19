@@ -35,6 +35,17 @@ describe('webhook-ed25519', () => {
     expect(verifyEd25519(key, message, '')).toBe(false);
   });
 
+  it('accepts a bare base64 SPKI blob (no PEM armor)', () => {
+    const bareBase64 = publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+    const loaded = loadEd25519PublicKey(bareBase64);
+    expect(verifyEd25519(loaded, message, sign(message).toString('base64'))).toBe(true);
+  });
+
+  it('accepts a PEM with escaped newlines', () => {
+    const loaded = loadEd25519PublicKey(pem.replace(/\n/g, '\\n'));
+    expect(verifyEd25519(loaded, message, sign(message).toString('base64'))).toBe(true);
+  });
+
   it('throws on a non-ed25519 public key', () => {
     const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 });
     const rsaPem = rsa.publicKey.export({ type: 'spki', format: 'pem' }).toString();

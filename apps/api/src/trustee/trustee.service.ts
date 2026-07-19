@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -60,6 +61,7 @@ export interface TrusteeEventAck {
  */
 @Injectable()
 export class TrusteeService {
+  private readonly logger = new Logger(TrusteeService.name);
   private readonly publicKey: KeyObject | null;
   private readonly keyId: string;
 
@@ -68,9 +70,23 @@ export class TrusteeService {
     private readonly audit: AuditService,
     private readonly idempotency: IdempotencyService,
   ) {
-    const pem = normalizePem(config.TRUSTEE_WEBHOOK_PUBLIC_KEY ?? '');
-    this.publicKey = pem ? loadEd25519PublicKey(pem) : null;
     this.keyId = config.TRUSTEE_WEBHOOK_KEY_ID;
+    const raw = (config.TRUSTEE_WEBHOOK_PUBLIC_KEY ?? '').trim();
+    // A malformed key must NOT crash the whole API at boot — degrade the receiver to 503 instead.
+    // The rest of the platform has nothing to do with this one webhook endpoint.
+    let key: KeyObject | null = null;
+    if (raw) {
+      try {
+        key = loadEd25519PublicKey(raw);
+      } catch (err) {
+        this.logger.error(
+          `TRUSTEE_WEBHOOK_PUBLIC_KEY is set but not a valid Ed25519 key — receiver disabled (503): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    this.publicKey = key;
   }
 
   async ingest(input: TrusteeEventInput): Promise<TrusteeEventAck> {
@@ -134,12 +150,6 @@ export class TrusteeService {
       },
     );
   }
-}
-
-/** Railway and most PaaS store multi-line PEM as a single line with escaped newlines. */
-function normalizePem(value: string): string {
-  const trimmed = value.trim();
-  return trimmed ? trimmed.replace(/\\n/g, '\n') : '';
 }
 
 /** Best-effort event-type read from the payload when the X-Trustee-Event header is absent. */
