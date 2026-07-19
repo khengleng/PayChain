@@ -262,6 +262,8 @@ export class AssetsService {
         stellarAccountId: dest.wallet.stellarAccountId,
       }),
     ]);
+    // Move the lot ledger with the points, preserving each lot's expiry (§21).
+    await this.pointsLots.transfer(auth.tenantId, source.wallet.id, dest.wallet.id, asset.id, amount);
     return tx;
   }
 
