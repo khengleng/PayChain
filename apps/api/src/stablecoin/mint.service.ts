@@ -206,6 +206,49 @@ export class MintService {
     }
   }
 
+  /**
+   * §24: gate a mint on a trustee-signed authorization when the tenant requires it. The trustee
+   * receiver has already Ed25519-verified the authorization against the trustee's mint_authorization
+   * key; here we only require that a VALID, unexpired, matching one exists. Off by default — the
+   * flag is flipped per tenant once the trustee is emitting signed authorizations.
+   */
+  private async requireTrusteeAuthorization(
+    req: StablecoinMintRequest,
+  ): Promise<{ id: string } | null> {
+    const required = await this.flags.isEnabled(
+      'stablecoin.trustee_authorization.required',
+      req.tenantId,
+    );
+    if (!required) return null;
+
+    const auth = await this.prisma.trusteeMintAuthorization.findFirst({
+      where: {
+        tenantId: req.tenantId,
+        reference: req.id,
+        assetId: req.assetId,
+        amount: req.amount,
+        destination: req.destinationWalletId,
+        status: 'VALID',
+      },
+    });
+    const expired = auth?.expiresAt ? auth.expiresAt.getTime() < Date.now() : false;
+    if (!auth || expired) {
+      await this.audit.record({
+        tenantId: req.tenantId,
+        actor: 'system:mint',
+        action: 'mint.blocked.no_trustee_authorization',
+        resourceType: 'stablecoin_mint_request',
+        resourceId: req.id,
+        correlationId: req.correlationId ?? undefined,
+        metadata: { assetId: req.assetId, amount: req.amount, reason: expired ? 'expired' : 'missing' },
+      });
+      throw new BadRequestException(
+        'Refusing to mint: no valid trustee authorization for this mint request (§24).',
+      );
+    }
+    return auth;
+  }
+
   private async stepMint(req: StablecoinMintRequest): Promise<StablecoinMintRequest> {
     // Hard guard (§22): never mint before reserve confirmation, even if state was forced.
     if (!req.reserveConfirmed) {
@@ -220,11 +263,24 @@ export class MintService {
       resourceType: 'stablecoin_mint_request',
       correlationId: req.correlationId ?? undefined,
     });
+    // §24: when trustee authorization is required, a mint may only issue if the external trustee
+    // has cryptographically authorized THIS request (verified/recorded by the trustee receiver).
+    // Returns null when the flag is off — no trustee row is touched in that case.
+    const trusteeAuth = await this.requireTrusteeAuthorization(req);
     // Concurrency guard: atomically claim APPROVED → SIGNING. Only the caller that wins this
     // compare-and-set issues on-chain; a racing advance() (poller vs manual, or two workers)
     // sees 0 rows updated and backs off — so the mint is broadcast at most once.
     const claimed = await this.claim(req.id, 'APPROVED', 'SIGNING');
     if (!claimed) return this.load(req.tenantId, req.id);
+    // Single-use: consume the authorization now we own the SIGNING transition. A failed broadcast
+    // afterward requires the trustee to re-authorize — an authorization is not reusable across
+    // attempts, and it is bound to this request id so it can never authorize a different mint.
+    if (trusteeAuth) {
+      await this.prisma.trusteeMintAuthorization.update({
+        where: { id: trusteeAuth.id },
+        data: { status: 'CONSUMED', consumedByMintRequestId: req.id },
+      });
+    }
 
     const { asset } = await this.loadActive(req.tenantId, req.assetId);
     const issuerSecret = this.requireIssuerSecret(asset);

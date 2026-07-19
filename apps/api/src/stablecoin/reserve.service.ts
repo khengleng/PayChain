@@ -482,4 +482,43 @@ export class ReserveService {
       },
     });
   }
+
+  /**
+   * Records a reserve snapshot corroborated by the external trustee (§23/§24). Unlike snapshot(),
+   * the reserve balance is the trustee's ATTESTED figure (real bank money the trustee verified),
+   * not our internal ledger sum — the whole point of trustee reserve control. Liabilities and the
+   * ratio are computed against current outstanding supply. Written as a normal ReserveSnapshot with
+   * source='trustee', so a fresh one satisfies assertFresh() and corroborates minting. The Ed25519
+   * signature has already been verified by the receiver against the trustee's reserve_snapshot key;
+   * it is stored as evidence, never trusted blind here.
+   */
+  async recordTrusteeSnapshot(
+    tenantId: string,
+    assetId: string,
+    input: { reserveBalance: string; trusteeSnapshotId: string; keyId: string; signature: string },
+  ) {
+    const targetRatio = await this.targetRatioFor(tenantId, assetId);
+    const state = await this.getState(tenantId, assetId, targetRatio);
+    const reserveRatio =
+      compareAmounts(state.outstandingSupply, '0') > 0
+        ? displayRatio(input.reserveBalance, state.outstandingSupply)
+        : 'N/A';
+    return this.prisma.reserveSnapshot.create({
+      data: {
+        tenantId,
+        assetId,
+        reserveBalance: input.reserveBalance,
+        outstandingSupply: state.outstandingSupply,
+        reserveRatio,
+        unredeemedLiability: state.unredeemedLiability,
+        pendingMintLiability: state.pendingMintLiability,
+        pendingRedemptionLiability: state.pendingRedemptionLiability,
+        source: 'trustee',
+        trusteeSnapshotId: input.trusteeSnapshotId,
+        trusteeKeyId: input.keyId,
+        trusteeSignature: input.signature,
+        takenAt: new Date(),
+      },
+    });
+  }
 }

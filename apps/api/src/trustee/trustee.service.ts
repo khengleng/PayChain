@@ -2,21 +2,30 @@ import {
   BadRequestException,
   Inject,
   Injectable,
-  Logger,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { KeyObject } from 'node:crypto';
-import { loadEd25519PublicKey, verifyEd25519 } from '@paychain/security';
+import { verifyEd25519 } from '@paychain/security';
 import { CONFIG } from '../config/config.module';
 import type { PayChainConfig } from '@paychain/config';
 import { AuditService } from '../audit/audit.service';
 import { IdempotencyService } from '../idempotency/idempotency.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { ReserveService } from '../stablecoin/reserve.service';
+import { TrusteeKeyRegistry } from './trustee-key-registry.service';
+import {
+  TrusteeEventType,
+  isSignedArtifactEvent,
+  purposeForEvent,
+  type MintAuthorizationArtifact,
+  type ReserveSnapshotArtifact,
+  type TrusteeSignedEvent,
+} from './trustee-events';
 
 /**
  * Inbound tenant sentinel. Trustee events are platform-level, not tenant-scoped: they arrive
- * from the external trustee platform, not from an authenticated PayChain tenant. The dedup and
- * audit rows are filed under this reserved id so they never collide with a real tenant.
+ * from the external trustee platform, not from an authenticated PayChain tenant. Dedup and audit
+ * rows for events that are not asset-scoped are filed under this reserved id.
  */
 export const TRUSTEE_INBOUND_TENANT = '__trustee_inbound__';
 
@@ -24,7 +33,7 @@ export const TRUSTEE_INBOUND_TENANT = '__trustee_inbound__';
 const TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
 
 export interface TrusteeEventInput {
-  /** The exact received bytes. The Ed25519 signature is over these, never a re-serialization. */
+  /** The exact received bytes. The Ed25519 envelope signature is over these. */
   rawBody: Buffer | undefined;
   signature: string | undefined;
   keyId: string | undefined;
@@ -41,59 +50,31 @@ export interface TrusteeEventAck {
 }
 
 /**
- * Receiver for outbound webhooks from the external trustee platform (see
- * docs/integration/API-CONTRACT.md). PayChain is a *client* of the trustee here: the trustee signs
- * each delivery with its Ed25519 private key and POSTs it to /api/v1/trustee/events.
- *
- * The endpoint is deliberately not JWT-authenticated — a machine sender holds no tenant token.
- * Authenticity comes entirely from the Ed25519 signature over the raw body, so verification must
- * fail closed: no public key configured, missing headers, an unknown key id, a bad signature, or a
- * stale timestamp all reject before the payload is trusted or recorded.
- *
- * Delivery is idempotent on the trustee's delivery id, so the trustee's retries and its
- * "replay all dead-lettered" backlog flush land exactly once.
- *
- * ASSUMED WIRE FORMAT (confirm against the trustee contract before trusting in prod):
- *   - signed message = `${timestamp}.${rawBody}`
- *   - X-Trustee-Signature: base64 (or hex) Ed25519 signature
- *   - X-Trustee-Key-Id: matches TRUSTEE_WEBHOOK_KEY_ID
- *   - X-Trustee-Timestamp: unix ms · X-Trustee-Delivery: unique id
+ * Receiver for the external trustee platform's signed webhooks (docs/integration/API-CONTRACT.md
+ * and trustee-events-contract.md). Two layers of trust:
+ *  1. The ENVELOPE — the whole body is Ed25519-signed with the trustee's WEBHOOK key.
+ *  2. The inner ARTIFACT — authorization/snapshot/attestation events additionally carry an artifact
+ *     signed by a purpose-specific key (mint_authorization, reserve_snapshot, …), so a compromised
+ *     webhook key cannot forge a mint authorization.
+ * Both are verified against the trustee's published JWKS (TrusteeKeyRegistry). Everything fails
+ * closed. Acting on an event is idempotent on the delivery id, so retries/replays apply once.
  */
 @Injectable()
 export class TrusteeService {
-  private readonly logger = new Logger(TrusteeService.name);
-  private readonly publicKey: KeyObject | null;
-  private readonly keyId: string;
+  private readonly defaultKeyId: string;
 
   constructor(
     @Inject(CONFIG) config: PayChainConfig,
     private readonly audit: AuditService,
     private readonly idempotency: IdempotencyService,
+    private readonly keys: TrusteeKeyRegistry,
+    private readonly prisma: PrismaService,
+    private readonly reserve: ReserveService,
   ) {
-    this.keyId = config.TRUSTEE_WEBHOOK_KEY_ID;
-    const raw = (config.TRUSTEE_WEBHOOK_PUBLIC_KEY ?? '').trim();
-    // A malformed key must NOT crash the whole API at boot — degrade the receiver to 503 instead.
-    // The rest of the platform has nothing to do with this one webhook endpoint.
-    let key: KeyObject | null = null;
-    if (raw) {
-      try {
-        key = loadEd25519PublicKey(raw);
-      } catch (err) {
-        this.logger.error(
-          `TRUSTEE_WEBHOOK_PUBLIC_KEY is set but not a valid Ed25519 key — receiver disabled (503): ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
-    }
-    this.publicKey = key;
+    this.defaultKeyId = config.TRUSTEE_WEBHOOK_KEY_ID;
   }
 
   async ingest(input: TrusteeEventInput): Promise<TrusteeEventAck> {
-    if (!this.publicKey) {
-      // Fail closed: accepting unverifiable events would let anyone forge trustee traffic.
-      throw new ServiceUnavailableException('Trustee event receiver is not configured');
-    }
     const { rawBody, signature, keyId, timestamp, eventType, deliveryId, correlationId } = input;
     if (!rawBody || rawBody.length === 0) {
       throw new BadRequestException('Missing request body');
@@ -103,20 +84,23 @@ export class TrusteeService {
         'Missing X-Trustee-Signature, X-Trustee-Timestamp, or X-Trustee-Delivery header',
       );
     }
-    // A delivery signed by a key id we do not recognise cannot be trusted, even if the bytes verify
-    // against the configured key — the mismatch means our key material is stale.
-    if (keyId && keyId !== this.keyId) {
-      throw new UnauthorizedException(`Unknown trustee key id: ${keyId}`);
-    }
 
     const ts = Number(timestamp);
     if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > TIMESTAMP_TOLERANCE_MS) {
       throw new UnauthorizedException('Trustee webhook timestamp is stale or invalid');
     }
 
+    // Envelope verification against the trustee's WEBHOOK key (JWKS, with a pinned fallback).
+    const webhookKey = await this.keys.getKey('WEBHOOK', keyId ?? this.defaultKeyId);
+    if (!webhookKey) {
+      if (await this.keys.hasWebhookKeys()) {
+        throw new UnauthorizedException(`Unknown trustee key id: ${keyId ?? this.defaultKeyId}`);
+      }
+      throw new ServiceUnavailableException('Trustee event receiver is not configured');
+    }
+
     const body = rawBody.toString('utf8');
-    const signedMessage = `${timestamp}.${body}`;
-    if (!verifyEd25519(this.publicKey, signedMessage, signature)) {
+    if (!verifyEd25519(webhookKey, `${timestamp}.${body}`, signature)) {
       throw new UnauthorizedException('Invalid trustee webhook signature');
     }
 
@@ -129,26 +113,134 @@ export class TrusteeService {
 
     const resolvedType = eventType ?? extractType(event) ?? 'unknown';
 
-    // Dedup on the delivery id: a trustee retry (or a replayed dead-letter) with the same id
-    // returns the first stored ack without re-recording. A same-id-different-body reuse is a
-    // tamper/bug signal and surfaces as a 409 from the idempotency layer.
+    // Verify the inner signed artifact (if any) BEFORE dedup/recording, so a forged artifact never
+    // enters the idempotency store and cannot be "replayed" as accepted.
+    const artifact = await this.verifyInnerArtifact(resolvedType, event);
+
+    // Dedup on delivery id: retries / replayed dead-letters apply exactly once.
     return this.idempotency.run<TrusteeEventAck>(
       TRUSTEE_INBOUND_TENANT,
       deliveryId,
       event,
       async () => {
-        await this.audit.record({
-          tenantId: TRUSTEE_INBOUND_TENANT,
-          actor: 'trustee-platform',
-          action: 'trustee.event.received',
-          resourceType: 'trustee_event',
-          resourceId: deliveryId,
-          correlationId,
-          metadata: { eventType: resolvedType, keyId: this.keyId },
-        });
+        await this.dispatch(resolvedType, artifact, event, { deliveryId, correlationId });
         return { received: true, deliveryId, eventType: resolvedType };
       },
     );
+  }
+
+  /**
+   * If the event carries an inner artifact, verify its signature with the purpose key from the
+   * JWKS and return the parsed artifact. Events with no inner artifact return null (envelope-only).
+   */
+  private async verifyInnerArtifact(type: string, event: unknown): Promise<unknown | null> {
+    const purpose = purposeForEvent(type);
+    if (!purpose) return null;
+    if (!isSignedArtifactEvent(event)) {
+      throw new BadRequestException(`Event ${type} is missing its signed artifact`);
+    }
+    const signed = event as TrusteeSignedEvent;
+    const key = await this.keys.getKey(purpose, signed.signature.keyId);
+    if (!key) {
+      throw new UnauthorizedException(
+        `Unknown trustee ${purpose} key id: ${signed.signature.keyId}`,
+      );
+    }
+    if (!verifyEd25519(key, signed.artifact, signed.signature.value)) {
+      throw new UnauthorizedException(`Invalid trustee ${purpose} artifact signature`);
+    }
+    try {
+      return JSON.parse(signed.artifact);
+    } catch {
+      throw new BadRequestException(`Trustee ${purpose} artifact is not valid JSON`);
+    }
+  }
+
+  private async dispatch(
+    type: string,
+    artifact: unknown,
+    event: unknown,
+    ctx: { deliveryId: string; correlationId: string },
+  ): Promise<void> {
+    switch (type) {
+      case TrusteeEventType.MINT_AUTHORIZATION_APPROVED:
+        await this.recordMintAuthorization(artifact as MintAuthorizationArtifact, event, ctx);
+        return;
+      case TrusteeEventType.RESERVE_SNAPSHOT_CREATED:
+        await this.recordReserveSnapshot(artifact as ReserveSnapshotArtifact, event, ctx);
+        return;
+      default:
+        // Envelope-verified informational events (mint.confirmed, deposit.*, attestation.*): the
+        // authenticity is established; we record receipt and leave acting-on-it to later phases.
+        await this.recordReceipt(type, ctx, {});
+    }
+  }
+
+  private async recordMintAuthorization(
+    a: MintAuthorizationArtifact,
+    event: unknown,
+    ctx: { deliveryId: string; correlationId: string },
+  ): Promise<void> {
+    const sig = (event as TrusteeSignedEvent).signature;
+    await this.prisma.trusteeMintAuthorization.upsert({
+      where: { tenantId_authorizationId: { tenantId: a.tenantId, authorizationId: a.authorizationId } },
+      create: {
+        tenantId: a.tenantId,
+        assetId: a.assetId,
+        reference: a.reference,
+        amount: a.amount,
+        destination: a.destination,
+        authorizationId: a.authorizationId,
+        keyId: sig.keyId,
+        signature: sig.value,
+        artifact: (event as TrusteeSignedEvent).artifact,
+        status: 'VALID',
+        expiresAt: a.expiresAt ? new Date(a.expiresAt) : null,
+      },
+      update: {}, // idempotent: a re-delivered authorization must not resurrect a CONSUMED one
+    });
+    await this.recordReceipt(TrusteeEventType.MINT_AUTHORIZATION_APPROVED, ctx, {
+      tenantId: a.tenantId,
+      assetId: a.assetId,
+      authorizationId: a.authorizationId,
+      reference: a.reference,
+    });
+  }
+
+  private async recordReserveSnapshot(
+    a: ReserveSnapshotArtifact,
+    event: unknown,
+    ctx: { deliveryId: string; correlationId: string },
+  ): Promise<void> {
+    const sig = (event as TrusteeSignedEvent).signature;
+    await this.reserve.recordTrusteeSnapshot(a.tenantId, a.assetId, {
+      reserveBalance: a.reserveBalance,
+      trusteeSnapshotId: a.snapshotId,
+      keyId: sig.keyId,
+      signature: sig.value,
+    });
+    await this.recordReceipt(TrusteeEventType.RESERVE_SNAPSHOT_CREATED, ctx, {
+      tenantId: a.tenantId,
+      assetId: a.assetId,
+      snapshotId: a.snapshotId,
+      reserveBalance: a.reserveBalance,
+    });
+  }
+
+  private async recordReceipt(
+    type: string,
+    ctx: { deliveryId: string; correlationId: string },
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    await this.audit.record({
+      tenantId: (metadata.tenantId as string) ?? TRUSTEE_INBOUND_TENANT,
+      actor: 'trustee-platform',
+      action: 'trustee.event.received',
+      resourceType: 'trustee_event',
+      resourceId: ctx.deliveryId,
+      correlationId: ctx.correlationId,
+      metadata: { eventType: type, ...metadata },
+    });
   }
 }
 
