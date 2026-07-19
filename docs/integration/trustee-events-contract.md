@@ -108,3 +108,24 @@ delivery worker will retry/dead-letter it (safe — PayChain dedups on `X-Truste
    `signature` block, signed by the matching purpose key.
 3. `mint.authorization.approved.artifact.reference` **must be the PayChain mint-request id** being
    authorized, and `assetId`/`amount`/`destination` must match that request.
+
+## Added in phase 2
+
+### `deposit.cleared` — funds a mint (trustee-driven funding)
+Signed with the **`RESERVE_SNAPSHOT`** key (funding is a reserve-domain concern; the trustee may
+publish a dedicated funding key later). Parsed `artifact` fields: `depositId`, `tenantId`,
+`reference` (**= the mint's `fundingReference`**), `amount`, optional `currency`, `clearedAt`.
+When `stablecoin.trustee_authorization.required` is on, a mint's reserve step confirms funding only
+against a `CLEARED` deposit whose `reference` matches and whose `amount ≥` the mint amount.
+
+### Outbound: PayChain → trustee `POST /api/v1/paychain/mint-authorizations`
+When trustee authorization is required, PayChain calls this at the mint's reserve step to request
+authorization for a specific mint, then the trustee returns the signed `mint.authorization.approved`
+via the webhook (echoing `reference`). Request body: `{ reference (PayChain mint-request id),
+tenantId, assetId, amount, destination }`, `Authorization: Bearer <TRUSTEE_API_KEY>`,
+`Idempotency-Key: <reference>`. **The trustee must implement this endpoint and echo `reference`.**
+
+### Trustee-authoritative reserve
+When `stablecoin.trustee_reserve.authoritative` is on, PayChain's reserve ratio uses the newest
+fresh `reserve.snapshot.created` figure as the authoritative reserve balance (fail-closed to a
+breach when none is fresh) — so the trustee's attested bank money gates solvency, not just freshness.

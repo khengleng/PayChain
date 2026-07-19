@@ -67,7 +67,7 @@ function fakePrisma(accountBalance = '1000') {
 function build(prisma: ReturnType<typeof fakePrisma>) {
   const audit = { record: jest.fn() };
   return {
-    svc: new ReserveService(prisma as never, audit as never, { RESERVE_MAX_STALENESS_HOURS: 24 } as never),
+    svc: new ReserveService(prisma as never, audit as never, { RESERVE_MAX_STALENESS_HOURS: 24 } as never, { isEnabled: jest.fn().mockResolvedValue(false) } as never),
     audit,
   };
 }
@@ -251,7 +251,7 @@ describe('ReserveService.assertFresh (§23)', () => {
     } as never;
     return new ReserveService(prisma, { record: jest.fn() } as never, {
       RESERVE_MAX_STALENESS_HOURS: maxHours,
-    } as never);
+    } as never, { isEnabled: jest.fn().mockResolvedValue(false) } as never);
   }
   const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000);
 
@@ -299,7 +299,7 @@ describe('§23 liabilities — figures that were declared and never computed', (
       },
     }) as never;
 
-  const svc = (prisma: never) => new ReserveService(prisma, { record: jest.fn() } as never, {} as never);
+  const svc = (prisma: never) => new ReserveService(prisma, { record: jest.fn() } as never, {} as never, { isEnabled: jest.fn().mockResolvedValue(false) } as never);
 
   it('counts unburned tokens as unredeemed liability', async () => {
     const state = await svc(
@@ -374,5 +374,33 @@ describe('§23 liabilities — figures that were declared and never computed', (
     expect(clean.reserveBalance).toBe(owing.reserveBalance);
     expect(clean.outstandingSupply).toBe(owing.outstandingSupply);
     expect(clean.snapshotHash).not.toBe(owing.snapshotHash);
+  });
+});
+
+describe('ReserveService — trustee-authoritative reserve (§24)', () => {
+  function build(flagOn: boolean, trusteeSnapshot: { reserveBalance: string } | null) {
+    const prisma = {
+      reserveAccount: { findMany: async () => [{ balance: '10' }] }, // internal ledger sum = 10
+      reserveSnapshot: { findFirst: async () => trusteeSnapshot },
+      stablecoinMintRequest: { findMany: async () => [] },
+      stablecoinRedemption: { findMany: async () => [] },
+    } as never;
+    const flags = { isEnabled: jest.fn().mockResolvedValue(flagOn) } as never;
+    return new ReserveService(prisma, { record: jest.fn() } as never, { RESERVE_MAX_STALENESS_HOURS: 24 } as never, flags);
+  }
+
+  it('flag OFF: uses the internal ledger sum', async () => {
+    const state = await build(false, { reserveBalance: '999' }).getState('t1', 'a1', '1.0');
+    expect(state.reserveBalance).toBe('10');
+  });
+
+  it('flag ON: uses the trustee-attested figure, not the internal sum', async () => {
+    const state = await build(true, { reserveBalance: '999' }).getState('t1', 'a1', '1.0');
+    expect(state.reserveBalance).toBe('999');
+  });
+
+  it('flag ON + no fresh trustee snapshot: fails closed to 0 (a breach)', async () => {
+    const state = await build(true, null).getState('t1', 'a1', '1.0');
+    expect(state.reserveBalance).toBe('0');
   });
 });

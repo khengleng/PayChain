@@ -16,7 +16,10 @@ import { TrusteeKeyRegistry } from './trustee-key-registry.service';
 import {
   TrusteeEventType,
   isSignedArtifactEvent,
+  parseOptionalDate,
   purposeForEvent,
+  requireStringFields,
+  type DepositClearedArtifact,
   type MintAuthorizationArtifact,
   type ReserveSnapshotArtifact,
   type TrusteeSignedEvent,
@@ -179,8 +182,42 @@ export class TrusteeService {
         await this.recordReserveSnapshot(artifact as ReserveSnapshotArtifact, event, ctx);
         return;
       }
+      if (type === TrusteeEventType.DEPOSIT_CLEARED) {
+        await this.recordDepositCleared(artifact as DepositClearedArtifact, event, ctx);
+        return;
+      }
     }
     await this.recordReceipt(type, ctx, {});
+  }
+
+  private async recordDepositCleared(
+    a: DepositClearedArtifact,
+    event: unknown,
+    ctx: { deliveryId: string; correlationId: string },
+  ): Promise<void> {
+    this.validated(() => requireStringFields(a, ['depositId', 'tenantId', 'reference', 'amount']));
+    const sig = (event as TrusteeSignedEvent).signature;
+    await this.prisma.trusteeDeposit.upsert({
+      where: { tenantId_depositId: { tenantId: a.tenantId, depositId: a.depositId } },
+      create: {
+        tenantId: a.tenantId,
+        depositId: a.depositId,
+        reference: a.reference,
+        amount: a.amount,
+        currency: a.currency ?? null,
+        status: 'CLEARED',
+        keyId: sig.keyId,
+        signature: sig.value,
+        artifact: (event as TrusteeSignedEvent).artifact,
+      },
+      update: {}, // idempotent on re-delivery
+    });
+    await this.recordReceipt(TrusteeEventType.DEPOSIT_CLEARED, ctx, {
+      tenantId: a.tenantId,
+      depositId: a.depositId,
+      reference: a.reference,
+      amount: a.amount,
+    });
   }
 
   private async recordMintAuthorization(
@@ -188,6 +225,10 @@ export class TrusteeService {
     event: unknown,
     ctx: { deliveryId: string; correlationId: string },
   ): Promise<void> {
+    const expiresAt = this.validated(() => {
+      requireStringFields(a, ['authorizationId', 'reference', 'tenantId', 'assetId', 'amount', 'destination']);
+      return parseOptionalDate(a.expiresAt);
+    });
     const sig = (event as TrusteeSignedEvent).signature;
     await this.prisma.trusteeMintAuthorization.upsert({
       where: { tenantId_authorizationId: { tenantId: a.tenantId, authorizationId: a.authorizationId } },
@@ -202,7 +243,7 @@ export class TrusteeService {
         signature: sig.value,
         artifact: (event as TrusteeSignedEvent).artifact,
         status: 'VALID',
-        expiresAt: a.expiresAt ? new Date(a.expiresAt) : null,
+        expiresAt,
       },
       update: {}, // idempotent: a re-delivered authorization must not resurrect a CONSUMED one
     });
@@ -219,6 +260,7 @@ export class TrusteeService {
     event: unknown,
     ctx: { deliveryId: string; correlationId: string },
   ): Promise<void> {
+    this.validated(() => requireStringFields(a, ['snapshotId', 'tenantId', 'assetId', 'reserveBalance']));
     const sig = (event as TrusteeSignedEvent).signature;
     await this.reserve.recordTrusteeSnapshot(a.tenantId, a.assetId, {
       reserveBalance: a.reserveBalance,
@@ -232,6 +274,15 @@ export class TrusteeService {
       snapshotId: a.snapshotId,
       reserveBalance: a.reserveBalance,
     });
+  }
+
+  /** Run artifact validation, turning a validation Error into a clean 400 (not a Prisma 500). */
+  private validated<T>(fn: () => T): T {
+    try {
+      return fn();
+    } catch (err) {
+      throw new BadRequestException(err instanceof Error ? err.message : 'invalid trustee artifact');
+    }
   }
 
   private async recordReceipt(

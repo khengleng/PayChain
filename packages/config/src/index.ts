@@ -123,6 +123,13 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v !== 'false'),
+  // Base URL of the trustee's API, for PayChain → trustee outbound calls (requesting a mint
+  // authorization for a specific mint request). Defaults to the trustee's production host.
+  TRUSTEE_API_BASE_URL: z.string().url().default('https://api.trustee.cambobia.com'),
+  // Bearer credential PayChain presents to the trustee's API (the trustee-issued PayChain key).
+  // Optional: when unset, outbound authorization requests are skipped and logged (dev fallback,
+  // like the mailer), so the mint saga never blocks on a missing credential.
+  TRUSTEE_API_KEY: z.string().optional().or(z.literal('')),
 }).superRefine((cfg, ctx) => {
   // KEY_MANAGEMENT_PROVIDER advertises kms/hsm/mpc, but only the local-dev provider is built:
   // CryptoService wraps AES-256-GCM over KEY_ENCRYPTION_KEY and every signing path decrypts the

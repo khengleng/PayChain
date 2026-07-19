@@ -69,17 +69,13 @@ export class TrusteeKeyRegistry {
     let key = this.lookup(purpose, keyId);
     if (key) return key;
 
-    if (this.isStale() || !this.cache.size) {
-      await this.refresh();
-      key = this.lookup(purpose, keyId);
-      if (key) return key;
-    }
-    // Fresh-but-missing keyId: one forced refresh in case of a just-published rotation.
-    if (!this.isStale()) {
-      await this.refresh(true);
-      key = this.lookup(purpose, keyId);
-      if (key) return key;
-    }
+    // At most ONE fetch per lookup: refresh (forced only if the cache is currently fresh, i.e. the
+    // miss is a possible rotation; otherwise a normal stale/empty refresh), then look up once more.
+    const forceForRotation = !this.isStale() && this.cache.size > 0;
+    await this.refresh(forceForRotation);
+    key = this.lookup(purpose, keyId);
+    if (key) return key;
+
     if (purpose === 'WEBHOOK' && (!keyId || keyId === this.pinnedWebhookKeyId)) {
       return this.pinnedWebhookKey;
     }

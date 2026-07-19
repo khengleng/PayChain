@@ -34,16 +34,17 @@ describe('TrusteeService', () => {
     const getKey = jest.fn(async (purpose: string, keyId: string) => keyMap[purpose]?.[keyId] ?? null);
     const hasWebhookKeys = jest.fn(async () => opts.hasWebhook ?? true);
     const upsert = jest.fn().mockResolvedValue({});
+    const depositUpsert = jest.fn().mockResolvedValue({});
     const recordTrusteeSnapshot = jest.fn().mockResolvedValue({});
     const svc = new TrusteeService(
       { TRUSTEE_WEBHOOK_KEY_ID: 'webhook-v1' } as unknown as PayChainConfig,
       { record } as never,
       { run } as never,
       { getKey, hasWebhookKeys } as never,
-      { trusteeMintAuthorization: { upsert } } as never,
+      { trusteeMintAuthorization: { upsert }, trusteeDeposit: { upsert: depositUpsert } } as never,
       { recordTrusteeSnapshot } as never,
     );
-    return { svc, record, run, getKey, upsert, recordTrusteeSnapshot };
+    return { svc, record, run, getKey, upsert, depositUpsert, recordTrusteeSnapshot };
   }
 
   function envelope(body: string, timestamp = String(Date.now())) {
@@ -181,6 +182,27 @@ describe('TrusteeService', () => {
       keyId: 'reserve_snapshot-v1',
       signature: expect.any(String),
     });
+  });
+
+  it('verifies + records a cleared deposit (signed with the reserve-snapshot key)', async () => {
+    const { svc, depositUpsert } = build();
+    const artifact = { depositId: 'dep_1', tenantId: 't1', reference: 'DEP-1', amount: '5000', currency: 'USD' };
+    const body = signedEvent('deposit.cleared', artifact, reserve.privateKey, 'reserve_snapshot-v1');
+    const ack = await svc.ingest(baseInput(body));
+    expect(ack.eventType).toBe('deposit.cleared');
+    expect(depositUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId_depositId: { tenantId: 't1', depositId: 'dep_1' } },
+        create: expect.objectContaining({ reference: 'DEP-1', amount: '5000', status: 'CLEARED' }),
+      }),
+    );
+  });
+
+  it('400 on a mint authorization missing a required artifact field (clean, not a 500)', async () => {
+    const { svc } = build();
+    const artifact = { authorizationId: 'a', tenantId: 't1', assetId: 'x', amount: '1', destination: 'w' }; // no reference
+    const body = signedEvent('mint.authorization.approved', artifact, mintAuth.privateKey, 'mint_authorization-v1');
+    await expect(svc.ingest(baseInput(body))).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('dedups via the delivery id (idempotency layer)', async () => {

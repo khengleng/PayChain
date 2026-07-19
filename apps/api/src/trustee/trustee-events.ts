@@ -21,6 +21,7 @@ export const TrusteeEventType = {
   MINT_AUTHORIZATION_APPROVED: 'mint.authorization.approved',
   RESERVE_SNAPSHOT_CREATED: 'reserve.snapshot.created',
   ATTESTATION_PUBLISHED: 'attestation.published',
+  DEPOSIT_CLEARED: 'deposit.cleared',
 } as const;
 
 /** The inner signature block carried by artifact-bearing events. */
@@ -60,15 +61,52 @@ export interface ReserveSnapshotArtifact {
   asOf?: string;
 }
 
+export interface DepositClearedArtifact {
+  depositId: string;
+  tenantId: string;
+  /** Matches the mint's fundingReference — how a cleared deposit funds a specific mint. */
+  reference: string;
+  amount: string;
+  currency?: string;
+  clearedAt?: string;
+}
+
 /**
  * The purpose key an event's inner artifact must be signed with. Returns null for events that
- * carry no inner artifact (informational events verified by the envelope alone).
+ * carry no inner artifact (informational events verified by the envelope alone). Deposits are
+ * signed with the reserve-snapshot key (funding is a reserve-domain concern; the trustee may
+ * publish a dedicated funding key later).
  */
 export function purposeForEvent(type: string): TrusteeKeyPurpose | null {
   if (type.startsWith('mint.authorization.')) return 'MINT_AUTHORIZATION';
   if (type.startsWith('reserve.snapshot.')) return 'RESERVE_SNAPSHOT';
+  if (type === 'deposit.cleared') return 'RESERVE_SNAPSHOT';
   if (type.startsWith('attestation.')) return 'ATTESTATION';
   return null;
+}
+
+/** Review hardening: require the string fields an artifact needs so a malformed one 400s (not 500). */
+export function requireStringFields(
+  obj: unknown,
+  fields: string[],
+): Record<string, string> {
+  if (!obj || typeof obj !== 'object') throw new Error('artifact is not an object');
+  const rec = obj as Record<string, unknown>;
+  for (const f of fields) {
+    if (typeof rec[f] !== 'string' || (rec[f] as string).length === 0) {
+      throw new Error(`artifact is missing required field: ${f}`);
+    }
+  }
+  return rec as Record<string, string>;
+}
+
+/** Parse an optional ISO-8601 date field; reject an invalid one rather than storing NaN. */
+export function parseOptionalDate(value: unknown): Date | null {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string') throw new Error('date field must be a string');
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) throw new Error('date field is not a valid ISO-8601 date');
+  return d;
 }
 
 /** True when the event carries an inner signed artifact PayChain must verify and act on. */

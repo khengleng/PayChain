@@ -116,21 +116,79 @@ export class AdminReadService {
   }
 
   async reserve(scope: TenantScope) {
-    const [accounts, tenants] = await Promise.all([
+    const [accounts, tenants, trusteeSnaps] = await Promise.all([
       this.prisma.reserveAccount.findMany({ where: tenantScopeWhere(scope), orderBy: { createdAt: 'desc' }, take: MAX }),
+      this.tenantNames(),
+      this.prisma.reserveSnapshot.findMany({
+        where: { ...tenantScopeWhere(scope), source: 'trustee' },
+        orderBy: { takenAt: 'desc' },
+        take: MAX,
+      }),
+    ]);
+    // Newest trustee-attested figure per (tenant, asset), to show whether reserves are corroborated.
+    const latestTrustee = new Map<string, { reserveBalance: string; takenAt: Date }>();
+    for (const s of trusteeSnaps) {
+      const key = `${s.tenantId}:${s.assetId}`;
+      if (!latestTrustee.has(key)) latestTrustee.set(key, { reserveBalance: s.reserveBalance, takenAt: s.takenAt });
+    }
+    return {
+      items: accounts.map((r) => {
+        const t = latestTrustee.get(`${r.tenantId}:${r.assetId}`);
+        return {
+          id: r.id,
+          tenant: tenants.get(r.tenantId) ?? r.tenantId,
+          assetId: r.assetId,
+          label: r.label,
+          custodianReference: r.custodianReference,
+          bankReference: r.bankReference,
+          balance: r.balance,
+          status: r.status,
+          createdAt: r.createdAt,
+          trusteeCorroborated: !!t,
+          attestedBalance: t?.reserveBalance ?? null,
+          attestedAt: t?.takenAt ?? null,
+        };
+      }),
+    };
+  }
+
+  async trusteeActivity(scope: TenantScope) {
+    const where = tenantScopeWhere(scope);
+    const [authorizations, deposits, snapshots, tenants] = await Promise.all([
+      this.prisma.trusteeMintAuthorization.findMany({ where, orderBy: { receivedAt: 'desc' }, take: MAX }),
+      this.prisma.trusteeDeposit.findMany({ where, orderBy: { receivedAt: 'desc' }, take: MAX }),
+      this.prisma.reserveSnapshot.findMany({ where: { ...where, source: 'trustee' }, orderBy: { takenAt: 'desc' }, take: MAX }),
       this.tenantNames(),
     ]);
     return {
-      items: accounts.map((r) => ({
-        id: r.id,
-        tenant: tenants.get(r.tenantId) ?? r.tenantId,
-        assetId: r.assetId,
-        label: r.label,
-        custodianReference: r.custodianReference,
-        bankReference: r.bankReference,
-        balance: r.balance,
-        status: r.status,
-        createdAt: r.createdAt,
+      authorizations: authorizations.map((a) => ({
+        id: a.id,
+        tenant: tenants.get(a.tenantId) ?? a.tenantId,
+        assetId: a.assetId,
+        amount: a.amount,
+        reference: a.reference,
+        authorizationId: a.authorizationId,
+        status: a.status,
+        expiresAt: a.expiresAt,
+        receivedAt: a.receivedAt,
+      })),
+      deposits: deposits.map((d) => ({
+        id: d.id,
+        tenant: tenants.get(d.tenantId) ?? d.tenantId,
+        depositId: d.depositId,
+        reference: d.reference,
+        amount: d.amount,
+        currency: d.currency,
+        status: d.status,
+        receivedAt: d.receivedAt,
+      })),
+      reserveSnapshots: snapshots.map((s) => ({
+        id: s.id,
+        tenant: tenants.get(s.tenantId) ?? s.tenantId,
+        assetId: s.assetId,
+        reserveBalance: s.reserveBalance,
+        trusteeSnapshotId: s.trusteeSnapshotId,
+        takenAt: s.takenAt,
       })),
     };
   }

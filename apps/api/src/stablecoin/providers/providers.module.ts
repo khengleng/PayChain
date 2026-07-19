@@ -1,4 +1,8 @@
 import { Global, Module } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { FeatureFlagsService } from '../../feature-flags/feature-flags.service';
+import { TrusteeApiClient } from './trustee-api-client.service';
+import { TrusteeReserveFundingProvider } from './trustee-reserve-funding.provider';
 
 /**
  * External-integration ports for the stablecoin workflows (§5, §23, §25). M4 binds mock
@@ -50,9 +54,16 @@ export class MockFiatPayoutProvider implements FiatPayoutProvider {
 @Global()
 @Module({
   providers: [
-    { provide: RESERVE_FUNDING_PROVIDER, useFactory: () => new MockReserveFundingProvider() },
+    TrusteeApiClient,
+    // Trustee-verified funding when the tenant is under trustee control; FUND- mock otherwise.
+    {
+      provide: RESERVE_FUNDING_PROVIDER,
+      inject: [PrismaService, FeatureFlagsService],
+      useFactory: (prisma: PrismaService, flags: FeatureFlagsService) =>
+        new TrusteeReserveFundingProvider(prisma, flags),
+    },
     { provide: FIAT_PAYOUT_PROVIDER, useFactory: () => new MockFiatPayoutProvider() },
   ],
-  exports: [RESERVE_FUNDING_PROVIDER, FIAT_PAYOUT_PROVIDER],
+  exports: [RESERVE_FUNDING_PROVIDER, FIAT_PAYOUT_PROVIDER, TrusteeApiClient],
 })
 export class StablecoinProvidersModule {}

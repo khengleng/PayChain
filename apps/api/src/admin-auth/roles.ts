@@ -45,6 +45,8 @@ export const PERMISSIONS = [
   // write in their role).
   'partner:read',
   'partner:review',
+  // View the trustee activity feed (authorizations, deposits, trustee reserve snapshots).
+  'trustee:read',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -116,6 +118,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'reserve:approve',
     'stablecoin:read',
     'audit:read',
+    'trustee:read',
   ],
   SUPPORT_ADMIN: ['wallet:read', 'asset:read', 'tenant:read', 'audit:read'],
   AUDITOR: READ_ONLY,
