@@ -21,3 +21,24 @@ Creates a fiat-backed coin in **DRAFT**, attributed to the merchant, **branded**
 the caller's tenant. It does **not** activate or mint — the existing lifecycle gates + trustee funding
 still govern going live. "Un-brand to a real stablecoin" later = clear `brandLabel` + enable
 redemption/transfer.
+
+## Spending points on goods (customer point-of-sale)
+When a customer spends points on goods at the merchant, the points are **burned** — supply drops, and
+because the backing liability is `supply × unitValue`, the reserve that backed those points is no longer
+owed and becomes the merchant's realized revenue. This is distinct from `POST .../redemptions` (a fiat
+cash-out with KYC/compliance/bank payout); a spend has **no fiat leg**.
+
+- `POST /api/v1/stablecoins/:id/spends` — scope **`stablecoin.spend`**, gated by `stablecoin.spend.enabled`,
+  idempotency-keyed. Body: `{ walletId, amount, orderReference? }`. Requires the coin **ACTIVE**. At
+  request time the customer wallet must be transactable and hold enough **non-escrowed** balance (the
+  tokens are escrowed against double-spend the moment the spend is created).
+- `POST /api/v1/spends/:spendId/advance` — drives the burn saga one step:
+  `REQUESTED → BURN_PENDING → BURN_CONFIRMED → COMPLETED` (mirrors the redemption burn; atomic claim so a
+  crash never double-burns). `GET /api/v1/spends/:spendId` reads state.
+- **Supply accounting:** a spend reduces `outstandingSupply` only once its burn is **BURN_CONFIRMED**
+  (`ReserveService.getState` subtracts confirmed spends alongside confirmed redemption burns). A submitted
+  but unconfirmed burn does not shrink the liability early; a failed burn never does.
+- **Releasing the freed reserve:** this flow does **not** move reserve money. Once supply drops the reserve
+  is over-covered, and the merchant withdraws the freed amount through the existing **maker-checker reserve
+  DEBIT** (`POST /reserve/movements` + a *different* principal's `/approve`) — every reserve outflow keeps
+  its second-person approval.

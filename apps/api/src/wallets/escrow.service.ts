@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import type { RedemptionStatus } from '@paychain/database';
+import type { RedemptionStatus, SpendStatus } from '@paychain/database';
 import { PrismaService } from '../prisma/prisma.service';
-import { compareAmounts, subAmounts, sumAmounts } from '../common/money';
+import { addAmounts, compareAmounts, subAmounts, sumAmounts } from '../common/money';
 
 /**
  * Redemption states where the customer's tokens are committed but not yet burned.
@@ -16,6 +16,15 @@ const ESCROWED_STATUSES: RedemptionStatus[] = [
   'FIAT_PAYOUT_CONFIRMED',
   'BURN_PENDING',
 ];
+
+/**
+ * Spend-for-goods states where the tokens are committed but not yet burned. A spend is escrowed
+ * from the moment it is REQUESTED (the tokens are earmarked for the sale) through BURN_PENDING
+ * (burn submitted). It stops being escrowed once BURN_CONFIRMED (the tokens no longer exist) or
+ * the spend FAILS / goes to MANUAL_REVIEW (the claim is released). Without this a customer could
+ * spend and redeem the same points, or spend them twice.
+ */
+const ESCROWED_SPEND_STATUSES: SpendStatus[] = ['REQUESTED', 'BURN_PENDING'];
 
 /**
  * Escrow holds on wallet balances (§25).
@@ -38,13 +47,19 @@ const ESCROWED_STATUSES: RedemptionStatus[] = [
 export class EscrowService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Total committed to in-flight redemptions for (wallet, asset). */
+  /** Total committed to in-flight redemptions AND spends for (wallet, asset). */
   async escrowedAmount(walletId: string, assetId: string): Promise<string> {
-    const rows = await this.prisma.stablecoinRedemption.findMany({
-      where: { walletId, assetId, status: { in: ESCROWED_STATUSES } },
-      select: { amount: true },
-    });
-    return sumAmounts(rows.map((r) => r.amount));
+    const [redemptions, spends] = await Promise.all([
+      this.prisma.stablecoinRedemption.findMany({
+        where: { walletId, assetId, status: { in: ESCROWED_STATUSES } },
+        select: { amount: true },
+      }),
+      this.prisma.stablecoinSpend.findMany({
+        where: { walletId, assetId, status: { in: ESCROWED_SPEND_STATUSES } },
+        select: { amount: true },
+      }),
+    ]);
+    return addAmounts(sumAmounts(redemptions.map((r) => r.amount)), sumAmounts(spends.map((s) => s.amount)));
   }
 
   /**
@@ -79,7 +94,7 @@ export class EscrowService {
     if (compareAmounts(input.amount, spendable) > 0) {
       throw new BadRequestException(
         `Refusing: ${escrowed} of this wallet's ${balance} is escrowed against an in-flight ` +
-          `redemption, leaving ${spendable} spendable — cannot move ${input.amount}.`,
+          `redemption or spend, leaving ${spendable} spendable — cannot move ${input.amount}.`,
       );
     }
   }

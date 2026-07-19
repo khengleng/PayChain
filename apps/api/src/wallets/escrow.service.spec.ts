@@ -6,8 +6,9 @@ import { EscrowService } from './escrow.service';
  * Between escrow and burn the holder could transfer the tokens away — and because §0.8 sequences
  * payout BEFORE burn, a redeem-then-transfer would have taken the fiat AND kept the tokens.
  */
-function build(opts: { redemptions?: { amount: string }[]; balance?: string } = {}) {
+function build(opts: { redemptions?: { amount: string }[]; spends?: { amount: string }[]; balance?: string } = {}) {
   const where: Record<string, any>[] = [];
+  const spendWhere: Record<string, any>[] = [];
   const prisma = {
     stablecoinRedemption: {
       findMany: async (args: { where: Record<string, any> }) => {
@@ -15,11 +16,17 @@ function build(opts: { redemptions?: { amount: string }[]; balance?: string } = 
         return opts.redemptions ?? [];
       },
     },
+    stablecoinSpend: {
+      findMany: async (args: { where: Record<string, any> }) => {
+        spendWhere.push(args.where);
+        return opts.spends ?? [];
+      },
+    },
     balanceReadModel: {
       findFirst: async () => (opts.balance ? { balance: opts.balance } : null),
     },
   } as never;
-  return { svc: new EscrowService(prisma), where };
+  return { svc: new EscrowService(prisma), where, spendWhere };
 }
 
 const spend = (amount: string) => ({
@@ -58,6 +65,28 @@ describe('EscrowService — escrowed tokens are not spendable (§25)', () => {
     expect(where[0]!.status).toEqual({
       in: ['ESCROW_HELD', 'FIAT_PAYOUT_PENDING', 'FIAT_PAYOUT_CONFIRMED', 'BURN_PENDING'],
     });
+  });
+
+  it('THE OTHER DOUBLE-SPEND: refuses tokens committed to an in-flight spend-for-goods', async () => {
+    // 100 held, 70 earmarked for a spend being burned → only 30 spendable elsewhere.
+    const { svc } = build({ spends: [{ amount: '70' }], balance: '100' });
+    await expect(svc.assertSpendable(spend('40'))).rejects.toThrow(/30 spendable/);
+    await expect(svc.assertSpendable(spend('30'))).resolves.toBeUndefined();
+  });
+
+  it('sums redemptions AND spends together against the same balance', async () => {
+    const { svc } = build({ redemptions: [{ amount: '40' }], spends: [{ amount: '30' }], balance: '100' });
+    // 40 + 30 escrowed → 30 spendable.
+    await expect(svc.assertSpendable(spend('31'))).rejects.toThrow(/30 spendable/);
+    await expect(svc.assertSpendable(spend('30'))).resolves.toBeUndefined();
+  });
+
+  it('only counts spends whose tokens still exist and are committed', async () => {
+    const { svc, spendWhere } = build({ balance: '100' });
+    await svc.escrowedAmount('w1', 'a1');
+    // REQUESTED/BURN_PENDING: tokens earmarked but still on-chain. BURN_CONFIRMED/COMPLETED: gone.
+    // FAILED/MANUAL_REVIEW: claim released.
+    expect(spendWhere[0]!.status).toEqual({ in: ['REQUESTED', 'BURN_PENDING'] });
   });
 
   it('is fixed-point at the boundary', async () => {

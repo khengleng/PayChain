@@ -8,6 +8,7 @@ import { StablecoinWorkflowController } from './workflow.controller';
 import { ReserveService } from './reserve.service';
 import { MintService } from './mint.service';
 import { RedemptionService } from './redemption.service';
+import { SpendService } from './spend.service';
 import { ConversionService } from './conversion.service';
 import { TreasuryService } from './treasury.service';
 import { MonitoringService } from './monitoring.service';
@@ -21,6 +22,7 @@ import { AttestationService } from './attestation.service';
     ReserveService,
     MintService,
     RedemptionService,
+    SpendService,
     ConversionService,
     TreasuryService,
     MonitoringService,

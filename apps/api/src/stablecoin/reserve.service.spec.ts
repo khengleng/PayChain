@@ -55,6 +55,7 @@ function fakePrisma(accountBalance = '1000') {
     stablecoinConfig: { findFirst: async () => ({ reserveRatioTarget: '1.0' }) },
     stablecoinMintRequest: { findMany: async () => [] },
     stablecoinRedemption: { findMany: async () => [] },
+    stablecoinSpend: { findMany: async () => [] },
     reserveSnapshot: {
       create: async ({ data }: { data: Record<string, unknown> }) => ({ id: 'snap1', ...data }),
       findFirst: async () => null,
@@ -284,6 +285,7 @@ describe('§23 liabilities — figures that were declared and never computed', (
     accounts?: string[];
     minted?: Array<{ amount: string; status: string }>;
     redemptions?: Array<{ amount: string; status: string }>;
+    spends?: Array<{ amount: string; status: string }>;
   }) =>
     ({
       reserveAccount: {
@@ -297,6 +299,10 @@ describe('§23 liabilities — figures that were declared and never computed', (
       stablecoinRedemption: {
         findMany: async ({ where }: any) =>
           (opts.redemptions ?? []).filter((r) => where.status.in.includes(r.status)),
+      },
+      stablecoinSpend: {
+        findMany: async ({ where }: any) =>
+          (opts.spends ?? []).filter((s) => where.status.in.includes(s.status)),
       },
     }) as never;
 
@@ -312,6 +318,28 @@ describe('§23 liabilities — figures that were declared and never computed', (
     ).getState('t1', 'a1');
     expect(state.outstandingSupply).toBe('300');
     expect(state.unredeemedLiability).toBe('300');
+  });
+
+  it('subtracts confirmed spend-for-goods burns from supply, exactly like redemption burns', async () => {
+    // 1000 minted, 200 redeemed (fiat cash-out), 150 spent on goods → 650 outstanding. A spend
+    // still BURN_PENDING must NOT count yet (its tokens are still circulating), or a burned point
+    // would be counted as backed supply — silent under-collateralization.
+    const state = await svc(
+      prismaFor({
+        accounts: ['1000'],
+        minted: [{ amount: '1000', status: 'CONFIRMED' }],
+        redemptions: [{ amount: '200', status: 'COMPLETED' }],
+        spends: [
+          { amount: '100', status: 'BURN_CONFIRMED' },
+          { amount: '50', status: 'COMPLETED' },
+          { amount: '999', status: 'BURN_PENDING' }, // submitted, not yet off-chain — excluded
+          { amount: '777', status: 'REQUESTED' }, // not burned at all — excluded
+        ],
+      }),
+    ).getState('t1', 'a1');
+    expect(state.outstandingSupply).toBe('650');
+    expect(state.unredeemedLiability).toBe('650');
+    expect(state.backingLiability).toBe('650'); // unitValue "1"
   });
 
   it('counts in-flight mints as pending mint liability, and excludes ones that will never land', async () => {
@@ -386,6 +414,7 @@ describe('ReserveService — trustee-authoritative reserve (§24)', () => {
       stablecoinConfig: { findFirst: async () => ({ reserveRatioTarget: '1.0', unitValue }) },
       stablecoinMintRequest: { findMany: async () => [{ amount: '1000' }] }, // 1000 coins minted
       stablecoinRedemption: { findMany: async () => [] },
+      stablecoinSpend: { findMany: async () => [] },
     } as never;
     const flags = { isEnabled: jest.fn().mockResolvedValue(flagOn) } as never;
     return new ReserveService(prisma, { record: jest.fn() } as never, { RESERVE_MAX_STALENESS_HOURS: 24 } as never, flags);
@@ -416,6 +445,7 @@ describe('ReserveService — per-coin unit value backing (§23)', () => {
       stablecoinConfig: { findFirst: async () => ({ reserveRatioTarget: '1.0', unitValue }) },
       stablecoinMintRequest: { findMany: async () => [{ amount: supplyCoins }] },
       stablecoinRedemption: { findMany: async () => [] },
+      stablecoinSpend: { findMany: async () => [] },
     } as never;
     // Authoritative-reserve flag OFF so the figure is the internal sum; unit-value is independent.
     const flags = { isEnabled: jest.fn().mockResolvedValue(false) } as never;
