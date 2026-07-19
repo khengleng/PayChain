@@ -35,6 +35,7 @@ function deps(over: {
     (over.chain ?? { burnAsset: jest.fn(), getTransaction: jest.fn() }) as never,
     (over.escrow ?? { assertSpendable: jest.fn().mockResolvedValue(undefined) }) as never,
     balances as never,
+    { consume: jest.fn().mockResolvedValue(undefined) } as never,
   );
   return { svc, audit, balances };
 }

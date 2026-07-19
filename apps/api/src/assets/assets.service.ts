@@ -20,6 +20,7 @@ import { WalletsService } from '../wallets/wallets.service';
 import { EscrowService } from '../wallets/escrow.service';
 import { MonitoringService } from '../stablecoin/monitoring.service';
 import { WebhookEmitterService } from '../webhooks/webhook-emitter.service';
+import { PointsLotService } from '../points-lot/points-lot.service';
 import { assertValidAmount } from '../common/money';
 import type { CreateAssetDto } from './dto';
 
@@ -53,6 +54,7 @@ export class AssetsService {
     private readonly balances: BalanceService,
     private readonly webhooks: WebhookEmitterService,
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
+    private readonly pointsLots: PointsLotService,
   ) {}
 
   /**
@@ -317,6 +319,7 @@ export class AssetsService {
       walletId: source.wallet.id,
       stellarAccountId: source.wallet.stellarAccountId,
     });
+    await this.pointsLots.consume(auth.tenantId, source.wallet.id, asset.id, amount); // draw down lots
     return tx;
   }
 
@@ -361,6 +364,7 @@ export class AssetsService {
       walletId: holder.wallet.id,
       stellarAccountId: holder.wallet.stellarAccountId,
     });
+    await this.pointsLots.consume(auth.tenantId, holder.wallet.id, asset.id, amount); // draw down lots
     return tx;
   }
 

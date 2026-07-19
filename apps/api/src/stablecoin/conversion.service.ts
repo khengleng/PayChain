@@ -15,6 +15,7 @@ import { assertValidAmount, isValidAmount, normalizeAmount } from '../common/mon
 import type { AuthContext } from '../auth/auth-context';
 import { WalletPolicyService } from '../wallets/wallet-policy.service';
 import { BalanceService } from '../wallets/balance.service';
+import { PointsLotService } from '../points-lot/points-lot.service';
 import { MintService } from './mint.service';
 
 const QUOTE_TTL_MS = 5 * 60 * 1000;
@@ -36,6 +37,7 @@ export class ConversionService {
     private readonly mint: MintService,
     private readonly walletPolicy: WalletPolicyService,
     private readonly balances: BalanceService,
+    private readonly pointsLots: PointsLotService,
   ) {}
 
   /**
@@ -176,6 +178,7 @@ export class ConversionService {
         data: { status: 'CONFIRMED', confirmedAt: new Date(), failureReason: null, failureCode: null },
       });
       await this.refreshBalances(c.tenantId, c.walletId); // cache reflects the burned points
+      await this.pointsLots.consume(c.tenantId, c.walletId, c.fromAssetId, c.pointsAmount); // draw down lots
       return this.set(c.id, { status: 'POINTS_BURNED' });
     }
     if (onChain.status === 'failed') {

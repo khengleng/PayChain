@@ -17,6 +17,7 @@ import { assertWalletCanTransact } from '../wallets/wallet-status';
 import { WalletPolicyService } from '../wallets/wallet-policy.service';
 import { EscrowService } from '../wallets/escrow.service';
 import { BalanceService } from '../wallets/balance.service';
+import { PointsLotService } from '../points-lot/points-lot.service';
 import { MintService } from './mint.service';
 
 const QUOTE_TTL_MS = 5 * 60 * 1000;
@@ -56,6 +57,7 @@ export class ExchangeService {
     private readonly walletPolicy: WalletPolicyService,
     private readonly escrow: EscrowService,
     private readonly balances: BalanceService,
+    private readonly pointsLots: PointsLotService,
   ) {}
 
   /**
@@ -245,6 +247,7 @@ export class ExchangeService {
         data: { status: 'CONFIRMED', confirmedAt: new Date(), failureReason: null, failureCode: null },
       });
       await this.refreshBalances(e.tenantId, e.walletId); // cache reflects the burned source
+      await this.pointsLots.consume(e.tenantId, e.walletId, e.fromAssetId, e.fromAmount); // draw down source lots
       return this.set(e.id, { status: 'SOURCE_BURNED' }); // source supply now counted as reduced
     }
     if (onChain.status === 'failed') {
