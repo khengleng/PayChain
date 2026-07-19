@@ -54,6 +54,22 @@ describe('TrusteeKeyRegistry', () => {
     expect(await reg.hasWebhookKeys()).toBe(true);
   });
 
+  it('falls back to the pinned RESERVE_SNAPSHOT key when the JWKS is unreachable', async () => {
+    // Reserve snapshots set the figure the ratio is decided against, so their key must not depend
+    // solely on the JWKS endpoint — the pin gives it the same trust anchor the webhook has.
+    const reserve = generateKeyPairSync('ed25519');
+    const fetcher = jest.fn<ReturnType<JwksFetcher>, Parameters<JwksFetcher>>().mockRejectedValue(new Error('down'));
+    const reg = new TrusteeKeyRegistry(
+      cfg({ TRUSTEE_RESERVE_SNAPSHOT_PUBLIC_KEY: pem(reserve), TRUSTEE_RESERVE_SNAPSHOT_KEY_ID: 'reserve-v1' }),
+      fetcher,
+    );
+    expect(await reg.getKey('RESERVE_SNAPSHOT', 'reserve-v1')).not.toBeNull();
+    // The pin is honoured only for its own keyId — never a blanket accept.
+    expect(await reg.getKey('RESERVE_SNAPSHOT', 'reserve-v9')).toBeNull();
+    // The reserve pin does not leak into other purposes.
+    expect(await reg.getKey('MINT_AUTHORIZATION', 'reserve-v1')).toBeNull();
+  });
+
   it('hasWebhookKeys is false when neither JWKS nor a pinned key is available', async () => {
     const fetcher = jest.fn<ReturnType<JwksFetcher>, Parameters<JwksFetcher>>().mockResolvedValue({ keys: [] });
     const reg = new TrusteeKeyRegistry(cfg(), fetcher);

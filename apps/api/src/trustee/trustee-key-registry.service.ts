@@ -37,8 +37,12 @@ export class TrusteeKeyRegistry {
   /** purpose -> keyId -> key */
   private cache = new Map<string, Map<string, KeyObject>>();
   private fetchedAt = 0;
-  private readonly pinnedWebhookKey: KeyObject | null;
-  private readonly pinnedWebhookKeyId: string;
+  /**
+   * PayChain-side pinned keys per purpose — the trust anchor of last resort when the JWKS is
+   * unreachable. WEBHOOK has always been pinned; RESERVE_SNAPSHOT is now pinned too so the reserve
+   * figure the ratio is decided against is not hostage to the JWKS endpoint alone.
+   */
+  private readonly pinned = new Map<TrusteeKeyPurpose, { keyId: string; key: KeyObject }>();
 
   constructor(
     @Inject(CONFIG) config: PayChainConfig,
@@ -48,17 +52,23 @@ export class TrusteeKeyRegistry {
     @Optional() private readonly now: () => number = () => Date.now(),
   ) {
     this.jwksUrl = config.TRUSTEE_JWKS_URL;
-    this.pinnedWebhookKeyId = config.TRUSTEE_WEBHOOK_KEY_ID;
-    let pinned: KeyObject | null = null;
-    const raw = (config.TRUSTEE_WEBHOOK_PUBLIC_KEY ?? '').trim();
-    if (raw) {
-      try {
-        pinned = loadEd25519PublicKey(raw);
-      } catch (err) {
-        this.logger.error(`Pinned TRUSTEE_WEBHOOK_PUBLIC_KEY is invalid: ${msg(err)}`);
-      }
+    this.loadPin('WEBHOOK', config.TRUSTEE_WEBHOOK_PUBLIC_KEY, config.TRUSTEE_WEBHOOK_KEY_ID);
+    this.loadPin(
+      'RESERVE_SNAPSHOT',
+      config.TRUSTEE_RESERVE_SNAPSHOT_PUBLIC_KEY,
+      config.TRUSTEE_RESERVE_SNAPSHOT_KEY_ID,
+    );
+  }
+
+  /** Load a pinned key for a purpose from config, if a valid PEM is provided. */
+  private loadPin(purpose: TrusteeKeyPurpose, pem: string | undefined, keyId: string): void {
+    const raw = (pem ?? '').trim();
+    if (!raw) return;
+    try {
+      this.pinned.set(purpose, { keyId, key: loadEd25519PublicKey(raw) });
+    } catch (err) {
+      this.logger.error(`Pinned trustee ${purpose} key is invalid: ${msg(err)}`);
     }
-    this.pinnedWebhookKey = pinned;
   }
 
   /**
@@ -76,8 +86,11 @@ export class TrusteeKeyRegistry {
     key = this.lookup(purpose, keyId);
     if (key) return key;
 
-    if (purpose === 'WEBHOOK' && (!keyId || keyId === this.pinnedWebhookKeyId)) {
-      return this.pinnedWebhookKey;
+    // Last resort: a PayChain-side pinned key for this purpose (WEBHOOK, RESERVE_SNAPSHOT). Only
+    // honoured when the delivery's keyId is unset or matches the pinned id — never a blanket accept.
+    const pin = this.pinned.get(purpose);
+    if (pin && (!keyId || keyId === pin.keyId)) {
+      return pin.key;
     }
     return null;
   }
@@ -87,7 +100,7 @@ export class TrusteeKeyRegistry {
    * Lets the receiver return 503 ("not configured") vs 401 ("unknown key id") correctly.
    */
   async hasWebhookKeys(): Promise<boolean> {
-    if (this.pinnedWebhookKey) return true;
+    if (this.pinned.has('WEBHOOK')) return true;
     if (this.isStale() || !this.cache.size) await this.refresh();
     return (this.cache.get('WEBHOOK')?.size ?? 0) > 0;
   }
