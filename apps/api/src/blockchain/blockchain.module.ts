@@ -9,6 +9,9 @@ import {
 import type { PayChainConfig } from '@paychain/config';
 import { StellarProvider, selectSigner } from '@paychain/stellar';
 import { CONFIG } from '../config/config.module';
+import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
+import { GLOBAL_TENANT } from '../feature-flags/feature-flags.constants';
+import { MainnetWriteGuardProvider } from './mainnet-write-guard.provider';
 
 export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
 
@@ -27,8 +30,8 @@ export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
   providers: [
     {
       provide: BLOCKCHAIN_PROVIDER,
-      inject: [CONFIG],
-      useFactory: (cfg: PayChainConfig): BlockchainProvider => {
+      inject: [CONFIG, FeatureFlagsService],
+      useFactory: (cfg: PayChainConfig, flags: FeatureFlagsService): BlockchainProvider => {
         // One connection shared by every provider instance: the lock is cheap and short-lived,
         // and a connection per Horizon endpoint would double it for no benefit.
         const redis = new IORedis(cfg.REDIS_URL, { maxRetriesPerRequest: null });
@@ -57,10 +60,15 @@ export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
         if (cfg.STELLAR_RPC_SECONDARY_URL) {
           providers.push({ name: 'stellar-secondary', provider: makeStellar(cfg.STELLAR_RPC_SECONDARY_URL) });
         }
-        return new FailoverBlockchainProvider(providers, {
+        const failover = new FailoverBlockchainProvider(providers, {
           timeoutMs: 20_000,
           circuit: { failureThreshold: 5, resetTimeoutMs: 30_000 },
         });
+        // §0.7 mainnet write gate: on mainnet, value movements are refused unless the readiness-gated
+        // flag is on. Transparent pass-through off mainnet. The flag is a GLOBAL platform kill-switch.
+        return new MainnetWriteGuardProvider(failover, cfg.STELLAR_NETWORK, () =>
+          flags.isEnabled('stablecoin.mainnet.enabled', GLOBAL_TENANT),
+        );
       },
     },
   ],
