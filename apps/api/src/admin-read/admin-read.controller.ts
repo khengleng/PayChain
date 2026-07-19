@@ -51,6 +51,12 @@ export class AdminReadController {
     return this.svc.reserve(tenantScopeOf(admin));
   }
 
+  @Get('reserve/tie-out')
+  @RequireAdminPermission('reserve:read')
+  reserveTieOut(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.reserveTieOuts(tenantScopeOf(admin));
+  }
+
   @Get('trustee/activity')
   @RequireAdminPermission('trustee:read')
   trusteeActivity(@CurrentAdmin() admin: AdminContext) {
