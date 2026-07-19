@@ -1,6 +1,7 @@
-import { Controller, Headers, HttpCode, Post, Req } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
+import { Controller, Headers, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CorrelationId } from '../auth/auth-context';
+import { TrusteeIpAllowlistGuard } from './trustee-ip-allowlist.guard';
 import { TrusteeService, type TrusteeEventAck } from './trustee.service';
 
 /** The raw request bytes captured by the body parser's verify hook in main.ts. */
@@ -12,17 +13,21 @@ interface RawBodyRequest {
  * Inbound receiver for the external trustee platform (docs/integration/API-CONTRACT.md).
  *
  * No JwtAuthGuard/ScopesGuard: the sender is a machine with no tenant token, and authenticity is
- * established by the HMAC signature verified in TrusteeService. Throttling is skipped so a
- * "replay all dead-lettered" backlog flush is not rate-limited — signature verification rejects
- * unauthenticated traffic cheaply, and the 256kb body cap still bounds payload size.
+ * established by the Ed25519 signature verified in TrusteeService. Access is controlled in depth:
+ * an optional source-IP allowlist (TrusteeIpAllowlistGuard) fronts the endpoint, and a dedicated
+ * throttle limit bounds floods while still permitting the trustee's "replay all" bursts; the 256kb
+ * body cap bounds payload size.
  */
 @Controller('trustee')
+@UseGuards(TrusteeIpAllowlistGuard)
 export class TrusteeController {
   constructor(private readonly trustee: TrusteeService) {}
 
   @Post('events')
   @HttpCode(200)
-  @SkipThrottle()
+  // Dedicated limit (higher than the global 120/min) instead of skipping the throttler entirely:
+  // bounds a flood of unsigned garbage while still allowing the trustee's "replay all" bursts.
+  @Throttle({ default: { ttl: 60_000, limit: 300 } })
   ingest(
     @Req() req: RawBodyRequest,
     @Headers('x-trustee-signature') signature: string | undefined,

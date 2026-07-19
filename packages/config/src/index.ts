@@ -107,6 +107,20 @@ const envSchema = z.object({
     .optional()
     .or(z.literal(''))
     .transform((v) => v || 'https://api.trustee.cambobia.com/.well-known/trustee-signing-keys'),
+  // Optional IP allowlist for POST /api/v1/trustee/events (defence-in-depth on top of the Ed25519
+  // signature). Comma-separated IPv4 addresses or CIDR ranges. Empty = allow any source (the
+  // signature remains the gate) so the endpoint keeps working before the trustee's egress IPs are known.
+  TRUSTEE_ALLOWED_IPS: z
+    .string()
+    .optional()
+    .default('')
+    .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean)),
+  // When false, GET /api/v1/openapi.json requires an admin token instead of being public. Default
+  // true preserves the developer portal's live API reference, which fetches this spec anonymously.
+  DOCS_PUBLIC: z
+    .string()
+    .optional()
+    .transform((v) => v !== 'false'),
 }).superRefine((cfg, ctx) => {
   // KEY_MANAGEMENT_PROVIDER advertises kms/hsm/mpc, but only the local-dev provider is built:
   // CryptoService wraps AES-256-GCM over KEY_ENCRYPTION_KEY and every signing path decrypts the
