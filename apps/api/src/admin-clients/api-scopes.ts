@@ -31,6 +31,9 @@ export const API_SCOPES = [
   // backing reserve. Separate from stablecoin.manage so a point-of-sale integration can settle
   // purchases without holding mint/redeem/lifecycle authority.
   'stablecoin.spend',
+  // Cross-peg exchange: swap one reserve-backed coin for another at a rate (burn source, mint
+  // destination). Value-moving; kept separate from stablecoin.manage and out of default presets.
+  'stablecoin.exchange',
   'reserve.read',
   'reserve.manage',
   'reserve.approve',
@@ -92,6 +95,7 @@ export const SENSITIVE_SCOPES: ApiScope[] = [
   'stablecoin.approve',
   'stablecoin.provision',
   'stablecoin.spend',
+  'stablecoin.exchange',
   'reserve.read',
   'reserve.manage',
   'reserve.approve',

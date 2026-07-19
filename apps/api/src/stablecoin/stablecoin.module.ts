@@ -9,6 +9,7 @@ import { ReserveService } from './reserve.service';
 import { MintService } from './mint.service';
 import { RedemptionService } from './redemption.service';
 import { SpendService } from './spend.service';
+import { ExchangeService } from './exchange.service';
 import { ConversionService } from './conversion.service';
 import { TreasuryService } from './treasury.service';
 import { MonitoringService } from './monitoring.service';
@@ -23,6 +24,7 @@ import { AttestationService } from './attestation.service';
     MintService,
     RedemptionService,
     SpendService,
+    ExchangeService,
     ConversionService,
     TreasuryService,
     MonitoringService,

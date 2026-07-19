@@ -28,6 +28,17 @@ export class ConversionQuoteDto {
   @IsOptional() @IsString() fee?: string;
 }
 
+export class ExchangeQuoteDto {
+  @IsString() fromAssetId!: string;
+  @IsString() toAssetId!: string;
+  @IsString() walletId!: string;
+  @IsString() fromAmount!: string;
+  // Source currency → destination currency. Optional; defaults "1" for a same-currency rebasing.
+  @IsOptional() @IsString() fxRate?: string;
+  @IsOptional() @IsString() spread?: string;
+  @IsOptional() @IsString() fee?: string;
+}
+
 export class ReserveAccountDto {
   @IsString() @MaxLength(200) label!: string;
   @IsOptional() @IsString() custodianReference?: string;

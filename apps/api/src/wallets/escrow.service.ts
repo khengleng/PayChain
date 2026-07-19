@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import type { RedemptionStatus, SpendStatus } from '@paychain/database';
+import type { ExchangeStatus, RedemptionStatus, SpendStatus } from '@paychain/database';
 import { PrismaService } from '../prisma/prisma.service';
-import { addAmounts, compareAmounts, subAmounts, sumAmounts } from '../common/money';
+import { compareAmounts, subAmounts, sumAmounts } from '../common/money';
 
 /**
  * Redemption states where the customer's tokens are committed but not yet burned.
@@ -27,6 +27,15 @@ const ESCROWED_STATUSES: RedemptionStatus[] = [
 const ESCROWED_SPEND_STATUSES: SpendStatus[] = ['REQUESTED', 'BURN_PENDING'];
 
 /**
+ * Cross-peg exchange states where the SOURCE coins are committed but not yet burned. A swap
+ * escrows its source leg from CONFIRMED (the holder has committed to give up the coins) through
+ * SOURCE_BURN_PENDING (burn submitted). It stops once SOURCE_BURNED (the coins no longer exist) or
+ * the swap FAILS/COMPENSATES (the claim is released / the coins are restored). Without this a holder
+ * could confirm a swap and still transfer, redeem, spend, or re-exchange the same source coins.
+ */
+const ESCROWED_EXCHANGE_STATUSES: ExchangeStatus[] = ['CONFIRMED', 'SOURCE_BURN_PENDING'];
+
+/**
  * Escrow holds on wallet balances (§25).
  *
  * `ESCROW_HELD` was a status string and nothing else: it moved no money, placed no lien and
@@ -47,9 +56,9 @@ const ESCROWED_SPEND_STATUSES: SpendStatus[] = ['REQUESTED', 'BURN_PENDING'];
 export class EscrowService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Total committed to in-flight redemptions AND spends for (wallet, asset). */
+  /** Total committed to in-flight redemptions, spends, AND cross-peg exchanges for (wallet, asset). */
   async escrowedAmount(walletId: string, assetId: string): Promise<string> {
-    const [redemptions, spends] = await Promise.all([
+    const [redemptions, spends, exchanges] = await Promise.all([
       this.prisma.stablecoinRedemption.findMany({
         where: { walletId, assetId, status: { in: ESCROWED_STATUSES } },
         select: { amount: true },
@@ -58,8 +67,17 @@ export class EscrowService {
         where: { walletId, assetId, status: { in: ESCROWED_SPEND_STATUSES } },
         select: { amount: true },
       }),
+      // The exchange's source leg is escrowed against its fromAssetId — that is the coin leaving.
+      this.prisma.stablecoinExchange.findMany({
+        where: { walletId, fromAssetId: assetId, status: { in: ESCROWED_EXCHANGE_STATUSES } },
+        select: { fromAmount: true },
+      }),
     ]);
-    return addAmounts(sumAmounts(redemptions.map((r) => r.amount)), sumAmounts(spends.map((s) => s.amount)));
+    return sumAmounts([
+      sumAmounts(redemptions.map((r) => r.amount)),
+      sumAmounts(spends.map((s) => s.amount)),
+      sumAmounts(exchanges.map((x) => x.fromAmount)),
+    ]);
   }
 
   /**
@@ -94,7 +112,7 @@ export class EscrowService {
     if (compareAmounts(input.amount, spendable) > 0) {
       throw new BadRequestException(
         `Refusing: ${escrowed} of this wallet's ${balance} is escrowed against an in-flight ` +
-          `redemption or spend, leaving ${spendable} spendable — cannot move ${input.amount}.`,
+          `redemption, spend, or exchange, leaving ${spendable} spendable — cannot move ${input.amount}.`,
       );
     }
   }

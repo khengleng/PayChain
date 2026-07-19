@@ -6,9 +6,15 @@ import { EscrowService } from './escrow.service';
  * Between escrow and burn the holder could transfer the tokens away — and because §0.8 sequences
  * payout BEFORE burn, a redeem-then-transfer would have taken the fiat AND kept the tokens.
  */
-function build(opts: { redemptions?: { amount: string }[]; spends?: { amount: string }[]; balance?: string } = {}) {
+function build(opts: {
+  redemptions?: { amount: string }[];
+  spends?: { amount: string }[];
+  exchanges?: { fromAmount: string }[];
+  balance?: string;
+} = {}) {
   const where: Record<string, any>[] = [];
   const spendWhere: Record<string, any>[] = [];
+  const exchangeWhere: Record<string, any>[] = [];
   const prisma = {
     stablecoinRedemption: {
       findMany: async (args: { where: Record<string, any> }) => {
@@ -22,11 +28,17 @@ function build(opts: { redemptions?: { amount: string }[]; spends?: { amount: st
         return opts.spends ?? [];
       },
     },
+    stablecoinExchange: {
+      findMany: async (args: { where: Record<string, any> }) => {
+        exchangeWhere.push(args.where);
+        return opts.exchanges ?? [];
+      },
+    },
     balanceReadModel: {
       findFirst: async () => (opts.balance ? { balance: opts.balance } : null),
     },
   } as never;
-  return { svc: new EscrowService(prisma), where, spendWhere };
+  return { svc: new EscrowService(prisma), where, spendWhere, exchangeWhere };
 }
 
 const spend = (amount: string) => ({
@@ -87,6 +99,22 @@ describe('EscrowService — escrowed tokens are not spendable (§25)', () => {
     // REQUESTED/BURN_PENDING: tokens earmarked but still on-chain. BURN_CONFIRMED/COMPLETED: gone.
     // FAILED/MANUAL_REVIEW: claim released.
     expect(spendWhere[0]!.status).toEqual({ in: ['REQUESTED', 'BURN_PENDING'] });
+  });
+
+  it('THE THIRD DOUBLE-SPEND: refuses source coins committed to an in-flight cross-peg exchange', async () => {
+    // 100 held, 80 committed as the SOURCE leg of a swap → only 20 spendable elsewhere.
+    const { svc } = build({ exchanges: [{ fromAmount: '80' }], balance: '100' });
+    await expect(svc.assertSpendable(spend('30'))).rejects.toThrow(/20 spendable/);
+    await expect(svc.assertSpendable(spend('20'))).resolves.toBeUndefined();
+  });
+
+  it('locks the exchange source leg by fromAssetId, only while committed but unburned', async () => {
+    const { svc, exchangeWhere } = build({ balance: '100' });
+    await svc.escrowedAmount('w1', 'a1');
+    // Escrowed against the coin LEAVING (fromAssetId), from CONFIRMED through SOURCE_BURN_PENDING.
+    // SOURCE_BURNED: gone. COMPENSATED/FAILED: released.
+    expect(exchangeWhere[0]).toMatchObject({ walletId: 'w1', fromAssetId: 'a1' });
+    expect(exchangeWhere[0]!.status).toEqual({ in: ['CONFIRMED', 'SOURCE_BURN_PENDING'] });
   });
 
   it('is fixed-point at the boundary', async () => {

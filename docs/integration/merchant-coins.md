@@ -42,3 +42,26 @@ cash-out with KYC/compliance/bank payout); a spend has **no fiat leg**.
   is over-covered, and the merchant withdraws the freed amount through the existing **maker-checker reserve
   DEBIT** (`POST /reserve/movements` + a *different* principal's `/approve`) — every reserve outflow keeps
   its second-person approval.
+
+## Cross-peg exchange (swap one coin for another)
+A holder can swap one reserve-backed coin for another with a different peg/unit value (e.g. a KHR coin
+`unitValue "100"` → a USD coin `unitValue "0.01"`). It is a **same-holder swap**: burn the source from the
+wallet, mint the destination to the same wallet. Scope **`stablecoin.exchange`**, flag `stablecoin.exchange.enabled`.
+
+- **Pricing:** `POST /api/v1/exchanges/quote` (idempotency-keyed). Body `{ fromAssetId, toAssetId, walletId,
+  fromAmount, fxRate?, spread?, fee? }`. `fxRate` is the **source-currency → destination-currency** rate
+  (default `"1"` for a same-currency rebasing). PayChain applies each coin's `unitValue`:
+  `toAmount = fromAmount × unitValue_from × fxRate × (1 − spread) / unitValue_to − fee`. The rate is
+  caller-supplied — a wrong rate mis-*prices* the swap but can never over-issue the destination, because the
+  mint is reserve-gated (below).
+- **Saga:** `POST /exchanges/:id/confirm` (checks the source is spendable + escrows it), then
+  `POST /exchanges/:id/advance` drives `CONFIRMED → SOURCE_BURN_PENDING → SOURCE_BURNED → DEST_MINT_PENDING →
+  COMPLETED`. If the mint leg fails after the burn, it enters `COMPENSATING` and re-issues the source so the
+  holder is never left short. `GET /exchanges/:id` reads state.
+- **Solvency:** the source burn reduces the **source** coin's supply (getState subtracts confirmed exchanges by
+  `fromAssetId`), freeing its reserve. The destination mint calls the same `assertMintAllowed` gate as every
+  mint — **it only succeeds if the destination coin is already funded** (its own fresh reserve covers the new
+  supply). A CONFIRMED `StablecoinMintRequest` is written so the minted supply is visible.
+- **No cross-currency reserve move:** the two coins keep separate, currency-incompatible reserves. The freed
+  source reserve is converted/rebalanced into the destination's reserve **separately**, via the maker-checker
+  reserve DEBIT + treasury record — never automatically inside the swap.

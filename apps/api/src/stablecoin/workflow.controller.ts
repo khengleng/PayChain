@@ -9,6 +9,7 @@ import { requireIdempotencyKey } from '../common/idempotency-key';
 import { MintService } from './mint.service';
 import { RedemptionService } from './redemption.service';
 import { SpendService } from './spend.service';
+import { ExchangeService } from './exchange.service';
 import { ConversionService } from './conversion.service';
 import { ReserveService } from './reserve.service';
 import { ReserveVerificationService } from '../sandbox/reserve-verification.service';
@@ -21,6 +22,7 @@ import {
   MonitoringEvaluateDto,
   RedemptionRequestDto,
   SpendRequestDto,
+  ExchangeQuoteDto,
   ExecuteTreasuryDto,
   PublishAttestationDto,
   RejectMovementDto,
@@ -40,6 +42,7 @@ export class StablecoinWorkflowController {
     private readonly mint: MintService,
     private readonly redemption: RedemptionService,
     private readonly spend: SpendService,
+    private readonly exchange: ExchangeService,
     private readonly conversion: ConversionService,
     private readonly reserve: ReserveService,
     private readonly verification: ReserveVerificationService,
@@ -174,6 +177,40 @@ export class StablecoinWorkflowController {
   @RequireScopes('stablecoin.read')
   getConversion(@CurrentAuth() auth: AuthContext, @Param('conversionId') cid: string) {
     return this.conversion.get(auth.tenantId, cid);
+  }
+
+  // --- cross-peg exchange ---
+  // Same-holder swap of one reserve-backed coin for another: burn the source (freeing its reserve),
+  // mint the destination (gated by the destination's own reserve). No cross-currency reserve move.
+  @Post('exchanges/quote')
+  @RequireScopes('stablecoin.exchange')
+  quoteExchange(
+    @CurrentAuth() auth: AuthContext,
+    @CorrelationId() corr: string,
+    @Body() dto: ExchangeQuoteDto,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.idempotency.run(auth.tenantId, requireIdempotencyKey(key), dto, () =>
+      this.exchange.quote(auth, dto, corr),
+    );
+  }
+
+  @Post('exchanges/:exchangeId/confirm')
+  @RequireScopes('stablecoin.exchange')
+  confirmExchange(@CurrentAuth() auth: AuthContext, @Param('exchangeId') eid: string) {
+    return this.exchange.confirm(auth, eid);
+  }
+
+  @Post('exchanges/:exchangeId/advance')
+  @RequireScopes('stablecoin.exchange')
+  advanceExchange(@CurrentAuth() auth: AuthContext, @Param('exchangeId') eid: string) {
+    return this.exchange.advance(auth.tenantId, eid);
+  }
+
+  @Get('exchanges/:exchangeId')
+  @RequireScopes('stablecoin.read')
+  getExchange(@CurrentAuth() auth: AuthContext, @Param('exchangeId') eid: string) {
+    return this.exchange.get(auth.tenantId, eid);
   }
 
   // --- reserve (§23) ---
