@@ -17,12 +17,23 @@ function splitOrigins(value: string): string[] {
  * Two constraints fail closed here rather than being enforced elsewhere, because config is the
  * one place they cannot be bypassed:
  *
- * - STELLAR_NETWORK (README §0.2 / §0.7): constrained to non-mainnet values. Mainnet
- *   stablecoin/production writes are gated and intentionally cannot be selected from
- *   configuration alone at this milestone.
+ * - STELLAR_NETWORK: 'mainnet' is now an admissible value so the platform can be mainnet-AWARE
+ *   (health, stellar.toml, identity), but it stays FAIL-CLOSED — a mainnet node refuses to boot
+ *   with the in-process dev signer (KEY_MANAGEMENT_PROVIDER='local-dev'). Real mainnet issuance
+ *   requires the external HSM/KMS signer (the key_management gate), which is not yet available.
  * - KEY_MANAGEMENT_PROVIDER (README §0.6, §11): only 'local-dev' is implemented; kms/hsm/mpc
  *   are rejected so the enum cannot imply custody guarantees the code does not provide.
+ * - The network passphrase must match the selected network (a testnet build pointed at the mainnet
+ *   passphrase, or vice versa, would sign against the wrong network). A working deployment already
+ *   satisfies this — a wrong passphrase fails every signature — so enforcing it only catches misconfig.
  */
+
+/** The canonical SEP-standard network passphrase for each Stellar network. */
+export const STELLAR_PASSPHRASES: Record<'testnet' | 'futurenet' | 'mainnet', string> = {
+  testnet: 'Test SDF Network ; September 2015',
+  futurenet: 'Test SDF Future Network ; October 2022',
+  mainnet: 'Public Global Stellar Network ; September 2015',
+};
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_PORT: z.coerce.number().int().positive().default(3000),
@@ -48,8 +59,9 @@ const envSchema = z.object({
    */
   RESERVE_MAX_STALENESS_HOURS: z.coerce.number().positive().default(24),
 
-  // M0 supports testnet + futurenet only. Mainnet is deliberately excluded here.
-  STELLAR_NETWORK: z.enum(['testnet', 'futurenet']).default('testnet'),
+  // 'mainnet' is admissible but fail-closed (see superRefine + header): a mainnet node refuses to
+  // boot with the in-process dev signer. testnet/futurenet behave exactly as before.
+  STELLAR_NETWORK: z.enum(['testnet', 'futurenet', 'mainnet']).default('testnet'),
   STELLAR_RPC_PRIMARY_URL: z.string().url(),
   STELLAR_RPC_SECONDARY_URL: z.string().url().optional().or(z.literal('')),
   STELLAR_HORIZON_URL: z.string().url(),
@@ -58,6 +70,21 @@ const envSchema = z.object({
 
   STELLAR_SPONSOR_PUBLIC_KEY: z.string().optional().or(z.literal('')),
   STELLAR_SPONSOR_SECRET_KEY: z.string().optional().or(z.literal('')),
+
+  // Public identity of the platform's on-chain accounts (used by GET /stellar/health and the
+  // published stellar.toml). Public keys only — never secrets. Optional so non-mainnet dev is
+  // unaffected; health simply reports the corresponding account as unconfigured when unset.
+  STELLAR_ISSUER_PUBLIC_KEY: z.string().optional().or(z.literal('')),
+  STELLAR_DISTRIBUTION_PUBLIC_KEY: z.string().optional().or(z.literal('')),
+  STELLAR_FEE_ACCOUNT_PUBLIC_KEY: z.string().optional().or(z.literal('')),
+  // The platform asset code advertised in stellar.toml (e.g. PAYC).
+  STELLAR_ASSET_CODE: z.string().default('PAYC'),
+  // Only assert fiat backing / anchoring in stellar.toml once the legal + trustee model is formally
+  // approved. Default false: the TOML omits any is_asset_anchored/anchor claim until this is 'true'.
+  STELLAR_ASSET_ANCHORED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true'),
 
   // Only 'local-dev' is implemented; the other values are rejected at boot (see refine below).
   KEY_MANAGEMENT_PROVIDER: z.enum(['local-dev', 'kms', 'hsm', 'mpc']).default('local-dev'),
@@ -172,6 +199,34 @@ const envSchema = z.object({
         `'${cfg.KEY_MANAGEMENT_PROVIDER}' is not implemented — no KMS/HSM/MPC signer exists yet, ` +
         `so this would silently fall back to dev-grade encrypted keys. Only 'local-dev' is ` +
         `supported until the key_management readiness gate (§0.6) passes.`,
+    });
+  }
+
+  // The network passphrase must match the selected network — signing against the wrong network is
+  // a silent, catastrophic misconfiguration. A working deployment already satisfies this.
+  const expectedPassphrase = STELLAR_PASSPHRASES[cfg.STELLAR_NETWORK];
+  if (expectedPassphrase && cfg.STELLAR_NETWORK_PASSPHRASE !== expectedPassphrase) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['STELLAR_NETWORK_PASSPHRASE'],
+      message:
+        `does not match STELLAR_NETWORK='${cfg.STELLAR_NETWORK}'. Expected "${expectedPassphrase}". ` +
+        `A passphrase from a different network would sign transactions against the wrong ledger.`,
+    });
+  }
+
+  // Mainnet is admitted so the platform can be mainnet-aware, but real value must never be signed by
+  // the in-process dev key. Fail closed until the external signer (key_management gate) lands. The
+  // rule above already rejects non-'local-dev', so today mainnet is unbootable either way; this makes
+  // the reason explicit rather than surfacing only the generic key_management error.
+  if (cfg.STELLAR_NETWORK === 'mainnet' && cfg.KEY_MANAGEMENT_PROVIDER === 'local-dev') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['STELLAR_NETWORK'],
+      message:
+        'mainnet requires an external HSM/KMS signer (KEY_MANAGEMENT_PROVIDER must not be ' +
+        "'local-dev'): the in-process dev key must never sign mainnet value. Blocked until the " +
+        'external signer seam lands.',
     });
   }
 });

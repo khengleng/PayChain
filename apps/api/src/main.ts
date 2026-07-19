@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
@@ -35,8 +35,11 @@ async function bootstrap(): Promise<void> {
     },
   });
 
-  // All routes are versioned under /api/v1 (§33).
-  app.setGlobalPrefix('api/v1');
+  // All routes are versioned under /api/v1 (§33), EXCEPT the SEP-1 stellar.toml, which wallets
+  // fetch from the domain root at /.well-known/stellar.toml.
+  app.setGlobalPrefix('api/v1', {
+    exclude: [{ path: '.well-known/stellar.toml', method: RequestMethod.GET }],
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

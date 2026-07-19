@@ -23,6 +23,8 @@ const NAV: Array<{ label: string; href: string; perm?: string }> = [
   { label: 'Reserve', href: '/reserve', perm: 'reserve:read' },
   { label: 'Treasury', href: '/treasury', perm: 'treasury:read' },
   { label: 'Trustee', href: '/trustee', perm: 'trustee:read' },
+  // No perm: on-chain network health is read-only infra status every admin can see.
+  { label: 'Stellar', href: '/stellar' },
   { label: 'Compliance', href: '/compliance', perm: 'compliance:read' },
   { label: 'Reconciliation', href: '/reconciliation', perm: 'reconciliation:read' },
   { label: 'Feature Flags', href: '/feature-flags', perm: 'flags:read' },
