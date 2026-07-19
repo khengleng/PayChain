@@ -136,8 +136,13 @@ export class TrusteeService {
   private async verifyInnerArtifact(type: string, event: unknown): Promise<unknown | null> {
     const purpose = purposeForEvent(type);
     if (!purpose) return null;
+    // Tolerant by design: an artifact-bearing event that arrives WITHOUT an inner artifact is
+    // accepted on the envelope signature alone and recorded, but not acted on (a mint stays blocked
+    // until a signed authorization lands). This lets the trustee add inner signing incrementally
+    // without a flag-day, and guarantees this change never regresses today's succeeding deliveries.
+    // A PRESENT artifact is still fully verified below — a forged/invalid one is rejected (401).
     if (!isSignedArtifactEvent(event)) {
-      throw new BadRequestException(`Event ${type} is missing its signed artifact`);
+      return null;
     }
     const signed = event as TrusteeSignedEvent;
     const key = await this.keys.getKey(purpose, signed.signature.keyId);
@@ -162,18 +167,20 @@ export class TrusteeService {
     event: unknown,
     ctx: { deliveryId: string; correlationId: string },
   ): Promise<void> {
-    switch (type) {
-      case TrusteeEventType.MINT_AUTHORIZATION_APPROVED:
+    // Only act when a verified inner artifact is present. When it is absent (informational events,
+    // or an authorization/snapshot the trustee has not yet inner-signed) we record an envelope-only
+    // receipt — no regression to today's behavior. A forged artifact never reaches here (401 above).
+    if (artifact) {
+      if (type === TrusteeEventType.MINT_AUTHORIZATION_APPROVED) {
         await this.recordMintAuthorization(artifact as MintAuthorizationArtifact, event, ctx);
         return;
-      case TrusteeEventType.RESERVE_SNAPSHOT_CREATED:
+      }
+      if (type === TrusteeEventType.RESERVE_SNAPSHOT_CREATED) {
         await this.recordReserveSnapshot(artifact as ReserveSnapshotArtifact, event, ctx);
         return;
-      default:
-        // Envelope-verified informational events (mint.confirmed, deposit.*, attestation.*): the
-        // authenticity is established; we record receipt and leave acting-on-it to later phases.
-        await this.recordReceipt(type, ctx, {});
+      }
     }
+    await this.recordReceipt(type, ctx, {});
   }
 
   private async recordMintAuthorization(

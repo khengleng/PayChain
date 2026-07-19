@@ -160,10 +160,13 @@ describe('TrusteeService', () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
-  it('400 when an artifact-bearing event is missing its signed artifact', async () => {
-    const { svc } = build();
+  it('tolerant: an artifact-bearing event with NO inner artifact is accepted envelope-only, not acted on', async () => {
+    const { svc, upsert, record } = build();
     const body = JSON.stringify({ type: 'mint.authorization.approved' }); // no artifact/signature
-    await expect(svc.ingest(baseInput(body))).rejects.toBeInstanceOf(BadRequestException);
+    const ack = await svc.ingest(baseInput(body));
+    expect(ack.eventType).toBe('mint.authorization.approved');
+    expect(upsert).not.toHaveBeenCalled(); // no signed artifact → no authorization recorded
+    expect(record).toHaveBeenCalled(); // but the receipt is recorded (no regression)
   });
 
   it('verifies + records a trustee reserve snapshot', async () => {

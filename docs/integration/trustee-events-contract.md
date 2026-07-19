@@ -93,9 +93,9 @@ becomes the corroborating reserve source.
 | Condition | PayChain response |
 | --- | --- |
 | Valid envelope + valid inner artifact | `200`, event acted on + recorded |
-| Missing `artifact`/`signature` on an artifact-bearing event | `400` |
-| Inner `signature.keyId` not in the JWKS (after one refresh) | `401` |
-| Inner signature does not verify | `401`, nothing recorded |
+| Valid envelope, **no** inner `artifact`/`signature` present | `200`, recorded as an **envelope-only receipt but NOT acted on** (a mint stays blocked until a signed authorization arrives). Tolerant by design — the trustee can add inner signing incrementally without a flag-day. |
+| Inner artifact **present** but `signature.keyId` not in the JWKS (after one refresh) | `401` |
+| Inner artifact **present** but signature does not verify | `401`, nothing recorded |
 | Envelope failures (bad sig, stale ts, unknown webhook key) | as in `API-CONTRACT.md` |
 
 All failures are fail-closed: a rejected event is neither recorded nor acted on, and the trustee's
