@@ -1,7 +1,19 @@
+import type { Horizon } from '@stellar/stellar-sdk';
 import type { Lock, NetworkName } from '@paychain/blockchain';
+import type { TransactionSigner } from './signer';
 
 export interface StellarProviderConfig {
   network: NetworkName;
+
+  /**
+   * The signing seam (§0.6, §11). When omitted, StellarProvider defaults to the in-process
+   * LocalDevSigner (dev/testnet behaviour). A mainnet deployment MUST pass an external HSM/KMS
+   * signer here — the private key never enters application memory.
+   */
+  signer?: TransactionSigner;
+
+  /** Test-only: inject a pre-built Horizon server. Production builds one from `horizonUrl`. */
+  server?: Horizon.Server;
 
   /**
    * Serializes submissions per source account (§12).

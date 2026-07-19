@@ -4,7 +4,7 @@ import {
   type NamedProvider,
 } from '@paychain/blockchain';
 import type { PayChainConfig } from '@paychain/config';
-import { StellarProvider } from '@paychain/stellar';
+import { StellarProvider, selectSigner } from '@paychain/stellar';
 
 /**
  * Builds the provider-agnostic blockchain client for the worker (§9), wrapped in failover
@@ -12,12 +12,16 @@ import { StellarProvider } from '@paychain/stellar';
  * hanging background jobs.
  */
 export function createChainProvider(cfg: PayChainConfig): BlockchainProvider {
+  // Every signature goes through this seam. local-dev signs in-process; a real signer is required
+  // (and config-enforced) before mainnet. Chosen once and shared by both provider instances.
+  const signer = selectSigner(cfg.KEY_MANAGEMENT_PROVIDER);
   const makeStellar = (horizonUrl: string) =>
     new StellarProvider({
       network: cfg.STELLAR_NETWORK,
       horizonUrl,
       networkPassphrase: cfg.STELLAR_NETWORK_PASSPHRASE,
       friendbotUrl: cfg.STELLAR_FRIENDBOT_URL || undefined,
+      signer,
     });
 
   const providers: NamedProvider[] = [

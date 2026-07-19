@@ -7,7 +7,7 @@ import {
   type NamedProvider,
 } from '@paychain/blockchain';
 import type { PayChainConfig } from '@paychain/config';
-import { StellarProvider } from '@paychain/stellar';
+import { StellarProvider, selectSigner } from '@paychain/stellar';
 import { CONFIG } from '../config/config.module';
 
 export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
@@ -33,6 +33,9 @@ export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
         // and a connection per Horizon endpoint would double it for no benefit.
         const redis = new IORedis(cfg.REDIS_URL, { maxRetriesPerRequest: null });
         const lock = new RedisLock(redis as never);
+        // Every signature goes through this seam. local-dev signs in-process; a real HSM/KMS signer
+        // is required (and config-enforced) before mainnet. Chosen once, shared by both instances.
+        const signer = selectSigner(cfg.KEY_MANAGEMENT_PROVIDER);
 
         const makeStellar = (horizonUrl: string) =>
           new StellarProvider({
@@ -45,6 +48,7 @@ export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
             sponsorPublicKey: cfg.STELLAR_SPONSOR_PUBLIC_KEY || undefined,
             sponsorSecretKey: cfg.STELLAR_SPONSOR_SECRET_KEY || undefined,
             lock,
+            signer,
           });
 
         const providers: NamedProvider[] = [

@@ -36,6 +36,7 @@ import {
   type UnfreezeWalletInput,
 } from '@paychain/blockchain';
 import type { StellarProviderConfig } from './config';
+import { LocalDevSigner, type SignerRef, type TransactionSigner } from './signer';
 
 const TX_TIMEOUT_SECONDS = 60;
 
@@ -61,12 +62,28 @@ const FEE_BUMP_MULTIPLIER = 10;
 export class StellarProvider implements BlockchainProvider {
   private readonly server: Horizon.Server;
   private readonly sequencer?: SequenceCoordinator;
+  /** Every signature is produced here — never inline. Defaults to the in-process dev signer. */
+  private readonly signer: TransactionSigner;
 
   constructor(private readonly cfg: StellarProviderConfig) {
-    this.server = new Horizon.Server(cfg.horizonUrl, {
-      allowHttp: cfg.horizonUrl.startsWith('http://'),
-    });
+    this.server =
+      cfg.server ??
+      new Horizon.Server(cfg.horizonUrl, {
+        allowHttp: cfg.horizonUrl.startsWith('http://'),
+      });
     this.sequencer = cfg.lock ? new SequenceCoordinator(cfg.lock) : undefined;
+    this.signer = cfg.signer ?? new LocalDevSigner();
+  }
+
+  /** A signer reference from an in-process secret (dev/testnet). Validates + derives the public key. */
+  private refFromSecret(secretKey: string): SignerRef {
+    return { publicKey: Keypair.fromSecret(secretKey).publicKey(), secretKey };
+  }
+
+  /** The sponsor as a signer reference (for fee-bump signing), or undefined when unsponsored. */
+  private sponsorRef(): SignerRef | undefined {
+    const kp = this.sponsor();
+    return kp ? { publicKey: kp.publicKey(), secretKey: this.cfg.sponsorSecretKey } : undefined;
   }
 
   /**
@@ -132,7 +149,7 @@ export class StellarProvider implements BlockchainProvider {
         Operation.createAccount({ destination: keypair.publicKey(), startingBalance: '0' }),
         Operation.endSponsoringFutureReserves({ source: keypair.publicKey() }),
       ]);
-      await this.submit(tx, [sponsor, keypair]);
+      await this.submit(tx, [this.sponsorRef()!, { publicKey: keypair.publicKey(), secretKey: keypair.secret() }]);
     });
   }
 
@@ -168,7 +185,6 @@ export class StellarProvider implements BlockchainProvider {
    */
   async establishTrustline(input: TrustlineInput): Promise<TrustlineResult> {
     const asset = new Asset(input.assetCode, input.issuerPublicKey);
-    const accountKeypair = Keypair.fromSecret(input.accountSecretKey);
     const sponsor = this.sponsor();
 
     if (sponsor) {
@@ -180,7 +196,7 @@ export class StellarProvider implements BlockchainProvider {
           Operation.changeTrust({ asset, source: input.accountPublicKey }),
           Operation.endSponsoringFutureReserves({ source: input.accountPublicKey }),
         ]);
-        return this.submit(tx, [sponsor, accountKeypair]);
+        return this.submit(tx, [this.sponsorRef()!, this.refFromSecret(input.accountSecretKey)]);
       });
       return { transactionHash: result.transactionHash };
     }
@@ -188,7 +204,7 @@ export class StellarProvider implements BlockchainProvider {
     const result = await this.onSource(input.accountPublicKey, async () => {
       const account = await this.loadAccount(input.accountPublicKey);
       const tx = this.buildTx(account, [Operation.changeTrust({ asset })]);
-      return this.submit(tx, [accountKeypair]);
+      return this.submit(tx, [this.refFromSecret(input.accountSecretKey)]);
     });
     return { transactionHash: result.transactionHash };
   }
@@ -206,7 +222,7 @@ export class StellarProvider implements BlockchainProvider {
           amount: input.amount,
         }),
       ]);
-      return this.submit(tx, [Keypair.fromSecret(input.issuerSecretKey)]);
+      return this.submit(tx, [this.refFromSecret(input.issuerSecretKey)]);
     });
   }
 
@@ -221,7 +237,7 @@ export class StellarProvider implements BlockchainProvider {
           amount: input.amount,
         }),
       ]);
-      return this.submit(tx, [Keypair.fromSecret(input.sourceSecretKey)]);
+      return this.submit(tx, [this.refFromSecret(input.sourceSecretKey)]);
     });
   }
 
@@ -237,7 +253,7 @@ export class StellarProvider implements BlockchainProvider {
           amount: input.amount,
         }),
       ]);
-      return this.submit(tx, [Keypair.fromSecret(input.sourceSecretKey)]);
+      return this.submit(tx, [this.refFromSecret(input.sourceSecretKey)]);
     });
   }
 
@@ -253,7 +269,7 @@ export class StellarProvider implements BlockchainProvider {
           amount: input.amount,
         }),
       ]);
-      return this.submit(tx, [Keypair.fromSecret(input.holderSecretKey)]);
+      return this.submit(tx, [this.refFromSecret(input.holderSecretKey)]);
     });
   }
 
@@ -348,7 +364,7 @@ export class StellarProvider implements BlockchainProvider {
           flags: { authorized },
         }),
       ]);
-      return this.submit(tx, [Keypair.fromSecret(input.issuerSecretKey)]);
+      return this.submit(tx, [this.refFromSecret(input.issuerSecretKey)]);
     });
   }
 
@@ -372,14 +388,35 @@ export class StellarProvider implements BlockchainProvider {
    * The inner transaction is signed first by its own signers; the fee-bump envelope is then
    * signed by the sponsor. The inner signatures stay valid — a fee bump wraps, it does not alter.
    */
-  private async submit(tx: Transaction, signers: Keypair[]): Promise<BlockchainTransactionResult> {
-    for (const s of signers) tx.sign(s);
+  private async submit(tx: Transaction, signers: SignerRef[]): Promise<BlockchainTransactionResult> {
+    // Sign via the seam, never inline: hand the unsigned XDR to the signer and rebuild from the
+    // signed XDR it returns (signatures live in the envelope, so the round-trip preserves them).
+    const signedInnerXdr = await this.signer.sign({
+      xdr: tx.toXDR(),
+      networkPassphrase: this.cfg.networkPassphrase,
+      signers,
+    });
+    const signedInner = TransactionBuilder.fromXDR(signedInnerXdr, this.cfg.networkPassphrase) as Transaction;
 
-    const sponsor = this.sponsor();
-    const envelope =
-      sponsor && tx.source !== sponsor.publicKey()
-        ? this.feeBump(tx, sponsor)
-        : tx;
+    // Fee-bump: the sponsor pays the fee for any transaction it did not originate (CAP-15). The
+    // FEE_BUMP_MULTIPLIER headroom over BASE_FEE absorbs a rise in the network minimum. The envelope
+    // is built here but signed through the SAME seam — the sponsor key is never applied inline.
+    const sponsorKp = this.sponsor();
+    let envelope: Transaction | FeeBumpTransaction = signedInner;
+    if (sponsorKp && signedInner.source !== sponsorKp.publicKey()) {
+      const bump = TransactionBuilder.buildFeeBumpTransaction(
+        sponsorKp.publicKey(),
+        String(Number(BASE_FEE) * FEE_BUMP_MULTIPLIER),
+        signedInner,
+        this.cfg.networkPassphrase,
+      );
+      const signedBumpXdr = await this.signer.sign({
+        xdr: bump.toXDR(),
+        networkPassphrase: this.cfg.networkPassphrase,
+        signers: [this.sponsorRef()!],
+      });
+      envelope = TransactionBuilder.fromXDR(signedBumpXdr, this.cfg.networkPassphrase) as FeeBumpTransaction;
+    }
 
     try {
       const res = await this.server.submitTransaction(envelope);
@@ -388,25 +425,6 @@ export class StellarProvider implements BlockchainProvider {
     } catch (err) {
       throw this.wrap(err, 'SUBMIT_FAILED', this.isRetryable(err));
     }
-  }
-
-  /**
-   * Wraps an already-signed transaction so the sponsor pays its fee (CAP-15).
-   *
-   * FEE_BUMP_MULTIPLIER gives headroom over the inner fee: a fee bump must bid at least the inner
-   * transaction's per-operation fee, and bidding exactly equal leaves no margin when the network
-   * raises its minimum under load — the bump would be rejected and the customer's transaction
-   * would fail for a reason they cannot fix or even see.
-   */
-  private feeBump(tx: Transaction, sponsor: Keypair): FeeBumpTransaction {
-    const bumped = TransactionBuilder.buildFeeBumpTransaction(
-      sponsor,
-      String(Number(BASE_FEE) * FEE_BUMP_MULTIPLIER),
-      tx,
-      this.cfg.networkPassphrase,
-    );
-    bumped.sign(sponsor);
-    return bumped;
   }
 
   private async loadAccount(publicKey: string): Promise<Horizon.AccountResponse> {
