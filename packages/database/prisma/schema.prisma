@@ -668,6 +668,14 @@ model StablecoinConfig {
   assetId                     String              @unique
   classification              AssetClassification
   referenceCurrency           String
+  // Value of ONE coin unit in referenceCurrency (e.g. "0.01" = 1 coin is $0.01, "100" = 100 KHR).
+  // Backing requirement = outstandingSupply × unitValue × reserveRatioTarget (§23). Default "1"
+  // means 1 coin = 1 currency unit — the behaviour every existing coin already has.
+  unitValue                   String              @default("1")
+  // Optional consumer-facing brand (e.g. "points") and the merchant this coin belongs to. Clearing
+  // brandLabel + enabling redemption/transfer is the "un-brand to a real stablecoin" path.
+  brandLabel                  String?
+  merchantReference           String?
   lifecycleState              StablecoinLifecycle @default(DRAFT)
   reserveModel                String?
   reserveAccountReference     String?
