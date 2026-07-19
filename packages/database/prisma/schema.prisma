@@ -274,6 +274,23 @@ enum SpendStatus {
   MANUAL_REVIEW
 }
 
+// Cross-peg exchange saga states. A same-holder swap of one reserve-backed coin for another:
+// burn the source (freeing its reserve), then mint the destination (gated by the destination's own
+// reserve). Like ConversionStatus but the SOURCE is itself reserve-backed, so its burn reduces the
+// source coin's tracked supply (getState subtracts SOURCE_BURNED/DEST_MINT_PENDING/COMPLETED). If
+// the mint leg fails after the burn, COMPENSATING re-issues the source so the holder is never short.
+enum ExchangeStatus {
+  QUOTED
+  CONFIRMED
+  SOURCE_BURN_PENDING
+  SOURCE_BURNED
+  DEST_MINT_PENDING
+  COMPLETED
+  FAILED
+  COMPENSATING
+  COMPENSATED
+}
+
 enum TreasuryMovementStatus {
   PENDING_APPROVAL
   APPROVED
@@ -1036,6 +1053,42 @@ model StablecoinSpend {
   @@index([walletId, assetId])
   @@index([status])
   @@map("stablecoin_spends")
+}
+
+// Cross-peg exchange saga. A same-holder swap: burn `fromAmount` of the source coin, mint `toAmount`
+// of the destination coin to the same wallet. `toAmount` is computed at quote time from each coin's
+// unitValue and a caller-supplied `fxRate` (source currency → destination currency). The source is
+// reserve-backed, so its burn reduces the source coin's tracked supply (getState subtracts confirmed
+// exchanges by fromAssetId); the destination mint is gated by the destination's own reserve. No reserve
+// is moved across currencies — the freed source reserve is rebalanced separately via maker-checker.
+model StablecoinExchange {
+  id             String         @id @default(uuid())
+  tenantId       String
+  fromAssetId    String
+  toAssetId      String
+  walletId       String
+  fromAmount     String
+  toAmount       String
+  // Source currency → destination currency. "1" for a same-currency (unit-value-only) rebasing.
+  fxRate         String
+  spread         String         @default("0")
+  fee            String         @default("0")
+  status         ExchangeStatus @default(QUOTED)
+  quoteExpiresAt DateTime
+  sourceBurnHash String?
+  // The destination StablecoinMintRequest, written CONFIRMED so the minted supply is visible.
+  mintRequestId  String?
+  failureReason  String?
+  correlationId  String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([tenantId])
+  // getState subtracts confirmed source-burns per source coin; escrow locks in-flight source legs.
+  @@index([fromAssetId, status])
+  @@index([walletId, fromAssetId])
+  @@index([status])
+  @@map("stablecoin_exchanges")
 }
 
 // Treasury movement with maker-checker (§30). The same user may not create AND approve.

@@ -9,6 +9,10 @@ export const STABLECOIN_FLAGS = [
   'stablecoin.redemption.enabled',
   'stablecoin.transfer.enabled',
   'stablecoin.conversion.enabled',
+  // Cross-peg exchange: swap one reserve-backed coin for another (different peg/unit value) at a
+  // caller-supplied FX rate. Burns the source coin (freeing its reserve) and mints the destination
+  // (gated by the destination's OWN reserve). Default OFF like every value-moving capability.
+  'stablecoin.exchange.enabled',
   'stablecoin.mainnet.enabled',
   'stablecoin.public-wallets.enabled',
   'stablecoin.cross-border.enabled',

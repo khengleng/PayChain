@@ -56,6 +56,7 @@ function fakePrisma(accountBalance = '1000') {
     stablecoinMintRequest: { findMany: async () => [] },
     stablecoinRedemption: { findMany: async () => [] },
     stablecoinSpend: { findMany: async () => [] },
+    stablecoinExchange: { findMany: async () => [] },
     reserveSnapshot: {
       create: async ({ data }: { data: Record<string, unknown> }) => ({ id: 'snap1', ...data }),
       findFirst: async () => null,
@@ -286,6 +287,7 @@ describe('§23 liabilities — figures that were declared and never computed', (
     minted?: Array<{ amount: string; status: string }>;
     redemptions?: Array<{ amount: string; status: string }>;
     spends?: Array<{ amount: string; status: string }>;
+    exchanges?: Array<{ fromAmount: string; status: string }>;
   }) =>
     ({
       reserveAccount: {
@@ -303,6 +305,10 @@ describe('§23 liabilities — figures that were declared and never computed', (
       stablecoinSpend: {
         findMany: async ({ where }: any) =>
           (opts.spends ?? []).filter((s) => where.status.in.includes(s.status)),
+      },
+      stablecoinExchange: {
+        findMany: async ({ where }: any) =>
+          (opts.exchanges ?? []).filter((x) => where.status.in.includes(x.status)),
       },
     }) as never;
 
@@ -340,6 +346,27 @@ describe('§23 liabilities — figures that were declared and never computed', (
     expect(state.outstandingSupply).toBe('650');
     expect(state.unredeemedLiability).toBe('650');
     expect(state.backingLiability).toBe('650'); // unitValue "1"
+  });
+
+  it('subtracts confirmed cross-peg exchange SOURCE burns from the source coin supply', async () => {
+    // 1000 minted; this coin is the SOURCE of exchanges totalling 300 burned. A burn still
+    // SOURCE_BURN_PENDING is excluded (tokens circulating); a COMPENSATED swap is excluded (source
+    // re-issued). So 100 + 150 + 50 = 300 subtracted → 700 outstanding.
+    const state = await svc(
+      prismaFor({
+        accounts: ['1000'],
+        minted: [{ amount: '1000', status: 'CONFIRMED' }],
+        exchanges: [
+          { fromAmount: '100', status: 'SOURCE_BURNED' },
+          { fromAmount: '150', status: 'DEST_MINT_PENDING' },
+          { fromAmount: '50', status: 'COMPLETED' },
+          { fromAmount: '999', status: 'SOURCE_BURN_PENDING' }, // not yet off-chain — excluded
+          { fromAmount: '777', status: 'COMPENSATED' }, // source re-issued — excluded
+        ],
+      }),
+    ).getState('t1', 'a1');
+    expect(state.outstandingSupply).toBe('700');
+    expect(state.backingLiability).toBe('700');
   });
 
   it('counts in-flight mints as pending mint liability, and excludes ones that will never land', async () => {
@@ -415,6 +442,7 @@ describe('ReserveService — trustee-authoritative reserve (§24)', () => {
       stablecoinMintRequest: { findMany: async () => [{ amount: '1000' }] }, // 1000 coins minted
       stablecoinRedemption: { findMany: async () => [] },
       stablecoinSpend: { findMany: async () => [] },
+      stablecoinExchange: { findMany: async () => [] },
     } as never;
     const flags = { isEnabled: jest.fn().mockResolvedValue(flagOn) } as never;
     return new ReserveService(prisma, { record: jest.fn() } as never, { RESERVE_MAX_STALENESS_HOURS: 24 } as never, flags);
@@ -446,6 +474,7 @@ describe('ReserveService — per-coin unit value backing (§23)', () => {
       stablecoinMintRequest: { findMany: async () => [{ amount: supplyCoins }] },
       stablecoinRedemption: { findMany: async () => [] },
       stablecoinSpend: { findMany: async () => [] },
+      stablecoinExchange: { findMany: async () => [] },
     } as never;
     // Authoritative-reserve flag OFF so the figure is the internal sum; unit-value is independent.
     const flags = { isEnabled: jest.fn().mockResolvedValue(false) } as never;

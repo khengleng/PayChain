@@ -421,7 +421,7 @@ export class ReserveService {
     );
     const unitValue = await this.unitValueFor(tenantId, assetId);
 
-    const [minted, redeemed, spent, pendingMints, pendingRedemptions] = await Promise.all([
+    const [minted, redeemed, spent, exchangedOut, pendingMints, pendingRedemptions] = await Promise.all([
       this.prisma.stablecoinMintRequest.findMany({
         where: { tenantId, assetId, status: { in: ['CONFIRMED', 'RECONCILED'] } },
         select: { amount: true },
@@ -442,6 +442,14 @@ export class ReserveService {
         where: { tenantId, assetId, status: { in: ['BURN_CONFIRMED', 'COMPLETED'] } },
         select: { amount: true },
       }),
+      // Cross-peg exchange burns the SOURCE coin — same rule. Counts once the source burn is
+      // confirmed (SOURCE_BURNED) through to COMPLETED. Excludes SOURCE_BURN_PENDING (still
+      // circulating) and COMPENSATING/COMPENSATED (the source coins were re-issued, so they exist
+      // again and must be counted as supply). Keyed on fromAssetId — this asset is the source.
+      this.prisma.stablecoinExchange.findMany({
+        where: { tenantId, fromAssetId: assetId, status: { in: ['SOURCE_BURNED', 'DEST_MINT_PENDING', 'COMPLETED'] } },
+        select: { fromAmount: true },
+      }),
       // §23 liabilities. These columns existed on ReserveSnapshot from the start and nothing
       // ever wrote them — they were declared, exposed in API responses, and always null. A
       // column that names a calculation nobody performs is the same failure as a status that
@@ -458,9 +466,14 @@ export class ReserveService {
     // Exact fixed-point supply; the ratio is an inherently-fractional DISPLAY value, but the
     // shortfall DECISION is made exactly — a float comparison here decides whether tokens are
     // backed, which is not a place for rounding.
-    // supply = confirmed mints − confirmed redemption burns − confirmed spend burns. Both burn
-    // paths remove tokens from circulation, so both subtract from the liability the reserve covers.
-    const burned = addAmounts(sumAmounts(redeemed.map((r) => r.amount)), sumAmounts(spent.map((s) => s.amount)));
+    // supply = confirmed mints − every confirmed burn (redemption cash-out, spend-for-goods, and
+    // cross-peg exchange of this coin as the SOURCE). Each removes tokens from circulation, so each
+    // subtracts from the liability the reserve covers.
+    const burned = sumAmounts([
+      sumAmounts(redeemed.map((r) => r.amount)),
+      sumAmounts(spent.map((s) => s.amount)),
+      sumAmounts(exchangedOut.map((x) => x.fromAmount)),
+    ]);
     const outstandingSupply = subAmounts(sumAmounts(minted.map((m) => m.amount)), burned);
     // The claim the reserve must answer, in the reference currency: supply × unitValue. With the
     // default unitValue "1" this equals supply, so every existing coin's math is unchanged.
