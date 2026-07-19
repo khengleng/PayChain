@@ -98,6 +98,15 @@ const envSchema = z.object({
   // The key identifier the trustee stamps on each delivery (e.g. X-Trustee-Key-Id: webhook-v1).
   // Deliveries whose key id does not match are rejected — this is the rotation hook.
   TRUSTEE_WEBHOOK_KEY_ID: z.string().default('webhook-v1'),
+  // The trustee's published JWKS of purpose-specific Ed25519 keys (WEBHOOK, MINT_AUTHORIZATION,
+  // RESERVE_SNAPSHOT, ATTESTATION, …). Used to verify inner signed artifacts inside events. When
+  // unreachable, WEBHOOK verification falls back to the pinned TRUSTEE_WEBHOOK_PUBLIC_KEY above.
+  TRUSTEE_JWKS_URL: z
+    .string()
+    .url()
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => v || 'https://api.trustee.cambobia.com/.well-known/trustee-signing-keys'),
 }).superRefine((cfg, ctx) => {
   // KEY_MANAGEMENT_PROVIDER advertises kms/hsm/mpc, but only the local-dev provider is built:
   // CryptoService wraps AES-256-GCM over KEY_ENCRYPTION_KEY and every signing path decrypts the

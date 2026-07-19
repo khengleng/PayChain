@@ -780,10 +780,42 @@ model ReserveSnapshot {
   pendingRedemptionLiability String?
   source                     String   @default("manual")
   snapshotHash               String?
+  // Populated only when source = 'trustee': the external trustee's signed corroboration of the
+  // reserve figure. trusteeSignature is the Ed25519 signature over the signed artifact, verified
+  // with the trustee's reserve_snapshot key at ingest time; these are evidence, never trusted blind.
+  trusteeKeyId               String?
+  trusteeSignature           String?
+  trusteeSnapshotId          String?
   takenAt                    DateTime @default(now())
 
   @@index([tenantId, assetId])
   @@map("reserve_snapshots")
+}
+
+// A mint authorization signed by the external trustee's mint_authorization key (§24). PayChain
+// records one per verified `mint.authorization.approved` event; when the trustee-authorization
+// feature flag is on, MintService requires a VALID, unexpired, matching row before it will mint,
+// and marks it CONSUMED once minted (single use). The signature/artifact are kept as evidence.
+model TrusteeMintAuthorization {
+  id                      String    @id @default(uuid())
+  tenantId                String
+  assetId                 String
+  // The PayChain StablecoinMintRequest.id this authorization is for — how a mint is matched.
+  reference               String
+  amount                  String
+  destination             String
+  authorizationId         String
+  keyId                   String
+  signature               String
+  artifact                String
+  status                  String    @default("VALID")
+  expiresAt               DateTime?
+  receivedAt              DateTime  @default(now())
+  consumedByMintRequestId String?
+
+  @@unique([tenantId, authorizationId])
+  @@index([tenantId, reference, status])
+  @@map("trustee_mint_authorizations")
 }
 
 // Proof-of-reserve attestation metadata (§24). Only public metadata + a document hash are

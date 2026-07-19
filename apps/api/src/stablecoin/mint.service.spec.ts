@@ -40,6 +40,10 @@ function statefulPrisma(initial: Record<string, unknown>) {
       create: jest.fn(),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    trusteeMintAuthorization: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockResolvedValue({}),
+    },
   };
 }
 
@@ -50,12 +54,15 @@ const deps = (
   compliance?: unknown,
   reserve?: unknown,
   walletPolicy?: unknown,
+  flags?: unknown,
 ) =>
   new MintService(
     prisma as never,
     { decrypt: () => 'ISSUER_SECRET' } as never,
     { record: jest.fn() } as never,
-    { requireEnabled: jest.fn() } as never,
+    // Trustee-authorization flag OFF by default so these tests exercise the saga, not the §24 gate
+    // (which has its own tests). requireEnabled is a no-op (minting enablement is asserted at request).
+    (flags ?? { requireEnabled: jest.fn(), isEnabled: jest.fn().mockResolvedValue(false) }) as never,
     (compliance ?? { screenTransaction: jest.fn().mockResolvedValue({ decision: 'CLEAR' }) }) as never,
     funding as never,
     chain as never,
@@ -211,5 +218,51 @@ describe('MintService — refuses to mint on stale reserve data (§23)', () => {
     expect(issueAsset).not.toHaveBeenCalled();
     // Checked BEFORE the ratio: an unverified number makes the ratio meaningless, not just wrong.
     expect(reserve.wouldBreachTarget).not.toHaveBeenCalled();
+  });
+});
+
+describe('MintService — trustee authorization gate (§24)', () => {
+  const APPROVED = { id: 'm1', tenantId: 't1', assetId: 'a1', amount: '100', status: 'APPROVED', reserveConfirmed: true, destinationWalletId: 'w1' };
+  const flagOn = () => ({ requireEnabled: jest.fn(), isEnabled: jest.fn().mockResolvedValue(true) });
+
+  it('flag OFF: mints without any trustee authorization (unchanged behavior)', async () => {
+    const prisma = statefulPrisma({ ...APPROVED });
+    const issueAsset = jest.fn().mockResolvedValue({ transactionHash: 'H' });
+    const svc = deps(prisma, { issueAsset, getTransaction: jest.fn() }, { confirmFunding: jest.fn() });
+    await svc.advance('t1', 'm1');
+    expect(issueAsset).toHaveBeenCalled();
+    expect(prisma.trusteeMintAuthorization.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('flag ON + no authorization: refuses to mint', async () => {
+    const prisma = statefulPrisma({ ...APPROVED });
+    prisma.trusteeMintAuthorization.findFirst = jest.fn().mockResolvedValue(null);
+    const issueAsset = jest.fn();
+    const svc = deps(prisma, { issueAsset }, { confirmFunding: jest.fn() }, undefined, undefined, undefined, flagOn());
+    await expect(svc.advance('t1', 'm1')).rejects.toThrow(/no valid trustee authorization/i);
+    expect(issueAsset).not.toHaveBeenCalled();
+  });
+
+  it('flag ON + expired authorization: refuses to mint', async () => {
+    const prisma = statefulPrisma({ ...APPROVED });
+    prisma.trusteeMintAuthorization.findFirst = jest.fn().mockResolvedValue({ id: 'auth1', expiresAt: new Date(Date.now() - 1000) });
+    const issueAsset = jest.fn();
+    const svc = deps(prisma, { issueAsset }, { confirmFunding: jest.fn() }, undefined, undefined, undefined, flagOn());
+    await expect(svc.advance('t1', 'm1')).rejects.toThrow(/no valid trustee authorization/i);
+    expect(issueAsset).not.toHaveBeenCalled();
+  });
+
+  it('flag ON + valid authorization: mints and consumes it (single use)', async () => {
+    const prisma = statefulPrisma({ ...APPROVED });
+    prisma.trusteeMintAuthorization.findFirst = jest.fn().mockResolvedValue({ id: 'auth1', expiresAt: null });
+    const consume = jest.fn().mockResolvedValue({});
+    prisma.trusteeMintAuthorization.update = consume;
+    const issueAsset = jest.fn().mockResolvedValue({ transactionHash: 'H' });
+    const svc = deps(prisma, { issueAsset, getTransaction: jest.fn() }, { confirmFunding: jest.fn() }, undefined, undefined, undefined, flagOn());
+    await svc.advance('t1', 'm1');
+    expect(issueAsset).toHaveBeenCalled();
+    expect(consume).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'auth1' }, data: expect.objectContaining({ status: 'CONSUMED', consumedByMintRequestId: 'm1' }) }),
+    );
   });
 });

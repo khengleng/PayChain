@@ -117,5 +117,8 @@ X-Trustee-Signature: 3q2+7w...==
 ## What PayChain does on receipt
 
 The receiver **verifies, dedups, and records** each event to the append-only audit trail (action
-`trustee.event.received`) and acks `200`. Acting on specific event types is a documented extension
-point in `TrusteeService.ingest`, keyed on the event type, without changing this wire contract.
+`trustee.event.received`) and acks `200`. Authorization/evidence events additionally carry an
+**inner signed artifact** (signed by a purpose-specific JWKS key) that PayChain verifies and acts on
+— e.g. gating a mint on a `mint.authorization.approved` and corroborating reserve from a
+`reserve.snapshot.created`. That inner contract is specified in
+[`trustee-events-contract.md`](./trustee-events-contract.md).
