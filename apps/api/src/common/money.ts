@@ -51,6 +51,16 @@ export function sumAmounts(amounts: string[]): string {
   return fromScaled(amounts.reduce((s, x) => s + toScaled(x), 0n));
 }
 
+/**
+ * Exact fixed-point product `a * b`. Each operand is scaled by SCALE, so the raw product is scaled
+ * by SCALE² — divide by SCALE once to return to SCALE precision. Integer division truncates any
+ * remainder below 7dp; both operands here (a coin supply and a unit value with ≤7dp) multiply
+ * exactly for realistic denominations. Used for backing = supply × unitValue (§23 solvency).
+ */
+export function mulAmounts(a: string, b: string): string {
+  return fromScaled((toScaled(a) * toScaled(b)) / SCALE);
+}
+
 /** -1 | 0 | 1 comparing two decimal amounts exactly (no float). */
 export function compareAmounts(a: string, b: string): number {
   const d = toScaled(a) - toScaled(b);

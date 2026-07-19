@@ -15,7 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import type { AuthContext } from '../auth/auth-context';
-import { addAmounts, assertValidAmount, compareAmounts, subAmounts, sumAmounts, toScaled } from '../common/money';
+import { addAmounts, assertValidAmount, compareAmounts, mulAmounts, subAmounts, sumAmounts, toScaled } from '../common/money';
 
 /**
  * Is `reserve / supply >= target`, decided exactly (§47).
@@ -43,9 +43,13 @@ export interface ReserveState {
   assetId: string;
   reserveBalance: string;
   outstandingSupply: string;
-  reserveRatio: string; // reserveBalance / outstandingSupply (or "N/A" when supply is 0)
+  reserveRatio: string; // reserveBalance / backingLiability (or "N/A" when supply is 0)
   targetRatio: string;
   shortfall: boolean;
+  /** Value of one coin in the reference currency (denomination). "1" = 1 coin is 1 currency unit. */
+  unitValue: string;
+  /** The reference-currency claim the reserve must cover = outstandingSupply × unitValue. */
+  backingLiability: string;
   /**
    * Tokens issued and not burned — the claims the reserve must answer today. Equal to
    * outstandingSupply by construction, and named separately because §23 asks for the
@@ -327,6 +331,15 @@ export class ReserveService {
     return config?.reserveRatioTarget ?? '1.0';
   }
 
+  /** Value of one coin in the reference currency (denomination). Default "1" = 1 coin per unit. */
+  async unitValueFor(tenantId: string, assetId: string): Promise<string> {
+    const config = await this.prisma.stablecoinConfig.findFirst({
+      where: { tenantId, assetId },
+      select: { unitValue: true },
+    });
+    return config?.unitValue ?? '1';
+  }
+
   /**
    * §23: refuse to mint against a reserve figure nobody has corroborated recently.
    *
@@ -382,11 +395,13 @@ export class ReserveService {
     const targetRatio = await this.targetRatioFor(tenantId, assetId);
     const state = await this.getState(tenantId, assetId, targetRatio);
     const projectedSupply = addAmounts(state.outstandingSupply, additionalAmount);
+    // Backing needed after this mint, in the reference currency: projected supply × unitValue.
+    const projectedLiability = mulAmounts(projectedSupply, state.unitValue);
     const hasSupply = compareAmounts(projectedSupply, '0') > 0;
     return {
       // The comparison itself is exact — see meetsRatio. Only the DISPLAY ratio is fractional.
-      breach: hasSupply && !meetsRatio(state.reserveBalance, projectedSupply, targetRatio),
-      projectedRatio: hasSupply ? displayRatio(state.reserveBalance, projectedSupply) : 'N/A',
+      breach: hasSupply && !meetsRatio(state.reserveBalance, projectedLiability, targetRatio),
+      projectedRatio: hasSupply ? displayRatio(state.reserveBalance, projectedLiability) : 'N/A',
       targetRatio,
       reserveBalance: state.reserveBalance,
       projectedSupply,
@@ -404,6 +419,7 @@ export class ReserveService {
       assetId,
       sumAmounts(accounts.map((a) => a.balance)),
     );
+    const unitValue = await this.unitValueFor(tenantId, assetId);
 
     const [minted, redeemed, pendingMints, pendingRedemptions] = await Promise.all([
       this.prisma.stablecoinMintRequest.findMany({
@@ -434,14 +450,19 @@ export class ReserveService {
     // shortfall DECISION is made exactly — a float comparison here decides whether tokens are
     // backed, which is not a place for rounding.
     const outstandingSupply = subAmounts(sumAmounts(minted.map((m) => m.amount)), sumAmounts(redeemed.map((r) => r.amount)));
+    // The claim the reserve must answer, in the reference currency: supply × unitValue. With the
+    // default unitValue "1" this equals supply, so every existing coin's math is unchanged.
+    const backingLiability = mulAmounts(outstandingSupply, unitValue);
     const hasSupply = compareAmounts(outstandingSupply, '0') > 0;
     return {
       assetId,
       reserveBalance,
       outstandingSupply,
-      reserveRatio: hasSupply ? displayRatio(reserveBalance, outstandingSupply) : 'N/A',
+      reserveRatio: hasSupply ? displayRatio(reserveBalance, backingLiability) : 'N/A',
       targetRatio,
-      shortfall: hasSupply && !meetsRatio(reserveBalance, outstandingSupply, targetRatio),
+      shortfall: hasSupply && !meetsRatio(reserveBalance, backingLiability, targetRatio),
+      unitValue,
+      backingLiability,
       // Equal to outstandingSupply, deliberately: every unburned token is a claim. Kept as a
       // named field because §23 asks for the liability view, and because if the two ever stop
       // being equal that is a fact worth seeing rather than hiding behind one number.
@@ -530,7 +551,7 @@ export class ReserveService {
     const state = await this.getState(tenantId, assetId, targetRatio);
     const reserveRatio =
       compareAmounts(state.outstandingSupply, '0') > 0
-        ? displayRatio(input.reserveBalance, state.outstandingSupply)
+        ? displayRatio(input.reserveBalance, state.backingLiability)
         : 'N/A';
     return this.prisma.reserveSnapshot.create({
       data: {

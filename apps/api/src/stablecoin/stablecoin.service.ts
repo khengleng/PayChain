@@ -21,7 +21,7 @@ import {
   type ApprovalGate,
   type StablecoinState,
 } from './lifecycle';
-import type { ApproveGateDto, CreateStablecoinDto, SuspendDto } from './dto';
+import type { ApproveGateDto, CreateStablecoinDto, ProvisionMerchantCoinDto, SuspendDto } from './dto';
 
 @Injectable()
 export class StablecoinService {
@@ -60,6 +60,7 @@ export class StablecoinService {
             tenantId: auth.tenantId,
             classification: dto.classification,
             referenceCurrency: dto.referenceCurrency,
+            unitValue: dto.unitValue ?? '1',
             lifecycleState: 'DRAFT',
             reserveRatioTarget: dto.reserveRatioTarget ?? '1.0',
             issuerLegalEntity: dto.issuerLegalEntity,
@@ -79,6 +80,67 @@ export class StablecoinService {
       resourceId: asset.stablecoinConfig?.id,
       correlationId,
       metadata: { assetCode: dto.assetCode, classification: dto.classification, referenceCurrency: dto.referenceCurrency },
+    });
+    return this.view(asset.stablecoinConfig!, asset.assetCode);
+  }
+
+  /**
+   * One-call provisioning of a merchant's branded coin (the "merchant signs up with PayKH" path).
+   * A fiat-backed stablecoin with a peg currency + unit value + brand, created in DRAFT under the
+   * caller's tenant and attributed to a merchant. It is NOT activated and mints nothing — the
+   * existing lifecycle gates + trustee funding still govern going live. Gated by the same creation
+   * flags as create(); callers hold the narrow `stablecoin.provision` scope.
+   */
+  async provisionMerchantCoin(auth: AuthContext, dto: ProvisionMerchantCoinDto, correlationId: string) {
+    await this.flags.requireEnabled('stablecoin.module.enabled', auth.tenantId);
+    await this.flags.requireEnabled('stablecoin.creation.enabled', auth.tenantId);
+
+    const issuer = await this.chain.createWallet({ correlationId });
+    const asset = await this.prisma.asset.create({
+      data: {
+        tenantId: auth.tenantId,
+        assetCode: dto.assetCode,
+        assetName: dto.assetName,
+        assetType: 'FIAT_BACKED_STABLECOIN' as AssetType,
+        status: 'DRAFT',
+        issuerPublicKey: issuer.publicKey,
+        issuerSecretEnc: issuer.secretKey ? this.crypto.encrypt(issuer.secretKey) : null,
+        transferability: false,
+        redeemability: false,
+        createdBy: auth.clientId,
+        stablecoinConfig: {
+          create: {
+            tenantId: auth.tenantId,
+            classification: 'FIAT_BACKED_STABLECOIN',
+            referenceCurrency: dto.referenceCurrency,
+            unitValue: dto.unitValue,
+            brandLabel: dto.brandLabel,
+            merchantReference: dto.merchantReference,
+            lifecycleState: 'DRAFT',
+            reserveRatioTarget: dto.reserveRatioTarget ?? '1.0',
+            issuerLegalEntity: dto.issuerLegalEntity,
+            jurisdiction: dto.jurisdiction,
+            createdBy: auth.clientId,
+          },
+        },
+      },
+      include: { stablecoinConfig: true },
+    });
+
+    await this.audit.record({
+      tenantId: auth.tenantId,
+      actor: auth.clientId,
+      action: 'stablecoin.merchant_provisioned',
+      resourceType: 'stablecoin',
+      resourceId: asset.stablecoinConfig?.id,
+      correlationId,
+      metadata: {
+        assetCode: dto.assetCode,
+        referenceCurrency: dto.referenceCurrency,
+        unitValue: dto.unitValue,
+        brandLabel: dto.brandLabel,
+        merchantReference: dto.merchantReference,
+      },
     });
     return this.view(asset.stablecoinConfig!, asset.assetCode);
   }
@@ -208,6 +270,9 @@ export class StablecoinService {
       assetCode,
       classification: config.classification,
       referenceCurrency: config.referenceCurrency,
+      unitValue: config.unitValue,
+      brandLabel: config.brandLabel,
+      merchantReference: config.merchantReference,
       lifecycleState: config.lifecycleState,
       activationStatus: config.activationStatus,
       reserveRatioTarget: config.reserveRatioTarget,

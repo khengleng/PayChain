@@ -23,6 +23,10 @@ export const API_SCOPES = [
   'stablecoin.read',
   'stablecoin.manage',
   'stablecoin.approve',
+  // Narrow capability: provision a branded merchant coin (create only, in DRAFT). Deliberately
+  // separate from stablecoin.manage so a merchant platform (PayKH) can create merchant coins
+  // without controlling the lifecycle of every coin under its tenant.
+  'stablecoin.provision',
   'reserve.read',
   'reserve.manage',
   'reserve.approve',
@@ -64,6 +68,16 @@ export const TRUSTEE_INTEGRATION_SCOPES: ApiScope[] = [
 ];
 
 /**
+ * A merchant-platform integration (the PayKH shape for issuing merchant coins): the loyalty set
+ * plus `stablecoin.provision`, so the platform can provision each merchant's branded, unit-valued
+ * coin. It still cannot mint or manage stablecoin lifecycle — those stay separately gated.
+ */
+export const MERCHANT_PLATFORM_SCOPES: ApiScope[] = [
+  ...LOYALTY_INTEGRATION_SCOPES,
+  'stablecoin.provision',
+];
+
+/**
  * Scopes that let a client move or authorize value beyond ordinary loyalty traffic. Granting one
  * is flagged in the audit metadata so an approval trail exists for privileged credentials.
  */
@@ -72,6 +86,7 @@ export const SENSITIVE_SCOPES: ApiScope[] = [
   'transaction.approve',
   'stablecoin.manage',
   'stablecoin.approve',
+  'stablecoin.provision',
   'reserve.read',
   'reserve.manage',
   'reserve.approve',

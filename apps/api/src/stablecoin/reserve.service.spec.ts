@@ -289,6 +289,7 @@ describe('§23 liabilities — figures that were declared and never computed', (
       reserveAccount: {
         findMany: async () => (opts.accounts ?? []).map((balance) => ({ balance })),
       },
+      stablecoinConfig: { findFirst: async () => null }, // unitValue defaults "1"
       stablecoinMintRequest: {
         findMany: async ({ where }: any) =>
           (opts.minted ?? []).filter((m) => where.status.in.includes(m.status)),
@@ -378,11 +379,12 @@ describe('§23 liabilities — figures that were declared and never computed', (
 });
 
 describe('ReserveService — trustee-authoritative reserve (§24)', () => {
-  function build(flagOn: boolean, trusteeSnapshot: { reserveBalance: string } | null) {
+  function build(flagOn: boolean, trusteeSnapshot: { reserveBalance: string } | null, unitValue = '1') {
     const prisma = {
       reserveAccount: { findMany: async () => [{ balance: '10' }] }, // internal ledger sum = 10
       reserveSnapshot: { findFirst: async () => trusteeSnapshot },
-      stablecoinMintRequest: { findMany: async () => [] },
+      stablecoinConfig: { findFirst: async () => ({ reserveRatioTarget: '1.0', unitValue }) },
+      stablecoinMintRequest: { findMany: async () => [{ amount: '1000' }] }, // 1000 coins minted
       stablecoinRedemption: { findMany: async () => [] },
     } as never;
     const flags = { isEnabled: jest.fn().mockResolvedValue(flagOn) } as never;
@@ -402,5 +404,49 @@ describe('ReserveService — trustee-authoritative reserve (§24)', () => {
   it('flag ON + no fresh trustee snapshot: fails closed to 0 (a breach)', async () => {
     const state = await build(true, null).getState('t1', 'a1', '1.0');
     expect(state.reserveBalance).toBe('0');
+  });
+});
+
+describe('ReserveService — per-coin unit value backing (§23)', () => {
+  // reserve figure = internal ledger sum; backing needed = supply × unitValue × target(1.0).
+  function build(reserveBalance: string, supplyCoins: string, unitValue: string) {
+    const prisma = {
+      reserveAccount: { findMany: async () => [{ balance: reserveBalance }] },
+      reserveSnapshot: { findFirst: async () => null },
+      stablecoinConfig: { findFirst: async () => ({ reserveRatioTarget: '1.0', unitValue }) },
+      stablecoinMintRequest: { findMany: async () => [{ amount: supplyCoins }] },
+      stablecoinRedemption: { findMany: async () => [] },
+    } as never;
+    // Authoritative-reserve flag OFF so the figure is the internal sum; unit-value is independent.
+    const flags = { isEnabled: jest.fn().mockResolvedValue(false) } as never;
+    return new ReserveService(prisma, { record: jest.fn() } as never, { RESERVE_MAX_STALENESS_HOURS: 24 } as never, flags);
+  }
+
+  it('unitValue "1": backing = supply (unchanged behaviour)', async () => {
+    const s = await build('1000', '1000', '1').getState('t', 'a', '1.0');
+    expect(s.backingLiability).toBe('1000');
+    expect(s.shortfall).toBe(false); // reserve 1000 >= 1000
+    expect((await build('999', '1000', '1').getState('t', 'a', '1.0')).shortfall).toBe(true);
+  });
+
+  it('unitValue "0.01": 1000 coins need $10 of reserve', async () => {
+    const ok = await build('10', '1000', '0.01').getState('t', 'a', '1.0');
+    expect(ok.backingLiability).toBe('10');
+    expect(ok.shortfall).toBe(false); // reserve $10 >= $10
+    const short = await build('9.99', '1000', '0.01').getState('t', 'a', '1.0');
+    expect(short.shortfall).toBe(true); // reserve $9.99 < $10
+  });
+
+  it('unitValue "100" (KHR): 1000 coins need 100000 KHR of reserve', async () => {
+    expect((await build('100000', '1000', '100').getState('t', 'a', '1.0')).shortfall).toBe(false);
+    expect((await build('99999', '1000', '100').getState('t', 'a', '1.0')).shortfall).toBe(true);
+  });
+
+  it('wouldBreachTarget applies unitValue to the projected supply', async () => {
+    // 500 coins already, minting 500 more at $0.01 → need $10; reserve $10 → no breach; $9.99 → breach.
+    const svc = build('10', '500', '0.01');
+    expect((await svc.wouldBreachTarget('t', 'a', '500')).breach).toBe(false);
+    const svc2 = build('9.99', '500', '0.01');
+    expect((await svc2.wouldBreachTarget('t', 'a', '500')).breach).toBe(true);
   });
 });

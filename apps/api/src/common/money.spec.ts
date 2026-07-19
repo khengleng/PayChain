@@ -3,6 +3,7 @@ import {
   assertValidAmount,
   compareAmounts,
   isValidAmount,
+  mulAmounts,
   normalizeAmount,
   subAmounts,
   sumAmounts,
@@ -55,5 +56,15 @@ describe('money', () => {
       expect(normalizeAmount(0)).toBe('0');
       expect(isValidAmount(normalizeAmount(1000000000 * 0.01))).toBe(true);
     });
+  });
+});
+
+describe('mulAmounts (exact fixed-point product)', () => {
+  it('multiplies exactly for realistic denominations', () => {
+    expect(mulAmounts('1000', '0.01')).toBe('10'); // 1000 coins × $0.01 = $10
+    expect(mulAmounts('1000', '100')).toBe('100000'); // 1000 coins × 100 KHR
+    expect(mulAmounts('1234', '1')).toBe('1234'); // × 1 is identity
+    expect(mulAmounts('0', '0.01')).toBe('0');
+    expect(mulAmounts('0.5', '0.5')).toBe('0.25');
   });
 });

@@ -6,7 +6,7 @@ import { RequireScopes } from '../auth/scopes.decorator';
 import { IdempotencyService } from '../idempotency/idempotency.service';
 import { requireIdempotencyKey } from '../common/idempotency-key';
 import { StablecoinService } from './stablecoin.service';
-import { AdvanceDto, ApproveGateDto, CreateStablecoinDto, SuspendDto } from './dto';
+import { AdvanceDto, ApproveGateDto, CreateStablecoinDto, ProvisionMerchantCoinDto, SuspendDto } from './dto';
 
 @Controller('stablecoins')
 @UseGuards(JwtAuthGuard, ScopesGuard)
@@ -26,6 +26,21 @@ export class StablecoinController {
   ) {
     return this.idempotency.run(auth.tenantId, requireIdempotencyKey(key), dto, () =>
       this.stablecoin.create(auth, dto, correlationId),
+    );
+  }
+
+  // One-call merchant-coin provisioning for a platform like PayKH. Narrow `stablecoin.provision`
+  // scope; creates a branded, unit-valued coin in DRAFT (not minting).
+  @Post('provision-merchant')
+  @RequireScopes('stablecoin.provision')
+  provisionMerchant(
+    @CurrentAuth() auth: AuthContext,
+    @CorrelationId() correlationId: string,
+    @Body() dto: ProvisionMerchantCoinDto,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.idempotency.run(auth.tenantId, requireIdempotencyKey(key), dto, () =>
+      this.stablecoin.provisionMerchantCoin(auth, dto, correlationId),
     );
   }
 
