@@ -15,6 +15,8 @@ const LINKS = [
   { label: 'Webhooks', href: '/webhooks' },
   { label: 'SDK', href: '/sdk' },
   { label: 'Status', href: '/status' },
+  { label: 'Become a partner', href: '/register' },
+  { label: 'Sign in', href: '/login' },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

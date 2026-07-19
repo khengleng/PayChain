@@ -1196,3 +1196,56 @@ model SandboxBankAccount {
 
   @@map("sandbox_bank_accounts")
 }
+
+// ── Partner self-service onboarding (§onboarding) ────────────────────────────────
+// A prospective partner registers themselves (PENDING). An admin reviews; on APPROVE the
+// application is PROVISIONED — a tenant + API client are created and linked here. Mirrors the
+// StablecoinMintRequest status-machine + audit pattern; nothing is provisioned without approval.
+enum PartnerIntegrationType {
+  LOYALTY
+  TRUSTEE
+  WHOLESALER
+  RETAILER
+}
+
+enum PartnerApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PROVISIONED
+}
+
+model PartnerApplication {
+  id                     String                   @id @default(uuid())
+  orgName                String
+  contactName            String
+  contactEmail           String
+  integrationType        PartnerIntegrationType
+  requestedParentTenantId String?
+  useCase                String
+  reference              String                   @unique
+  status                 PartnerApplicationStatus @default(PENDING)
+  reviewedBy             String?
+  rejectionReason        String?
+  tenantId               String?
+  apiClientId            String?
+  correlationId          String
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+
+  @@index([status])
+  @@map("partner_applications")
+}
+
+// The partner's login identity for the developer portal (tracks status, retrieves credentials).
+model PartnerUser {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  applicationId String   @unique
+  tenantId      String?
+  status        String   @default("ACTIVE")
+  createdAt     DateTime @default(now())
+
+  @@map("partner_users")
+}

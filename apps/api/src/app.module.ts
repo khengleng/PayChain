@@ -21,6 +21,7 @@ import { SandboxModule } from './sandbox/sandbox.module';
 import { StablecoinModule } from './stablecoin/stablecoin.module';
 import { ReadinessModule } from './readiness/readiness.module';
 import { TrusteeModule } from './trustee/trustee.module';
+import { PartnerModule } from './partner/partner.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
 import { AdminUsersModule } from './admin-users/admin-users.module';
 import { AdminClientsModule } from './admin-clients/admin-clients.module';
@@ -70,6 +71,7 @@ import { ApiClientUsageMiddleware } from './auth/api-client-usage.middleware';
     AdminReadModule,
     ReadinessModule,
     TrusteeModule,
+    PartnerModule,
     HealthModule,
     DocsModule,
   ],
