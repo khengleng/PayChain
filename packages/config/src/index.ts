@@ -164,6 +164,13 @@ const envSchema = z.object({
   // Optional: when unset, outbound authorization requests are skipped and logged (dev fallback,
   // like the mailer), so the mint saga never blocks on a missing credential.
   TRUSTEE_API_KEY: z.string().optional().or(z.literal('')),
+
+  // Real bank (Bakong) READ-ONLY balance endpoint for reserve verification (§31). When both are set,
+  // the bank-balance provider switches from the sandbox mock to the live HTTP client, so reserve
+  // verification proves money against a real feed. Must be a read-only balance credential — it must
+  // never be able to MOVE money. Unset (default) keeps the sandbox stand-in.
+  BAKONG_API_BASE_URL: z.string().url().optional().or(z.literal('')),
+  BAKONG_API_KEY: z.string().optional().or(z.literal('')),
 }).superRefine((cfg, ctx) => {
   // KEY_MANAGEMENT_PROVIDER advertises kms/hsm/mpc, but only the local-dev provider is built:
   // CryptoService wraps AES-256-GCM over KEY_ENCRYPTION_KEY and every signing path decrypts the
@@ -234,6 +241,18 @@ const envSchema = z.object({
         'mainnet requires an external HSM/KMS signer (KEY_MANAGEMENT_PROVIDER must not be ' +
         "'local-dev'): the in-process dev key must never sign mainnet value. Blocked until the " +
         'external signer seam lands.',
+    });
+  }
+
+  // A half-configured Bakong credential would silently fall back to the sandbox mock while implying
+  // a real feed — set both the URL and the key together, or neither.
+  if (Boolean(cfg.BAKONG_API_BASE_URL) !== Boolean(cfg.BAKONG_API_KEY)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['BAKONG_API_KEY'],
+      message:
+        'BAKONG_API_BASE_URL and BAKONG_API_KEY must be set together — a half-configured bank feed ' +
+        'would fall back to the sandbox mock while implying a real balance source.',
     });
   }
 });

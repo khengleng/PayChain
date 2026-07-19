@@ -53,6 +53,13 @@ describe('config — Stellar network safety (mainnet-readiness)', () => {
     ).toThrow(/does not match STELLAR_NETWORK='mainnet'/);
   });
 
+  it('REJECTS a half-configured Bakong bank feed (url without key or vice versa)', () => {
+    expect(() => loadConfig({ ...BASE, BAKONG_API_BASE_URL: 'https://bakong.test' })).toThrow(/set together/);
+    expect(() => loadConfig({ ...BASE, BAKONG_API_KEY: 'k' })).toThrow(/set together/);
+    // Both set is accepted.
+    expect(() => loadConfig({ ...BASE, BAKONG_API_BASE_URL: 'https://bakong.test', BAKONG_API_KEY: 'k' })).not.toThrow();
+  });
+
   it('parses the optional Stellar identity vars', () => {
     const cfg = loadConfig({
       ...BASE,
