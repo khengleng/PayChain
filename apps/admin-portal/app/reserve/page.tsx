@@ -30,10 +30,28 @@ interface MovementRow {
   createdAt: string;
 }
 interface TenantRow { id: string; name: string }
+interface TieOutRow {
+  assetCode: string;
+  ledgerReserve: string;
+  onChainLiability: string;
+  trusteeAttestedFiat: string | null;
+  ledgerRatio: string;
+  targetRatio: string;
+  status: 'RECONCILED' | 'SHORTFALL' | 'MISMATCH' | 'UNATTESTED';
+  discrepancies: string[];
+}
+
+const TIE_OUT_PILL: Record<TieOutRow['status'], string> = {
+  RECONCILED: 'PASSED',
+  SHORTFALL: 'BLOCKED',
+  MISMATCH: 'IN_PROGRESS',
+  UNATTESTED: 'IN_PROGRESS',
+};
 
 export default function ReservePage() {
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [movements, setMovements] = useState<MovementRow[]>([]);
+  const [tieOuts, setTieOuts] = useState<TieOutRow[]>([]);
   const [tenants, setTenants] = useState<TenantRow[]>([]);
   const [perms, setPerms] = useState<string[]>([]);
   const [form, setForm] = useState({ tenantId: '', reserveAccountId: '', direction: 'CREDIT', amount: '', reference: '' });
@@ -45,9 +63,14 @@ export default function ReservePage() {
   const canApprove = perms.includes('reserve:approve');
 
   const load = useCallback(async () => {
-    const [a, m] = await Promise.all([fetch('/api/reserve'), fetch('/api/reserve/movements')]);
+    const [a, m, t] = await Promise.all([
+      fetch('/api/reserve'),
+      fetch('/api/reserve/movements'),
+      fetch('/api/reserve/tie-out'),
+    ]);
     if (a.ok) setAccounts(((await a.json()) as { items: AccountRow[] }).items ?? []);
     if (m.ok) setMovements(((await m.json()) as { items: MovementRow[] }).items ?? []);
+    if (t.ok) setTieOuts(((await t.json()) as { items: TieOutRow[] }).items ?? []);
   }, []);
 
   useEffect(() => {
@@ -116,6 +139,35 @@ export default function ReservePage() {
         an operator recorded, not what a third party confirms. Proof of reserve requires an
         independent source (e.g. a Bakong balance feed) and an attestation workflow; neither exists
         yet. Present these numbers accordingly.
+      </div>
+
+      <div className="section-title">3-way tie-out (per coin)</div>
+      <p className="subtitle" style={{ fontSize: 12, marginTop: -4 }}>
+        Internal ledger reserve ↔ on-chain liability (supply × unit value) ↔ trustee-attested fiat.
+        RECONCILED = all three agree; SHORTFALL = reserve below the target; MISMATCH = ledger and
+        trustee disagree; UNATTESTED = no fresh trustee attestation.
+      </p>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Coin</th><th>Ledger reserve</th><th>On-chain liability</th><th>Trustee fiat</th><th>Ratio</th><th>Target</th><th>Status</th><th>Discrepancies</th></tr></thead>
+          <tbody>
+            {tieOuts.length === 0 && (
+              <tr><td colSpan={8} style={{ color: 'var(--muted)' }}>No active coins to reconcile.</td></tr>
+            )}
+            {tieOuts.map((t) => (
+              <tr key={t.assetCode}>
+                <td className="mono">{t.assetCode}</td>
+                <td className="mono">{t.ledgerReserve}</td>
+                <td className="mono">{t.onChainLiability}</td>
+                <td className="mono" style={{ fontSize: 12 }}>{t.trusteeAttestedFiat ?? '—'}</td>
+                <td className="mono" style={{ fontSize: 12 }}>{t.ledgerRatio}</td>
+                <td className="mono" style={{ fontSize: 12 }}>{t.targetRatio}</td>
+                <td><span className={`pill ${TIE_OUT_PILL[t.status]}`}>{t.status}</span></td>
+                <td style={{ fontSize: 11, color: 'var(--muted)' }}>{t.discrepancies.join(', ') || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       <div className="section-title">Reserve accounts</div>

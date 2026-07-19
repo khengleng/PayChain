@@ -3,6 +3,7 @@ import type { Permission } from '../admin-auth/roles';
 import { ReadinessService } from '../readiness/readiness.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { tenantScopeWhere } from '../admin-auth/abac';
+import { ReserveTieOutService } from '../stablecoin/reserve-tie-out.service';
 import { STABLECOIN_FLAGS, GLOBAL_TENANT } from '../feature-flags/feature-flags.constants';
 
 /** An admin's tenant scope: a list of tenant ids, or null for unscoped (all tenants). */
@@ -24,7 +25,31 @@ export class AdminReadService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly readiness: ReadinessService,
+    private readonly tieOut: ReserveTieOutService,
   ) {}
+
+  /**
+   * Three-way reserve tie-out per ACTIVE coin (§23/§31): internal ledger reserve ↔ on-chain
+   * supply×unitValue ↔ trustee-attested fiat. This is the "does the money actually back the tokens,
+   * and does the trustee agree" view — the gap PayKH named.
+   */
+  async reserveTieOuts(scope: TenantScope) {
+    const configs = await this.prisma.stablecoinConfig.findMany({
+      where: { ...tenantScopeWhere(scope), lifecycleState: 'ACTIVE' },
+      take: MAX,
+      select: { tenantId: true, assetId: true, asset: { select: { assetCode: true, assetName: true } } },
+    });
+    const items = [];
+    for (const c of configs) {
+      try {
+        const t = await this.tieOut.tieOut(c.tenantId, c.assetId);
+        items.push({ assetCode: c.asset.assetCode, assetName: c.asset.assetName, ...t });
+      } catch {
+        // A coin whose tie-out cannot be computed is skipped, never fails the whole list.
+      }
+    }
+    return { items };
+  }
 
   /** tenantId → tenant name, for enriching models that store only a tenantId string. */
   private async tenantNames(): Promise<Map<string, string>> {

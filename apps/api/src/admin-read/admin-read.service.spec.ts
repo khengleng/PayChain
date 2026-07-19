@@ -22,7 +22,7 @@ describe('AdminReadService', () => {
         ]),
       },
     } as never;
-    const svc = new AdminReadService(prisma, readiness as any);
+    const svc = new AdminReadService(prisma, readiness as any, { tieOut: jest.fn() } as any);
 
     const { global, overrides } = await svc.flags(null);
 
@@ -50,7 +50,7 @@ describe('AdminReadService', () => {
         ]),
       },
     } as never;
-    const svc = new AdminReadService(prisma, readiness as any);
+    const svc = new AdminReadService(prisma, readiness as any, { tieOut: jest.fn() } as any);
 
     const { items } = await svc.treasury(null);
     expect(items[0]?.tenant).toBe('PayKH Sandbox');
@@ -61,7 +61,7 @@ describe('AdminReadService', () => {
   it('builds a case-insensitive OR search filter for wallets and passes it to prisma', async () => {
     const findMany = jest.fn().mockResolvedValue([]);
     const prisma = { wallet: { findMany } } as never;
-    const svc = new AdminReadService(prisma, readiness as any);
+    const svc = new AdminReadService(prisma, readiness as any, { tieOut: jest.fn() } as any);
 
     await svc.wallets(null, '  GABC  ');
 
@@ -76,7 +76,7 @@ describe('AdminReadService', () => {
   it('applies no filter when the wallet search query is empty', async () => {
     const findMany = jest.fn().mockResolvedValue([]);
     const prisma = { wallet: { findMany } } as never;
-    const svc = new AdminReadService(prisma, readiness as any);
+    const svc = new AdminReadService(prisma, readiness as any, { tieOut: jest.fn() } as any);
 
     const res = await svc.wallets(null, '   ');
     expect(findMany.mock.calls[0][0].where).toEqual({});
@@ -104,7 +104,7 @@ describe('AdminReadService', () => {
       auditLog: { count: jest.fn().mockResolvedValue(13) },
     } as never;
 
-    const svc = new AdminReadService(prisma, readiness as any);
+    const svc = new AdminReadService(prisma, readiness as any, { tieOut: jest.fn() } as any);
     const overview = await svc.overview(['tenant-a', 'tenant-b'], [
       'tenant:read',
       'wallet:read',

@@ -12,6 +12,7 @@ import { SpendService } from './spend.service';
 import { ExchangeService } from './exchange.service';
 import { ConversionService } from './conversion.service';
 import { ReserveService } from './reserve.service';
+import { ReserveTieOutService } from './reserve-tie-out.service';
 import { ReserveVerificationService } from '../sandbox/reserve-verification.service';
 import { TreasuryService } from './treasury.service';
 import { MonitoringService } from './monitoring.service';
@@ -45,6 +46,7 @@ export class StablecoinWorkflowController {
     private readonly exchange: ExchangeService,
     private readonly conversion: ConversionService,
     private readonly reserve: ReserveService,
+    private readonly tieOut: ReserveTieOutService,
     private readonly verification: ReserveVerificationService,
     private readonly treasury: TreasuryService,
     private readonly monitoring: MonitoringService,
@@ -244,6 +246,17 @@ export class StablecoinWorkflowController {
   @RequireScopes('stablecoin.read')
   verifyReserve(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
     return this.verification.verifiedTotal(auth.tenantId, id);
+  }
+
+  /**
+   * Three-way reserve tie-out (§23/§31): internal ledger reserve ↔ on-chain supply×unitValue ↔
+   * trustee-attested fiat, in one place. Read-only; flags shortfalls, ledger/trustee mismatch, or a
+   * missing/stale trustee attestation.
+   */
+  @Get('stablecoins/:id/reserve/tie-out')
+  @RequireScopes('stablecoin.read')
+  reserveTieOut(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
+    return this.tieOut.tieOut(auth.tenantId, id);
   }
 
   @Post('stablecoins/:id/reserve-snapshots')

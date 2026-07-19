@@ -6,6 +6,7 @@ import { StablecoinController } from './stablecoin.controller';
 import { StablecoinService } from './stablecoin.service';
 import { StablecoinWorkflowController } from './workflow.controller';
 import { ReserveService } from './reserve.service';
+import { ReserveTieOutService } from './reserve-tie-out.service';
 import { MintService } from './mint.service';
 import { RedemptionService } from './redemption.service';
 import { SpendService } from './spend.service';
@@ -21,6 +22,7 @@ import { AttestationService } from './attestation.service';
   providers: [
     StablecoinService,
     ReserveService,
+    ReserveTieOutService,
     MintService,
     RedemptionService,
     SpendService,
@@ -36,6 +38,6 @@ import { AttestationService } from './attestation.service';
   // redemptions must be screened by the same rules as stablecoin movements, not a second copy.
   // It lives here for historical reasons — it is not stablecoin-specific and would sit better in
   // its own module; noted rather than churned mid-fix.
-  exports: [StablecoinService, TreasuryService, ReserveService, MonitoringService],
+  exports: [StablecoinService, TreasuryService, ReserveService, ReserveTieOutService, MonitoringService],
 })
 export class StablecoinModule {}
