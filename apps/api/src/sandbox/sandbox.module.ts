@@ -1,6 +1,14 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
+import type { PayChainConfig } from '@paychain/config';
 import { AuthModule } from '../auth/auth.module';
-import { BANK_BALANCE_PROVIDER, SandboxBankBalanceProvider } from './bank-balance.provider';
+import { CONFIG } from '../config/config.module';
+import { PrismaService } from '../prisma/prisma.service';
+import {
+  BANK_BALANCE_PROVIDER,
+  HttpBankBalanceProvider,
+  SandboxBankBalanceProvider,
+  type BankBalanceProvider,
+} from './bank-balance.provider';
 import { ReserveVerificationService } from './reserve-verification.service';
 import { SandboxBankController } from './sandbox-bank.controller';
 
@@ -16,7 +24,20 @@ import { SandboxBankController } from './sandbox-bank.controller';
   controllers: [SandboxBankController],
   providers: [
     ReserveVerificationService,
-    { provide: BANK_BALANCE_PROVIDER, useClass: SandboxBankBalanceProvider },
+    {
+      // The seam a real Bakong connection swaps into. When BAKONG_API_* is configured, reserve
+      // verification runs against the live read-only balance feed; otherwise it uses the sandbox
+      // stand-in (a VERIFIED result then only proves the verification path, not that money exists).
+      provide: BANK_BALANCE_PROVIDER,
+      inject: [CONFIG, PrismaService],
+      useFactory: (cfg: PayChainConfig, prisma: PrismaService): BankBalanceProvider => {
+        if (cfg.BAKONG_API_BASE_URL && cfg.BAKONG_API_KEY) {
+          new Logger('SandboxModule').log('Bank-balance provider: live Bakong HTTP client');
+          return new HttpBankBalanceProvider(cfg.BAKONG_API_BASE_URL, cfg.BAKONG_API_KEY);
+        }
+        return new SandboxBankBalanceProvider(prisma);
+      },
+    },
   ],
   exports: [ReserveVerificationService],
 })
