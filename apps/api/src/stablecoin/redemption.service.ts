@@ -19,6 +19,7 @@ import type { AuthContext } from '../auth/auth-context';
 import { assertWalletCanTransact } from '../wallets/wallet-status';
 import { WalletPolicyService } from '../wallets/wallet-policy.service';
 import { BalanceService } from '../wallets/balance.service';
+import { PointsLotService } from '../points-lot/points-lot.service';
 import { FIAT_PAYOUT_PROVIDER, type FiatPayoutProvider } from './providers/providers.module';
 
 /**
@@ -39,6 +40,7 @@ export class RedemptionService {
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
     private readonly walletPolicy: WalletPolicyService,
     private readonly balances: BalanceService,
+    private readonly pointsLots: PointsLotService,
   ) {}
 
   /**
@@ -301,6 +303,7 @@ export class RedemptionService {
         data: { status: 'CONFIRMED', confirmedAt: new Date(), failureReason: null, failureCode: null },
       });
       await this.refreshBalances(r.tenantId, r.walletId); // cache reflects the burned tokens
+      await this.pointsLots.consume(r.tenantId, r.walletId, r.assetId, r.amount); // draw down the lot ledger
       return this.set(r.id, { status: 'BURN_CONFIRMED' });
     }
     if (onChain.status === 'failed') {

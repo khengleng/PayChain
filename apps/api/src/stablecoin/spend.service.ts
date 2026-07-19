@@ -16,6 +16,7 @@ import type { AuthContext } from '../auth/auth-context';
 import { assertWalletCanTransact } from '../wallets/wallet-status';
 import { EscrowService } from '../wallets/escrow.service';
 import { BalanceService } from '../wallets/balance.service';
+import { PointsLotService } from '../points-lot/points-lot.service';
 
 /**
  * Spend-for-goods saga (§25-adjacent). Disabled by default (stablecoin.spend flag OFF).
@@ -45,6 +46,7 @@ export class SpendService {
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
     private readonly escrow: EscrowService,
     private readonly balances: BalanceService,
+    private readonly pointsLots: PointsLotService,
   ) {}
 
   /**
@@ -194,6 +196,7 @@ export class SpendService {
         data: { status: 'CONFIRMED', confirmedAt: new Date(), failureReason: null, failureCode: null },
       });
       await this.refreshBalances(s.tenantId, s.walletId); // keep the cache current post-burn
+      await this.pointsLots.consume(s.tenantId, s.walletId, s.assetId, s.amount); // draw down the lot ledger
       return this.set(s.id, { status: 'BURN_CONFIRMED' }); // now counted as supply reduction
     }
     if (onChain.status === 'failed') {

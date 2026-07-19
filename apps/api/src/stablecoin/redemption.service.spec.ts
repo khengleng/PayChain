@@ -57,6 +57,7 @@ function build(prisma: unknown, payout: unknown, chain: unknown) {
     // Permissive: these tests are about §0.8 sequencing, not §27. Policy has its own tests.
     { assertAllowed: jest.fn().mockResolvedValue(undefined) } as never,
     { refreshFromChain: jest.fn().mockResolvedValue(undefined) } as never,
+    { consume: jest.fn().mockResolvedValue(undefined) } as never,
   );
 }
 
@@ -168,6 +169,7 @@ describe('RedemptionService — the redeemer wallet is tenant-scoped (§7)', () 
       { burnAsset: jest.fn().mockResolvedValue({ transactionHash: 'H', submitted: true }) } as never,
       { assertAllowed: jest.fn().mockResolvedValue(undefined) } as never,
       { refreshFromChain: jest.fn().mockResolvedValue(undefined) } as never,
+      { consume: jest.fn().mockResolvedValue(undefined) } as never,
     );
   }
 
@@ -227,6 +229,7 @@ describe('RedemptionService — KYC is validated, not asserted (§25)', () => {
       { burnAsset: jest.fn() } as never,
       walletPolicy as never,
       { refreshFromChain: jest.fn().mockResolvedValue(undefined) } as never,
+      { consume: jest.fn().mockResolvedValue(undefined) } as never,
     );
     return { svc, audit, walletPolicy };
   }

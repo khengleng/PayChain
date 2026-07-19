@@ -47,6 +47,7 @@ function build(prisma: unknown, chain: unknown) {
     { assertMintAllowed: jest.fn().mockResolvedValue(undefined) } as never,
     { assertAllowed: jest.fn().mockResolvedValue(undefined) } as never,
     { refreshFromChain: jest.fn().mockResolvedValue(undefined) } as never,
+    { consume: jest.fn().mockResolvedValue(undefined) } as never,
   );
 }
 
@@ -145,6 +146,7 @@ describe('ConversionService — cannot mint around the mint controls (§26)', ()
       { assertMintAllowed: overrides.assertMintAllowed ?? jest.fn().mockResolvedValue(undefined) } as never,
       { assertAllowed: overrides.assertAllowed ?? jest.fn().mockResolvedValue(undefined) } as never,
       { refreshFromChain: jest.fn().mockResolvedValue(undefined) } as never,
+      { consume: jest.fn().mockResolvedValue(undefined) } as never,
     );
     return { svc, issueAsset, createMint, store: () => rec };
   }

@@ -33,6 +33,7 @@ import { AdminReadModule } from './admin-read/admin-read.module';
 import { MailerModule } from './mailer/mailer.module';
 import { HealthModule } from './health/health.module';
 import { StellarModule } from './stellar/stellar.module';
+import { PointsLotModule } from './points-lot/points-lot.module';
 import { DocsModule } from './docs/docs.module';
 import { CorrelationMiddleware } from './common/correlation.middleware';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
@@ -75,6 +76,7 @@ import { ApiClientUsageMiddleware } from './auth/api-client-usage.middleware';
     PartnerModule,
     HealthModule,
     StellarModule,
+    PointsLotModule,
     DocsModule,
   ],
   providers: [
