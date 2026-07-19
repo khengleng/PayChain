@@ -1249,3 +1249,25 @@ model PartnerUser {
 
   @@map("partner_users")
 }
+
+// A deposit the trustee has verified as CLEARED (real bank money received & safeguarded), signed
+// with the trustee's reserve-snapshot key. TrusteeReserveFundingProvider confirms a mint's funding
+// against a CLEARED deposit whose reference matches the mint's fundingReference. Idempotent per
+// (tenantId, depositId).
+model TrusteeDeposit {
+  id         String   @id @default(uuid())
+  tenantId   String
+  depositId  String
+  reference  String
+  amount     String
+  currency   String?
+  status     String   @default("CLEARED")
+  keyId      String
+  signature  String
+  artifact   String
+  receivedAt DateTime @default(now())
+
+  @@unique([tenantId, depositId])
+  @@index([tenantId, reference, status])
+  @@map("trustee_deposits")
+}

@@ -11,6 +11,9 @@ interface AccountRow {
   bankReference: string | null;
   balance: string;
   status: string;
+  trusteeCorroborated?: boolean;
+  attestedBalance?: string | null;
+  attestedAt?: string | null;
 }
 interface MovementRow {
   id: string;
@@ -118,16 +121,22 @@ export default function ReservePage() {
       <div className="section-title">Reserve accounts</div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Label</th><th>Tenant</th><th>Balance</th><th>Custodian ref</th><th>Bank ref</th><th>Status</th></tr></thead>
+          <thead><tr><th>Label</th><th>Tenant</th><th>Balance</th><th>Trustee</th><th>Attested</th><th>Custodian ref</th><th>Bank ref</th><th>Status</th></tr></thead>
           <tbody>
             {accounts.length === 0 && (
-              <tr><td colSpan={6} style={{ color: 'var(--muted)' }}>No reserve accounts registered.</td></tr>
+              <tr><td colSpan={8} style={{ color: 'var(--muted)' }}>No reserve accounts registered.</td></tr>
             )}
             {accounts.map((r) => (
               <tr key={r.id}>
                 <td>{r.label}<div className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{r.id}</div></td>
                 <td style={{ fontSize: 12 }}>{r.tenant}</td>
                 <td className="mono">{r.balance}</td>
+                <td>
+                  {r.trusteeCorroborated
+                    ? <span className="pill PASSED" title={r.attestedAt ? `As of ${new Date(r.attestedAt).toLocaleString()}` : ''}>Corroborated</span>
+                    : <span className="pill" style={{ color: 'var(--muted)' }}>Self-asserted</span>}
+                </td>
+                <td className="mono" style={{ fontSize: 12 }}>{r.attestedBalance ?? '—'}</td>
                 <td style={{ fontSize: 12 }}>{r.custodianReference ?? '—'}</td>
                 <td style={{ fontSize: 12 }}>{r.bankReference ?? '—'}</td>
                 <td><span className={`pill ${r.status === 'ACTIVE' ? 'PASSED' : 'BLOCKED'}`}>{r.status}</span></td>

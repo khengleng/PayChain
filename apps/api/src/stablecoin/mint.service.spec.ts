@@ -81,6 +81,7 @@ const deps = (
     // Permissive by default so these tests exercise the saga, not §27. The policy has its own
     // tests, and the sagas have dedicated §27 tests below.
     (walletPolicy ?? { assertAllowed: jest.fn().mockResolvedValue(undefined) }) as never,
+    { requestMintAuthorization: jest.fn().mockResolvedValue({ requested: false }) } as never,
   );
 
 describe('MintService saga', () => {

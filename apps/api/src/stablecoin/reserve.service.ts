@@ -13,6 +13,7 @@ import { CONFIG } from '../config/config.module';
 import { stableStringify } from '@paychain/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import type { AuthContext } from '../auth/auth-context';
 import { addAmounts, assertValidAmount, compareAmounts, subAmounts, sumAmounts, toScaled } from '../common/money';
 
@@ -103,8 +104,32 @@ export class ReserveService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Inject(CONFIG) cfg: PayChainConfig,
+    private readonly flags: FeatureFlagsService,
   ) {
     this.maxStalenessHours = cfg.RESERVE_MAX_STALENESS_HOURS;
+  }
+
+  /**
+   * The reserve figure the ratio is decided against. Normally the internal ACTIVE-account sum; when
+   * `stablecoin.trustee_reserve.authoritative` is on for the tenant, the trustee's attested figure
+   * (newest fresh source='trustee' snapshot) is authoritative instead — fail-closed to '0' (a
+   * breach) when no fresh trustee snapshot exists, so minting cannot proceed on uncorroborated books.
+   */
+  private async authoritativeReserveBalance(
+    tenantId: string,
+    assetId: string,
+    internalSum: string,
+  ): Promise<string> {
+    if (!(await this.flags.isEnabled('stablecoin.trustee_reserve.authoritative', tenantId))) {
+      return internalSum;
+    }
+    const cutoff = new Date(Date.now() - this.maxStalenessHours * 3_600_000);
+    const latest = await this.prisma.reserveSnapshot.findFirst({
+      where: { tenantId, assetId, source: 'trustee', takenAt: { gte: cutoff } },
+      orderBy: { takenAt: 'desc' },
+      select: { reserveBalance: true },
+    });
+    return latest?.reserveBalance ?? '0';
   }
 
   private readonly maxStalenessHours: number;
@@ -374,7 +399,11 @@ export class ReserveService {
       where: { tenantId, assetId, status: 'ACTIVE' },
       select: { balance: true },
     });
-    const reserveBalance = sumAmounts(accounts.map((a) => a.balance));
+    const reserveBalance = await this.authoritativeReserveBalance(
+      tenantId,
+      assetId,
+      sumAmounts(accounts.map((a) => a.balance)),
+    );
 
     const [minted, redeemed, pendingMints, pendingRedemptions] = await Promise.all([
       this.prisma.stablecoinMintRequest.findMany({

@@ -23,6 +23,7 @@ import {
   RESERVE_FUNDING_PROVIDER,
   type ReserveFundingProvider,
 } from './providers/providers.module';
+import { TrusteeApiClient } from './providers/trustee-api-client.service';
 
 /**
  * Mint request saga (§22, §0.5). A persisted, resumable state machine. The 8 preconditions
@@ -42,6 +43,7 @@ export class MintService {
     @Inject(BLOCKCHAIN_PROVIDER) private readonly chain: BlockchainProvider,
     private readonly reserve: ReserveService,
     private readonly walletPolicy: WalletPolicyService,
+    private readonly trusteeApi: TrusteeApiClient,
   ) {}
 
   async request(
@@ -133,6 +135,18 @@ export class MintService {
   // --- saga steps ----------------------------------------------------------
 
   private async stepReserve(req: StablecoinMintRequest): Promise<StablecoinMintRequest> {
+    // §24: when trustee authorization is required, ask the trustee to authorize THIS mint (keyed on
+    // req.id). Best-effort and idempotent — the signed authorization returns async via the webhook
+    // and is enforced at mint time; a failed request just retries on the next advance().
+    if (await this.flags.isEnabled('stablecoin.trustee_authorization.required', req.tenantId)) {
+      await this.trusteeApi.requestMintAuthorization({
+        reference: req.id,
+        tenantId: req.tenantId,
+        assetId: req.assetId,
+        amount: req.amount,
+        destination: req.destinationWalletId,
+      });
+    }
     if (!req.fundingReference) {
       return this.set(req.id, { status: 'RESERVE_PENDING', failureReason: 'awaiting funding reference' });
     }

@@ -51,6 +51,12 @@ export class AdminReadController {
     return this.svc.reserve(tenantScopeOf(admin));
   }
 
+  @Get('trustee/activity')
+  @RequireAdminPermission('trustee:read')
+  trusteeActivity(@CurrentAdmin() admin: AdminContext) {
+    return this.svc.trusteeActivity(tenantScopeOf(admin));
+  }
+
   @Get('treasury')
   @RequireAdminPermission('treasury:read')
   treasury(@CurrentAdmin() admin: AdminContext) {
