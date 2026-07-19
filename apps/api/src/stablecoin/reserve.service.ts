@@ -15,7 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import type { AuthContext } from '../auth/auth-context';
-import { addAmounts, assertValidAmount, compareAmounts, mulAmounts, subAmounts, sumAmounts, toScaled } from '../common/money';
+import { addAmounts, assertValidAmount, compareAmounts, mulAmountsCeil, subAmounts, sumAmounts, toScaled } from '../common/money';
 
 /**
  * Is `reserve / supply >= target`, decided exactly (§47).
@@ -396,7 +396,7 @@ export class ReserveService {
     const state = await this.getState(tenantId, assetId, targetRatio);
     const projectedSupply = addAmounts(state.outstandingSupply, additionalAmount);
     // Backing needed after this mint, in the reference currency: projected supply × unitValue.
-    const projectedLiability = mulAmounts(projectedSupply, state.unitValue);
+    const projectedLiability = mulAmountsCeil(projectedSupply, state.unitValue);
     const hasSupply = compareAmounts(projectedSupply, '0') > 0;
     return {
       // The comparison itself is exact — see meetsRatio. Only the DISPLAY ratio is fractional.
@@ -452,7 +452,7 @@ export class ReserveService {
     const outstandingSupply = subAmounts(sumAmounts(minted.map((m) => m.amount)), sumAmounts(redeemed.map((r) => r.amount)));
     // The claim the reserve must answer, in the reference currency: supply × unitValue. With the
     // default unitValue "1" this equals supply, so every existing coin's math is unchanged.
-    const backingLiability = mulAmounts(outstandingSupply, unitValue);
+    const backingLiability = mulAmountsCeil(outstandingSupply, unitValue);
     const hasSupply = compareAmounts(outstandingSupply, '0') > 0;
     return {
       assetId,

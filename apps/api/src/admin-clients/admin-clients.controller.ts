@@ -7,6 +7,7 @@ import { AdminClientsService } from './admin-clients.service';
 import {
   API_SCOPES,
   LOYALTY_INTEGRATION_SCOPES,
+  MERCHANT_PLATFORM_SCOPES,
   SENSITIVE_SCOPES,
   TRUSTEE_INTEGRATION_SCOPES,
 } from './api-scopes';
@@ -35,6 +36,7 @@ export class AdminClientsController {
       presets: {
         loyaltyIntegration: LOYALTY_INTEGRATION_SCOPES,
         trusteeIntegration: TRUSTEE_INTEGRATION_SCOPES,
+        merchantPlatform: MERCHANT_PLATFORM_SCOPES,
       },
     };
   }

@@ -4,6 +4,7 @@ import {
   compareAmounts,
   isValidAmount,
   mulAmounts,
+  mulAmountsCeil,
   normalizeAmount,
   subAmounts,
   sumAmounts,
@@ -66,5 +67,20 @@ describe('mulAmounts (exact fixed-point product)', () => {
     expect(mulAmounts('1234', '1')).toBe('1234'); // × 1 is identity
     expect(mulAmounts('0', '0.01')).toBe('0');
     expect(mulAmounts('0.5', '0.5')).toBe('0.25');
+  });
+});
+
+describe('mulAmountsCeil (conservative product for a liability)', () => {
+  it('equals mulAmounts when the product is exact', () => {
+    expect(mulAmountsCeil('1000', '0.01')).toBe('10');
+    expect(mulAmountsCeil('1000', '100')).toBe('100000');
+    expect(mulAmountsCeil('1234', '1')).toBe('1234');
+  });
+  it('rounds UP a sub-7dp remainder (never understates the liability)', () => {
+    // 3 × 0.3333333 = 0.9999999 exactly (7dp) → no rounding.
+    expect(mulAmountsCeil('3', '0.3333333')).toBe('0.9999999');
+    // A product below 1e-7 must not floor to 0 — it ceils to the smallest unit.
+    expect(mulAmountsCeil('0.0000001', '0.0000001')).toBe('0.0000001');
+    expect(mulAmounts('0.0000001', '0.0000001')).toBe('0'); // contrast: floor understates
   });
 });
