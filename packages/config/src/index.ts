@@ -127,6 +127,13 @@ const envSchema = z.object({
   // The key identifier the trustee stamps on each delivery (e.g. X-Trustee-Key-Id: webhook-v1).
   // Deliveries whose key id does not match are rejected — this is the rotation hook.
   TRUSTEE_WEBHOOK_KEY_ID: z.string().default('webhook-v1'),
+  // Pinned fallback for the trustee's RESERVE_SNAPSHOT signing key, mirroring the webhook pin.
+  // Without it, reserve-snapshot verification depends ENTIRELY on the JWKS endpoint being reachable
+  // and honest — the reserve attestation's whole trust root is that URL. Pinning gives the reserve
+  // figure (which the ratio is decided against) the same PayChain-side trust anchor the webhook has.
+  // Optional PEM SubjectPublicKeyInfo; \n may be escaped for single-line env.
+  TRUSTEE_RESERVE_SNAPSHOT_PUBLIC_KEY: z.string().optional().or(z.literal('')),
+  TRUSTEE_RESERVE_SNAPSHOT_KEY_ID: z.string().default('reserve-v1'),
   // The trustee's published JWKS of purpose-specific Ed25519 keys (WEBHOOK, MINT_AUTHORIZATION,
   // RESERVE_SNAPSHOT, ATTESTATION, …). Used to verify inner signed artifacts inside events. When
   // unreachable, WEBHOOK verification falls back to the pinned TRUSTEE_WEBHOOK_PUBLIC_KEY above.
