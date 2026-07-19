@@ -27,6 +27,10 @@ export const API_SCOPES = [
   // separate from stablecoin.manage so a merchant platform (PayKH) can create merchant coins
   // without controlling the lifecycle of every coin under its tenant.
   'stablecoin.provision',
+  // Spend merchant points on goods: burns the customer's points (reducing supply) and frees the
+  // backing reserve. Separate from stablecoin.manage so a point-of-sale integration can settle
+  // purchases without holding mint/redeem/lifecycle authority.
+  'stablecoin.spend',
   'reserve.read',
   'reserve.manage',
   'reserve.approve',
@@ -87,6 +91,7 @@ export const SENSITIVE_SCOPES: ApiScope[] = [
   'stablecoin.manage',
   'stablecoin.approve',
   'stablecoin.provision',
+  'stablecoin.spend',
   'reserve.read',
   'reserve.manage',
   'reserve.approve',

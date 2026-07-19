@@ -8,6 +8,7 @@ import { IdempotencyService } from '../idempotency/idempotency.service';
 import { requireIdempotencyKey } from '../common/idempotency-key';
 import { MintService } from './mint.service';
 import { RedemptionService } from './redemption.service';
+import { SpendService } from './spend.service';
 import { ConversionService } from './conversion.service';
 import { ReserveService } from './reserve.service';
 import { ReserveVerificationService } from '../sandbox/reserve-verification.service';
@@ -19,6 +20,7 @@ import {
   MintRequestDto,
   MonitoringEvaluateDto,
   RedemptionRequestDto,
+  SpendRequestDto,
   ExecuteTreasuryDto,
   PublishAttestationDto,
   RejectMovementDto,
@@ -37,6 +39,7 @@ export class StablecoinWorkflowController {
   constructor(
     private readonly mint: MintService,
     private readonly redemption: RedemptionService,
+    private readonly spend: SpendService,
     private readonly conversion: ConversionService,
     private readonly reserve: ReserveService,
     private readonly verification: ReserveVerificationService,
@@ -110,6 +113,35 @@ export class StablecoinWorkflowController {
   @RequireScopes('stablecoin.manage')
   advanceRedemption(@CurrentAuth() auth: AuthContext, @Param('redemptionId') rid: string) {
     return this.redemption.advance(auth.tenantId, rid);
+  }
+
+  // --- spend-for-goods (§25-adjacent) ---
+  // A customer spending merchant points on goods: burns supply, frees the backing reserve as
+  // merchant revenue (withdrawn separately via the maker-checker reserve DEBIT). No fiat leg.
+  @Post('stablecoins/:id/spends')
+  @RequireScopes('stablecoin.spend')
+  createSpend(
+    @CurrentAuth() auth: AuthContext,
+    @CorrelationId() corr: string,
+    @Param('id') id: string,
+    @Body() dto: SpendRequestDto,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.idempotency.run(auth.tenantId, requireIdempotencyKey(key), { id, ...dto }, () =>
+      this.spend.request(auth, id, dto, corr),
+    );
+  }
+
+  @Get('spends/:spendId')
+  @RequireScopes('stablecoin.read')
+  getSpend(@CurrentAuth() auth: AuthContext, @Param('spendId') sid: string) {
+    return this.spend.get(auth.tenantId, sid);
+  }
+
+  @Post('spends/:spendId/advance')
+  @RequireScopes('stablecoin.spend')
+  advanceSpend(@CurrentAuth() auth: AuthContext, @Param('spendId') sid: string) {
+    return this.spend.advance(auth.tenantId, sid);
   }
 
   // --- conversion (§26) ---

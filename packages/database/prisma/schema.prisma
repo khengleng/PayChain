@@ -262,6 +262,18 @@ enum ConversionStatus {
   COMPENSATED
 }
 
+// Spend-for-goods saga states (§25-adjacent). A customer spending merchant points on goods
+// burns supply; there is no fiat leg. Supply is only counted as reduced once BURN_CONFIRMED —
+// mirrors RedemptionStatus so ReserveService.getState can subtract confirmed spends the same way.
+enum SpendStatus {
+  REQUESTED
+  BURN_PENDING
+  BURN_CONFIRMED
+  COMPLETED
+  FAILED
+  MANUAL_REVIEW
+}
+
 enum TreasuryMovementStatus {
   PENDING_APPROVAL
   APPROVED
@@ -996,6 +1008,34 @@ model StablecoinConversion {
   @@index([tenantId])
   @@index([status])
   @@map("stablecoin_conversions")
+}
+
+// Spend-for-goods saga (§25-adjacent). A PayKH customer spending merchant points on goods: the
+// points ARE a reserve-backed stablecoin, so spending BURNS supply and — because outstanding
+// supply drops — frees the reserve that backed them as the merchant's realized revenue. Unlike
+// StablecoinRedemption there is no fiat payout leg and no automatic reserve movement; the freed
+// reserve is withdrawn by the merchant through the existing maker-checker reserve DEBIT.
+model StablecoinSpend {
+  id             String      @id @default(uuid())
+  tenantId       String
+  assetId        String
+  walletId       String
+  amount         String
+  status         SpendStatus @default(REQUESTED)
+  // The merchant's order/receipt reference for the goods bought — trail from a burn back to a sale.
+  orderReference String?
+  burnHash       String?
+  failureReason  String?
+  requestedBy    String
+  correlationId  String
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([tenantId, assetId])
+  // Escrow sums in-flight spends per (wallet, asset) to lock tokens against double-spend.
+  @@index([walletId, assetId])
+  @@index([status])
+  @@map("stablecoin_spends")
 }
 
 // Treasury movement with maker-checker (§30). The same user may not create AND approve.

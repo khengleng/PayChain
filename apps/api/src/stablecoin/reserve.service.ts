@@ -421,7 +421,7 @@ export class ReserveService {
     );
     const unitValue = await this.unitValueFor(tenantId, assetId);
 
-    const [minted, redeemed, pendingMints, pendingRedemptions] = await Promise.all([
+    const [minted, redeemed, spent, pendingMints, pendingRedemptions] = await Promise.all([
       this.prisma.stablecoinMintRequest.findMany({
         where: { tenantId, assetId, status: { in: ['CONFIRMED', 'RECONCILED'] } },
         select: { amount: true },
@@ -430,6 +430,15 @@ export class ReserveService {
         // Only count redemptions whose tokens are actually OFF-chain (burn confirmed). Tokens
         // in FIAT_PAYOUT_PENDING/CONFIRMED are still circulating — counting them early would
         // understate supply and hide a real shortfall.
+        where: { tenantId, assetId, status: { in: ['BURN_CONFIRMED', 'COMPLETED'] } },
+        select: { amount: true },
+      }),
+      // Spend-for-goods burns also remove supply — same rule, same off-chain test. A spend only
+      // counts once its burn is CONFIRMED (BURN_CONFIRMED/COMPLETED); a submitted-but-unconfirmed
+      // spend (BURN_PENDING) still has circulating tokens and must not shrink the liability early.
+      // Omitting this term would leave burned points counted as backed supply — an over-statement
+      // of what the reserve owes, i.e. silent under-collateralization.
+      this.prisma.stablecoinSpend.findMany({
         where: { tenantId, assetId, status: { in: ['BURN_CONFIRMED', 'COMPLETED'] } },
         select: { amount: true },
       }),
@@ -449,7 +458,10 @@ export class ReserveService {
     // Exact fixed-point supply; the ratio is an inherently-fractional DISPLAY value, but the
     // shortfall DECISION is made exactly — a float comparison here decides whether tokens are
     // backed, which is not a place for rounding.
-    const outstandingSupply = subAmounts(sumAmounts(minted.map((m) => m.amount)), sumAmounts(redeemed.map((r) => r.amount)));
+    // supply = confirmed mints − confirmed redemption burns − confirmed spend burns. Both burn
+    // paths remove tokens from circulation, so both subtract from the liability the reserve covers.
+    const burned = addAmounts(sumAmounts(redeemed.map((r) => r.amount)), sumAmounts(spent.map((s) => s.amount)));
+    const outstandingSupply = subAmounts(sumAmounts(minted.map((m) => m.amount)), burned);
     // The claim the reserve must answer, in the reference currency: supply × unitValue. With the
     // default unitValue "1" this equals supply, so every existing coin's math is unchanged.
     const backingLiability = mulAmountsCeil(outstandingSupply, unitValue);

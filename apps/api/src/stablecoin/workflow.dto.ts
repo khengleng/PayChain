@@ -12,6 +12,12 @@ export class RedemptionRequestDto {
   @IsString() bankAccountReference!: string;
 }
 
+export class SpendRequestDto {
+  @IsString() walletId!: string;
+  @IsString() amount!: string;
+  @IsOptional() @IsString() @MaxLength(200) orderReference?: string;
+}
+
 export class ConversionQuoteDto {
   @IsString() fromAssetId!: string;
   @IsString() toAssetId!: string;
