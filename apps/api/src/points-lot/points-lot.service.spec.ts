@@ -6,19 +6,21 @@ interface Lot {
   status: string;
   expiresAt: number | null;
   earnedAt: number;
+  walletId?: string;
 }
 
 function fakePrisma(lots: Lot[], opts: { throwOnFind?: boolean } = {}) {
-  const store = lots.map((l) => ({ ...l }));
+  const store: Lot[] = lots.map((l) => ({ walletId: 'w', ...l }));
+  let seq = 0;
   return {
     store,
     pointsLot: {
-      findMany: async ({ orderBy }: { orderBy?: unknown } = {}) => {
+      findMany: async ({ where, orderBy }: { where?: { walletId?: string }; orderBy?: unknown } = {}) => {
         if (opts.throwOnFind) throw new Error('db down');
         void orderBy;
-        // ACTIVE only, soonest-expiring first (nulls last), then oldest earn — mirrors the service's orderBy.
+        // ACTIVE only, matching walletId when queried, soonest-expiring first (nulls last), then oldest earn.
         return store
-          .filter((l) => l.status === 'ACTIVE')
+          .filter((l) => l.status === 'ACTIVE' && (!where?.walletId || l.walletId === where.walletId))
           .slice()
           .sort((a, b) => {
             if (a.expiresAt === null && b.expiresAt === null) return a.earnedAt - b.earnedAt;
@@ -32,6 +34,12 @@ function fakePrisma(lots: Lot[], opts: { throwOnFind?: boolean } = {}) {
         const l = store.find((x) => x.id === where.id)!;
         Object.assign(l, data);
         return l;
+      },
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        seq += 1;
+        const row = { id: `new${seq}`, status: 'ACTIVE', earnedAt: 0, ...data } as unknown as Lot;
+        store.push(row);
+        return row;
       },
     },
   };
@@ -83,5 +91,34 @@ describe('PointsLotService.consume', () => {
   it('is best-effort: a DB failure never throws to the caller (the burn already happened on chain)', async () => {
     const prisma = fakePrisma([], { throwOnFind: true });
     await expect(svc(prisma).consume('t', 'w', 'asset', '10')).resolves.toBeUndefined();
+  });
+});
+
+describe('PointsLotService.transfer', () => {
+  it('draws down source lots FIFO and re-creates the slice at the destination, PRESERVING expiry', async () => {
+    const prisma = fakePrisma([
+      { id: 's1', remaining: '40', status: 'ACTIVE', expiresAt: 100, earnedAt: 1, walletId: 'src' },
+      { id: 's2', remaining: '40', status: 'ACTIVE', expiresAt: 200, earnedAt: 2, walletId: 'src' },
+    ]);
+    await svc(prisma).transfer('t', 'src', 'dst', 'asset', '60'); // 40 from s1 (expiry 100), 20 from s2 (expiry 200)
+
+    // Source drawn down: s1 depleted → CONSUMED, s2 partially.
+    expect(byId(prisma, 's1')).toMatchObject({ remaining: '0', status: 'CONSUMED' });
+    expect(byId(prisma, 's2')).toMatchObject({ remaining: '20', status: 'ACTIVE' });
+
+    // Destination gets matching lots with the SAME expiry (no reset).
+    const dstLots = prisma.store.filter((l) => l.walletId === 'dst');
+    expect(dstLots).toHaveLength(2);
+    expect(dstLots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ remaining: '40', expiresAt: 100 }),
+        expect.objectContaining({ remaining: '20', expiresAt: 200 }),
+      ]),
+    );
+  });
+
+  it('best-effort: a DB failure never throws (the on-chain transfer already happened)', async () => {
+    const prisma = fakePrisma([], { throwOnFind: true });
+    await expect(svc(prisma).transfer('t', 'src', 'dst', 'asset', '10')).resolves.toBeUndefined();
   });
 });

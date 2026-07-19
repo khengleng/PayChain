@@ -68,4 +68,66 @@ export class PointsLotService {
       );
     }
   }
+
+  /**
+   * Migrates lots when points are TRANSFERRED between wallets: draw down the source's ACTIVE lots
+   * FIFO by expiry and create matching lots at the destination that PRESERVE each source lot's
+   * expiry. Preserving expiresAt is the point — otherwise a customer could reset an expiry clock by
+   * bouncing points to another wallet and back. Best-effort, same contract as consume(): called
+   * after the on-chain transfer confirms, and never fails the caller.
+   */
+  async transfer(
+    tenantId: string,
+    fromWalletId: string,
+    toWalletId: string,
+    assetId: string,
+    amount: string,
+  ): Promise<void> {
+    try {
+      let need = toScaled(amount);
+      if (need <= 0n) return;
+
+      const lots = await this.prisma.pointsLot.findMany({
+        where: { tenantId, walletId: fromWalletId, assetId, status: 'ACTIVE' },
+        orderBy: [{ expiresAt: { sort: 'asc', nulls: 'last' } }, { earnedAt: 'asc' }],
+      });
+
+      for (const lot of lots) {
+        if (need <= 0n) break;
+        const rem = toScaled(lot.remaining);
+        if (rem <= 0n) continue;
+        const take = rem < need ? rem : need;
+        const nextRem = rem - take;
+        // Draw down the source lot...
+        await this.prisma.pointsLot.update({
+          where: { id: lot.id },
+          data: { remaining: fromScaled(nextRem), ...(nextRem <= 0n ? { status: 'CONSUMED' } : {}) },
+        });
+        // ...and re-create the moved slice at the destination with the SAME expiry.
+        await this.prisma.pointsLot.create({
+          data: {
+            tenantId,
+            walletId: toWalletId,
+            assetId,
+            amount: fromScaled(take),
+            remaining: fromScaled(take),
+            expiresAt: lot.expiresAt,
+          },
+        });
+        need -= take;
+      }
+
+      if (need > 0n) {
+        this.logger.warn(
+          `PointsLot transfer for ${fromWalletId}→${toWalletId} asset=${assetId} left ${fromScaled(need)} ` +
+            `of ${amount} unattributed to a source lot (created no destination lot for it).`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        `PointsLot transfer failed (${fromWalletId}→${toWalletId} asset=${assetId} amount=${amount}): ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 }
