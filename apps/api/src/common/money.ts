@@ -61,6 +61,19 @@ export function mulAmounts(a: string, b: string): string {
   return fromScaled((toScaled(a) * toScaled(b)) / SCALE);
 }
 
+/**
+ * Fixed-point product rounded UP (ceiling). For a required-reserve / liability figure, rounding up
+ * is the conservative direction — it never UNDER-states what the reserve must cover. Exact (== floor)
+ * whenever the true product has ≤7dp, which is the realistic case for supply × unitValue. Both
+ * operands are non-negative money amounts.
+ */
+export function mulAmountsCeil(a: string, b: string): string {
+  const product = toScaled(a) * toScaled(b);
+  const quotient = product / SCALE;
+  const remainder = product % SCALE;
+  return fromScaled(remainder > 0n ? quotient + 1n : quotient);
+}
+
 /** -1 | 0 | 1 comparing two decimal amounts exactly (no float). */
 export function compareAmounts(a: string, b: string): number {
   const d = toScaled(a) - toScaled(b);
