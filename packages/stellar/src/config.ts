@@ -8,7 +8,12 @@ export interface StellarProviderConfig {
   /**
    * The signing seam (§0.6, §11). When omitted, StellarProvider defaults to the in-process
    * LocalDevSigner (dev/testnet behaviour). A mainnet deployment MUST pass an external HSM/KMS
-   * signer here — the private key never enters application memory.
+   * signer here.
+   *
+   * Note this seam abstracts the signing CALL. Achieving "the key never enters application memory"
+   * end-to-end also requires the upstream call sites to stop decrypting secrets and pass key
+   * references instead of raw *SecretKey inputs — a follow-on step. Until then the socket exists and
+   * a real signer can resolve keys internally, but the domain inputs still carry secrets.
    */
   signer?: TransactionSigner;
 
