@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { KeyObject } from 'node:crypto';
 import { loadEd25519PublicKey } from '@paychain/security';
 import type { PayChainConfig } from '@paychain/config';
@@ -42,8 +42,10 @@ export class TrusteeKeyRegistry {
 
   constructor(
     @Inject(CONFIG) config: PayChainConfig,
-    private readonly fetcher: JwksFetcher = defaultFetcher,
-    private readonly now: () => number = () => Date.now(),
+    // @Optional so Nest injects undefined under real DI (these are function types with no provider)
+    // and the TS defaults apply; tests still pass explicit fakes via the constructor.
+    @Optional() private readonly fetcher: JwksFetcher = defaultFetcher,
+    @Optional() private readonly now: () => number = () => Date.now(),
   ) {
     this.jwksUrl = config.TRUSTEE_JWKS_URL;
     this.pinnedWebhookKeyId = config.TRUSTEE_WEBHOOK_KEY_ID;
