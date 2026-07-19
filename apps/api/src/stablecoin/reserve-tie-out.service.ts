@@ -7,6 +7,23 @@ import { ReserveService, displayRatio, meetsRatio } from './reserve.service';
 
 export type TieOutStatus = 'RECONCILED' | 'SHORTFALL' | 'MISMATCH' | 'UNATTESTED';
 
+/** Reconciliation categories a tie-out discrepancy maps to (all were declared-but-unproduced). */
+const TIE_OUT_CATEGORIES = ['RESERVE_SHORTFALL', 'SUPPLY_MISMATCH', 'STALE_RESERVE_DATA'] as const;
+
+/** The reconciliation category for a non-reconciled tie-out status, or null when reconciled. */
+function categoryFor(status: TieOutStatus): (typeof TIE_OUT_CATEGORIES)[number] | null {
+  switch (status) {
+    case 'SHORTFALL':
+      return 'RESERVE_SHORTFALL';
+    case 'MISMATCH':
+      return 'SUPPLY_MISMATCH';
+    case 'UNATTESTED':
+      return 'STALE_RESERVE_DATA';
+    default:
+      return null;
+  }
+}
+
 export interface ReserveTieOut {
   assetId: string;
   /** PayChain's internal ledger reserve (sum of ACTIVE reserve accounts, in the peg currency). */
@@ -120,5 +137,59 @@ export class ReserveTieOutService {
       discrepancies,
       status,
     };
+  }
+
+  /**
+   * Compute the tie-out AND persist the outcome as an alerting signal (§31):
+   *  - a non-reconciled status opens (or refreshes) a ReconciliationException in the matching
+   *    category (RESERVE_SHORTFALL / SUPPLY_MISMATCH / STALE_RESERVE_DATA), with the full tie-out in
+   *    `detail` — it then surfaces in the admin Reconciliation view and open-exception counts;
+   *  - a RECONCILED status resolves any previously-open tie-out exception for the coin (auto-close).
+   *
+   * At most one OPEN tie-out exception per coin: a status change updates the category rather than
+   * stacking duplicates. Read-only `tieOut()` stays a pure GET; this is the write/alert path.
+   */
+  async checkAndRecord(
+    tenantId: string,
+    assetId: string,
+    actor = 'system:tie-out',
+  ): Promise<ReserveTieOut & { exceptionId: string | null }> {
+    const result = await this.tieOut(tenantId, assetId);
+    const category = categoryFor(result.status);
+    const detail = { ...result } as unknown as Record<string, unknown>; // result already carries assetId
+
+    // All OPEN tie-out exceptions for THIS coin (the model keys on tx/hash, so we match assetId in
+    // the detail payload).
+    const open = (
+      await this.prisma.reconciliationException.findMany({
+        where: { tenantId, status: 'OPEN', category: { in: TIE_OUT_CATEGORIES as never } },
+      })
+    ).filter((e) => (e.detail as { assetId?: string } | null)?.assetId === assetId);
+
+    const resolveIds = async (ids: string[]) => {
+      if (!ids.length) return;
+      await this.prisma.reconciliationException.updateMany({
+        where: { id: { in: ids } },
+        data: { status: 'RESOLVED', resolvedAt: new Date(), resolvedBy: actor },
+      });
+    };
+
+    if (!category) {
+      await resolveIds(open.map((e) => e.id)); // reconciled → close everything open for this coin
+      return { ...result, exceptionId: null };
+    }
+
+    const sameCategory = open.find((e) => e.category === category);
+    // Stale exceptions in a DIFFERENT tie-out category (the status changed) get resolved.
+    await resolveIds(open.filter((e) => e.category !== category).map((e) => e.id));
+
+    if (sameCategory) {
+      await this.prisma.reconciliationException.update({ where: { id: sameCategory.id }, data: { detail: detail as never } });
+      return { ...result, exceptionId: sameCategory.id };
+    }
+    const created = await this.prisma.reconciliationException.create({
+      data: { tenantId, category: category as never, detail: detail as never, correlationId: `tie-out:${assetId}` },
+    });
+    return { ...result, exceptionId: created.id };
   }
 }

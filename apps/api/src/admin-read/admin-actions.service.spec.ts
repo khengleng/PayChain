@@ -38,6 +38,7 @@ describe('AdminActionsService', () => {
       flags as never,
       treasury as never,
       stablecoin as never,
+      { checkAndRecord: jest.fn() } as never,
     );
     return { svc, prisma, audit, flags, wallet, stablecoin };
   }
