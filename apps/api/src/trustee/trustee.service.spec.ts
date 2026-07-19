@@ -1,122 +1,124 @@
+import { generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import {
   BadRequestException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { signWebhook } from '@paychain/security';
 import type { PayChainConfig } from '@paychain/config';
 import { TrusteeService, TRUSTEE_INBOUND_TENANT } from './trustee.service';
 
 /**
- * Receiver semantics for trustee-signed webhooks (§35):
- *  - fails closed when no secret is configured, on a missing body/headers, and on a bad signature;
- *  - a valid signature records a receipt and acks;
+ * Receiver semantics for Ed25519-signed trustee webhooks:
+ *  - fails closed with no public key, on missing body/headers, unknown key id, stale timestamp,
+ *    and on a bad/forged signature;
+ *  - a valid signature over `${timestamp}.${body}` records a receipt and acks;
  *  - delivery id is the dedup key handed to the idempotency layer.
  */
 describe('TrusteeService', () => {
-  const SECRET = 'whsec_test_trustee_secret';
+  const KEY_ID = 'webhook-v1';
+  // A throwaway Ed25519 keypair: the private key stands in for the trustee's signer, the public
+  // key (PEM) is what PayChain is configured with.
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const PUBLIC_PEM = publicKey.export({ type: 'spki', format: 'pem' }).toString();
 
-  function build(secret: string | undefined) {
+  function build(pem: string | undefined, keyId = KEY_ID) {
     const record = jest.fn().mockResolvedValue(undefined);
-    // Idempotency stub: run the exec once, echoing the real "reserve-then-execute" contract.
     const run = jest
       .fn()
       .mockImplementation((_tenant, _key, _payload, exec: () => Promise<unknown>) => exec());
     const svc = new TrusteeService(
-      { TRUSTEE_WEBHOOK_SECRET: secret } as unknown as PayChainConfig,
+      { TRUSTEE_WEBHOOK_PUBLIC_KEY: pem, TRUSTEE_WEBHOOK_KEY_ID: keyId } as unknown as PayChainConfig,
       { record } as never,
       { run } as never,
     );
     return { svc, record, run };
   }
 
-  function signed(body: string) {
-    const { signature, timestamp } = signWebhook(SECRET, body, Date.now());
-    return { signature, timestamp };
+  function sign(body: string, timestamp: string): string {
+    return cryptoSign(null, Buffer.from(`${timestamp}.${body}`, 'utf8'), privateKey).toString('base64');
   }
 
-  it('fails closed with 503 when no secret is configured', async () => {
+  function delivery(overrides: Partial<Parameters<TrusteeService['ingest']>[0]> = {}) {
+    const body = overrides.rawBody?.toString() ?? '{"type":"trustee.ping"}';
+    const timestamp = overrides.timestamp ?? String(Date.now());
+    return {
+      rawBody: Buffer.from(body),
+      signature: sign(body, timestamp),
+      keyId: KEY_ID,
+      timestamp,
+      eventType: 'trustee.ping',
+      deliveryId: 'd1',
+      correlationId: 'c1',
+      ...overrides,
+    };
+  }
+
+  it('fails closed with 503 when no public key is configured', async () => {
     const { svc } = build('');
-    await expect(
-      svc.ingest({
-        rawBody: Buffer.from('{}'),
-        signature: 'sha256=x',
-        timestamp: String(Date.now()),
-        eventType: 'trustee.ping',
-        deliveryId: 'd1',
-        correlationId: 'c1',
-      }),
-    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(svc.ingest(delivery())).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('degrades to 503 (does not crash) when the configured key is malformed', async () => {
+    const { svc, record } = build('not-a-valid-key');
+    await expect(svc.ingest(delivery())).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('accepts a bare base64 (no-PEM-armor) configured key', async () => {
+    const bare = publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+    const { svc } = build(bare);
+    const ack = await svc.ingest(delivery({ deliveryId: 'del_bare' }));
+    expect(ack.received).toBe(true);
   });
 
   it('rejects a missing body with 400', async () => {
-    const { svc } = build(SECRET);
-    await expect(
-      svc.ingest({
-        rawBody: undefined,
-        signature: 'sha256=x',
-        timestamp: String(Date.now()),
-        eventType: 'trustee.ping',
-        deliveryId: 'd1',
-        correlationId: 'c1',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    const { svc } = build(PUBLIC_PEM);
+    await expect(svc.ingest(delivery({ rawBody: undefined }))).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('rejects missing signature headers with 400', async () => {
-    const { svc } = build(SECRET);
+    const { svc } = build(PUBLIC_PEM);
+    await expect(svc.ingest(delivery({ signature: undefined }))).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('rejects an unknown key id with 401', async () => {
+    const { svc, record } = build(PUBLIC_PEM);
+    await expect(svc.ingest(delivery({ keyId: 'webhook-v2' }))).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale timestamp with 401', async () => {
+    const { svc } = build(PUBLIC_PEM);
+    const staleTs = String(Date.now() - 10 * 60 * 1000);
     await expect(
-      svc.ingest({
-        rawBody: Buffer.from('{"type":"trustee.ping"}'),
-        signature: undefined,
-        timestamp: undefined,
-        eventType: 'trustee.ping',
-        deliveryId: 'd1',
-        correlationId: 'c1',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+      svc.ingest(delivery({ timestamp: staleTs, signature: sign('{"type":"trustee.ping"}', staleTs) })),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('rejects a forged signature with 401', async () => {
-    const { svc, record } = build(SECRET);
+    const { svc, record } = build(PUBLIC_PEM);
     await expect(
-      svc.ingest({
-        rawBody: Buffer.from('{"type":"trustee.ping"}'),
-        signature: 'sha256=deadbeef',
-        timestamp: String(Date.now()),
-        eventType: 'trustee.ping',
-        deliveryId: 'd1',
-        correlationId: 'c1',
-      }),
+      svc.ingest(delivery({ signature: Buffer.alloc(64, 7).toString('base64') })),
     ).rejects.toBeInstanceOf(UnauthorizedException);
     expect(record).not.toHaveBeenCalled();
   });
 
   it('rejects a body tampered after signing with 401', async () => {
-    const { svc } = build(SECRET);
-    const { signature, timestamp } = signed('{"type":"trustee.ping"}');
+    const { svc } = build(PUBLIC_PEM);
+    const ts = String(Date.now());
+    // Sign the clean body, then deliver a different one — the signature must no longer verify.
     await expect(
       svc.ingest({
-        rawBody: Buffer.from('{"type":"trustee.ping","tampered":true}'),
-        signature,
-        timestamp,
-        eventType: 'trustee.ping',
-        deliveryId: 'd1',
-        correlationId: 'c1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
-  });
-
-  it('rejects a stale timestamp (replay window) with 401', async () => {
-    const { svc } = build(SECRET);
-    const body = '{"type":"trustee.ping"}';
-    const staleTs = Date.now() - 10 * 60 * 1000; // 10m ago, outside the 5m tolerance
-    const { signature } = signWebhook(SECRET, body, staleTs);
-    await expect(
-      svc.ingest({
-        rawBody: Buffer.from(body),
-        signature,
-        timestamp: String(staleTs),
+        rawBody: Buffer.from('{"type":"trustee.ping","x":1}'),
+        signature: sign('{"type":"trustee.ping"}', ts),
+        keyId: KEY_ID,
+        timestamp: ts,
         eventType: 'trustee.ping',
         deliveryId: 'd1',
         correlationId: 'c1',
@@ -125,14 +127,14 @@ describe('TrusteeService', () => {
   });
 
   it('accepts a valid delivery, records a receipt, and acks', async () => {
-    const { svc, record, run } = build(SECRET);
+    const { svc, record, run } = build(PUBLIC_PEM);
+    const ts = String(Date.now());
     const body = '{"type":"trustee.attestation.published","id":"att_1"}';
-    const { signature, timestamp } = signed(body);
-
     const ack = await svc.ingest({
       rawBody: Buffer.from(body),
-      signature,
-      timestamp,
+      signature: sign(body, ts),
+      keyId: KEY_ID,
+      timestamp: ts,
       eventType: 'trustee.attestation.published',
       deliveryId: 'del_42',
       correlationId: 'corr_1',
@@ -143,7 +145,6 @@ describe('TrusteeService', () => {
       deliveryId: 'del_42',
       eventType: 'trustee.attestation.published',
     });
-    // Deduped under the reserved inbound tenant, keyed by the trustee's delivery id.
     expect(run).toHaveBeenCalledWith(
       TRUSTEE_INBOUND_TENANT,
       'del_42',
@@ -154,41 +155,47 @@ describe('TrusteeService', () => {
       expect.objectContaining({
         action: 'trustee.event.received',
         resourceId: 'del_42',
-        metadata: { eventType: 'trustee.attestation.published' },
+        metadata: { eventType: 'trustee.attestation.published', keyId: KEY_ID },
       }),
     );
   });
 
-  it('falls back to the payload type when the event header is absent', async () => {
-    const { svc } = build(SECRET);
-    const body = '{"type":"trustee.readiness.changed"}';
-    const { signature, timestamp } = signed(body);
+  it('verifies a hex-encoded signature too', async () => {
+    const { svc } = build(PUBLIC_PEM);
+    const ts = String(Date.now());
+    const body = '{"type":"trustee.ping"}';
+    const hexSig = cryptoSign(null, Buffer.from(`${ts}.${body}`, 'utf8'), privateKey).toString('hex');
+    const ack = await svc.ingest({ ...delivery({ timestamp: ts }), signature: hexSig });
+    expect(ack.received).toBe(true);
+  });
 
+  it('accepts a PEM with escaped newlines (Railway single-line env)', () => {
+    const escaped = PUBLIC_PEM.replace(/\n/g, '\\n');
+    expect(() => build(escaped)).not.toThrow();
+  });
+
+  it('falls back to the payload type when the event header is absent', async () => {
+    const { svc } = build(PUBLIC_PEM);
+    const ts = String(Date.now());
+    const body = '{"type":"trustee.readiness.changed"}';
     const ack = await svc.ingest({
       rawBody: Buffer.from(body),
-      signature,
-      timestamp,
+      signature: sign(body, ts),
+      keyId: KEY_ID,
+      timestamp: ts,
       eventType: undefined,
       deliveryId: 'del_43',
       correlationId: 'corr_1',
     });
-
     expect(ack.eventType).toBe('trustee.readiness.changed');
   });
 
   it('rejects a valid signature over a non-JSON body with 400', async () => {
-    const { svc } = build(SECRET);
+    const { svc } = build(PUBLIC_PEM);
+    const ts = String(Date.now());
     const body = 'not-json';
-    const { signature, timestamp } = signed(body);
     await expect(
-      svc.ingest({
-        rawBody: Buffer.from(body),
-        signature,
-        timestamp,
-        eventType: 'trustee.ping',
-        deliveryId: 'del_44',
-        correlationId: 'corr_1',
-      }),
+      svc.ingest({ ...delivery({ timestamp: ts }), rawBody: Buffer.from(body), signature: sign(body, ts) }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
