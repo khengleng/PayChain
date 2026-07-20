@@ -317,6 +317,26 @@ export class MintService {
       amount: req.amount,
     });
 
+    // A fresh custodial wallet does not yet trust the asset; on Stellar an issue to an untrusting
+    // account fails with op_no_trust. Establish the destination trustline first — idempotent (skipped
+    // when the line already exists). Mirrors AssetsService.ensureTrustline; the /assets issue path did
+    // this but the mint saga did not, so a mint to a never-trusted wallet failed on real networks.
+    if (wallet.stellarSecretEnc) {
+      const held = await this.chain.getBalance({ publicKey: wallet.stellarAccountId });
+      const hasLine = held.some(
+        (b) => b.assetCode === asset.assetCode && b.issuerPublicKey === asset.issuerPublicKey,
+      );
+      if (!hasLine) {
+        await this.chain.establishTrustline({
+          correlationId: req.correlationId,
+          accountPublicKey: wallet.stellarAccountId,
+          accountSecretKey: this.crypto.decrypt(wallet.stellarSecretEnc),
+          assetCode: asset.assetCode,
+          issuerPublicKey: asset.issuerPublicKey,
+        });
+      }
+    }
+
     const result = await this.chain.issueAsset({
       correlationId: req.correlationId,
       assetCode: asset.assetCode,

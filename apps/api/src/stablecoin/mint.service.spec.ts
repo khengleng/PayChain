@@ -134,6 +134,35 @@ describe('MintService saga', () => {
     expect(issueAsset).toHaveBeenCalled();
   });
 
+  it('establishes the destination trustline before issuing when it is missing (op_no_trust guard)', async () => {
+    const prisma = statefulPrisma({ id: 'm1', tenantId: 't1', assetId: 'a1', amount: '100', status: 'APPROVED', reserveConfirmed: true });
+    // Custodial wallet carrying a managed key but no trustline yet.
+    prisma.wallet.findUnique = async () => ({ id: 'w1', tenantId: 't1', status: 'ACTIVE', stellarAccountId: 'GDEST', stellarSecretEnc: 'enc' });
+    const establishTrustline = jest.fn().mockResolvedValue({ transactionHash: 'TL' });
+    const getBalance = jest.fn().mockResolvedValue([]); // no line to the asset
+    const issueAsset = jest.fn().mockResolvedValue({ transactionHash: 'H', submitted: true });
+    const svc = deps(prisma, { issueAsset, establishTrustline, getBalance, getTransaction: jest.fn() }, { confirmFunding: jest.fn() });
+
+    await svc.advance('t1', 'm1');
+    expect(establishTrustline).toHaveBeenCalledWith(
+      expect.objectContaining({ accountPublicKey: 'GDEST', assetCode: 'USDX', issuerPublicKey: 'GISSUER' }),
+    );
+    expect(issueAsset).toHaveBeenCalled();
+  });
+
+  it('skips the trustline when the wallet already trusts the asset', async () => {
+    const prisma = statefulPrisma({ id: 'm1', tenantId: 't1', assetId: 'a1', amount: '100', status: 'APPROVED', reserveConfirmed: true });
+    prisma.wallet.findUnique = async () => ({ id: 'w1', tenantId: 't1', status: 'ACTIVE', stellarAccountId: 'GDEST', stellarSecretEnc: 'enc' });
+    const establishTrustline = jest.fn();
+    const getBalance = jest.fn().mockResolvedValue([{ assetCode: 'USDX', issuerPublicKey: 'GISSUER', balance: '0' }]);
+    const issueAsset = jest.fn().mockResolvedValue({ transactionHash: 'H', submitted: true });
+    const svc = deps(prisma, { issueAsset, establishTrustline, getBalance, getTransaction: jest.fn() }, { confirmFunding: jest.fn() });
+
+    await svc.advance('t1', 'm1');
+    expect(establishTrustline).not.toHaveBeenCalled();
+    expect(issueAsset).toHaveBeenCalled();
+  });
+
   it('does not re-mint after a post-submission timeout (idempotent recovery §0.5)', async () => {
     const prisma = statefulPrisma({ id: 'm1', tenantId: 't1', assetId: 'a1', amount: '100', status: 'APPROVED', reserveConfirmed: true, blockchainHash: null });
     const issueAsset = jest.fn().mockResolvedValue({ transactionHash: 'H', submitted: true });
