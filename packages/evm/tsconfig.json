@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // viem requires exports-map-aware resolution; classic "node" loads ox's raw .ts source (which
+    // skipLibCheck can't skip) and fails to type-check. node16 honors the exports map so ox resolves
+    // to its .d.ts, while still emitting CommonJS (this package has no "type":"module"). DOM lib
+    // satisfies ox's WebAuthn/window type references; no DOM is used at runtime.
+    "module": "node16",
+    "moduleResolution": "node16",
+    "lib": ["ES2021", "DOM"],
+    "types": ["node", "jest"]
+  },
+  "include": ["src/**/*.ts"]
+}

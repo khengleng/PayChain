@@ -171,6 +171,39 @@ const envSchema = z.object({
   // never be able to MOVE money. Unset (default) keeps the sandbox stand-in.
   BAKONG_API_BASE_URL: z.string().url().optional().or(z.literal('')),
   BAKONG_API_KEY: z.string().optional().or(z.literal('')),
+
+  // ── EVM (Base) custodial track ────────────────────────────────────────────────────────────────
+  // Which chain the blockchain provider binds to. 'stellar' (default) is unchanged. 'evm' selects
+  // the custodial Base provider: PayChain holds the minter key and the per-customer account keys and
+  // signs on their behalf (same custody model as Stellar today), so a customer can view their coin in
+  // MetaMask by the ERC-20 contract address. The reserve controls, mint gating, and tie-out are
+  // chain-agnostic and unchanged. Fail-closed details in the superRefine below.
+  BLOCKCHAIN_KIND: z.enum(['stellar', 'evm']).default('stellar'),
+  // Base network. 'base-sepolia' (testnet, chainId 84532) is the only enabled EVM target in this
+  // phase; 'base' (mainnet, 8453) is admitted but fails closed at boot (see superRefine) until the
+  // minter key is HSM-backed — issuing real value with an in-process key is the same risk the Stellar
+  // mainnet gate refuses.
+  EVM_CHAIN: z.enum(['base-sepolia', 'base']).default('base-sepolia'),
+  EVM_RPC_URL: z.string().url().optional().or(z.literal('')),
+  EVM_RPC_SECONDARY_URL: z.string().url().optional().or(z.literal('')),
+  // Expected chainId; verified against EVM_CHAIN at boot so a URL pointed at the wrong network is
+  // caught before it signs. 84532 = Base Sepolia, 8453 = Base mainnet.
+  EVM_CHAIN_ID: z.coerce.number().int().positive().optional(),
+  // Block confirmations before getTransaction reports 'confirmed' (EVM has probabilistic finality,
+  // unlike Stellar's deterministic close). 2 is comfortable on an OP-stack L2.
+  EVM_CONFIRMATIONS: z.coerce.number().int().nonnegative().default(2),
+  // Optional gas-funder: a PayChain-controlled account (0x-prefixed private key) that drips a little
+  // native ETH to each newly created custodial account so it can later pay gas to move its own tokens
+  // (the custodial analog of Stellar sponsored reserves). When unset, accounts are created unfunded
+  // and the operator funds them out-of-band. EVM_GAS_DRIP_WEI is the per-account amount (wei).
+  EVM_GAS_FUNDER_SECRET_KEY: z.string().optional().or(z.literal('')),
+  EVM_GAS_DRIP_WEI: z.string().optional().or(z.literal('')),
+  // The platform coin's ERC-20 contract address (deployed out-of-band via contracts/) + its ticker.
+  // EVM has no on-chain trustline list, so getBalance can only report tokens it is told about; in
+  // Phase 1 that is this single configured coin. Multi-merchant-coin balance enumeration is a Phase-2
+  // indexer. Writes (mint/transfer/burn) are already multi-token — they carry the contract per call.
+  EVM_TOKEN_ADDRESS: z.string().optional().or(z.literal('')),
+  EVM_TOKEN_CODE: z.string().default('PKHPTS'),
 }).superRefine((cfg, ctx) => {
   // KEY_MANAGEMENT_PROVIDER advertises kms/hsm/mpc, but only the local-dev provider is built:
   // CryptoService wraps AES-256-GCM over KEY_ENCRYPTION_KEY and every signing path decrypts the
@@ -242,6 +275,49 @@ const envSchema = z.object({
         "'local-dev'): the in-process dev key must never sign mainnet value. Blocked until the " +
         'external signer seam lands.',
     });
+  }
+
+  // ── EVM (Base) custodial track: fail-closed, testnet-first ──────────────────────────────────────
+  if (cfg.BLOCKCHAIN_KIND === 'evm') {
+    // Without an RPC there is no chain to talk to; without a chain id we cannot verify the RPC points
+    // at the network we think it does. Both are required rather than defaulted, so a misconfigured EVM
+    // deployment refuses to boot instead of signing against the wrong network.
+    if (!cfg.EVM_RPC_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['EVM_RPC_URL'],
+        message: "BLOCKCHAIN_KIND='evm' requires EVM_RPC_URL (the Base JSON-RPC endpoint).",
+      });
+    }
+    // chainId must match the selected Base network — an RPC pointed at the wrong chain is the EVM
+    // equivalent of a mismatched network passphrase: silent and catastrophic.
+    const expectedChainId = cfg.EVM_CHAIN === 'base' ? 8453 : 84532;
+    if (cfg.EVM_CHAIN_ID === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['EVM_CHAIN_ID'],
+        message: `BLOCKCHAIN_KIND='evm' requires EVM_CHAIN_ID (${expectedChainId} for EVM_CHAIN='${cfg.EVM_CHAIN}').`,
+      });
+    } else if (cfg.EVM_CHAIN_ID !== expectedChainId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['EVM_CHAIN_ID'],
+        message: `EVM_CHAIN_ID=${cfg.EVM_CHAIN_ID} does not match EVM_CHAIN='${cfg.EVM_CHAIN}' (expected ${expectedChainId}).`,
+      });
+    }
+    // Base mainnet is admitted so the platform can be mainnet-aware, but issuance is fail-closed until
+    // the minter key is HSM/KMS-backed — the same rule the Stellar mainnet gate enforces. Phase 1 is
+    // Base Sepolia only.
+    if (cfg.EVM_CHAIN === 'base' && cfg.KEY_MANAGEMENT_PROVIDER === 'local-dev') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['EVM_CHAIN'],
+        message:
+          "EVM_CHAIN='base' (Base mainnet) requires an external HSM/KMS-backed minter key " +
+          "(KEY_MANAGEMENT_PROVIDER must not be 'local-dev'): an in-process key must never mint real " +
+          'value. Phase 1 supports Base Sepolia only.',
+      });
+    }
   }
 
   // A half-configured Bakong credential would silently fall back to the sandbox mock while implying

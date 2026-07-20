@@ -22,6 +22,7 @@
     "@paychain/compliance": "workspace:*",
     "@paychain/config": "workspace:*",
     "@paychain/database": "workspace:*",
+    "@paychain/evm": "workspace:*",
     "@paychain/security": "workspace:*",
     "@paychain/stellar": "workspace:*",
     "class-transformer": "^0.5.1",
