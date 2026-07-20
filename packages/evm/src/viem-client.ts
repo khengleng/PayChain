@@ -8,7 +8,24 @@ import {
 } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia } from 'viem/chains';
-import { ERC20_ABI, type EvmChainClient, type EvmTxReceipt, type GeneratedAccount } from './client';
+import {
+  ERC20_ABI,
+  type EvmChainClient,
+  type EvmTxReceipt,
+  type GeneratedAccount,
+  type TransferLog,
+} from './client';
+
+/** The ERC-20 Transfer event, for eth_getLogs filtering by indexed from/to. */
+const TRANSFER_EVENT = {
+  type: 'event',
+  name: 'Transfer',
+  inputs: [
+    { indexed: true, name: 'from', type: 'address' },
+    { indexed: true, name: 'to', type: 'address' },
+    { indexed: false, name: 'value', type: 'uint256' },
+  ],
+} as const;
 
 export interface ViemChainClientOptions {
   rpcUrl: string;
@@ -133,6 +150,31 @@ export class ViemChainClient implements EvmChainClient {
       // Not yet mined / unknown hash — viem throws TransactionReceiptNotFoundError.
       return null;
     }
+  }
+
+  async erc20TransferLogs(
+    token: string,
+    filter: { from?: string; to?: string },
+    fromBlock: bigint,
+    toBlock: bigint,
+  ): Promise<TransferLog[]> {
+    const logs = await this.public.getLogs({
+      address: asHex(token),
+      event: TRANSFER_EVENT,
+      args: {
+        ...(filter.from ? { from: asHex(filter.from) } : {}),
+        ...(filter.to ? { to: asHex(filter.to) } : {}),
+      },
+      fromBlock,
+      toBlock,
+    });
+    return logs.map((l) => ({
+      transactionHash: l.transactionHash,
+      blockNumber: l.blockNumber,
+      from: l.args.from as string,
+      to: l.args.to as string,
+      value: (l.args.value ?? 0n) as bigint,
+    }));
   }
 
   async nativeBalanceOf(account: string): Promise<bigint> {

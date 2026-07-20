@@ -1,5 +1,4 @@
 import {
-  BlockchainProviderError,
   type AssetBalance,
   type BlockchainProvider,
   type BlockchainTransaction,
@@ -54,12 +53,16 @@ export class EvmProvider implements BlockchainProvider {
   private readonly client: EvmChainClient;
   private readonly confirmations: number;
   private readonly knownTokens: KnownTokenSource;
+  private readonly historyWindowBlocks: bigint;
+  private readonly logChunkBlocks: bigint;
   private readonly decimalsCache = new Map<string, number>();
 
   constructor(private readonly cfg: EvmProviderConfig) {
     this.client = cfg.client;
     this.confirmations = cfg.confirmations ?? 2;
     this.knownTokens = cfg.knownTokens ?? [];
+    this.historyWindowBlocks = BigInt(cfg.historyWindowBlocks ?? 100_000);
+    this.logChunkBlocks = BigInt(Math.max(1, cfg.logChunkBlocks ?? 10_000));
   }
 
   private resolveKnownTokens(): Promise<KnownToken[]> {
@@ -190,16 +193,43 @@ export class EvmProvider implements BlockchainProvider {
   }
 
   /**
-   * Enumerating an account's transfer history requires a log indexer on EVM. Unsupported in Phase 1
-   * rather than silently returning [], which would let orphan reconciliation conclude "nothing to
-   * reconcile" from missing data. The indexer-backed listener is Phase 2.
+   * Recent on-chain activity for an account, reconstructed from ERC-20 Transfer logs across the known
+   * tokens — the EVM analog of Horizon's recent account history, and what the poll-based orphan
+   * reconciliation ({@link ReconciliationService.findOrphanTransactions}) consumes. Scans a bounded
+   * window back from head in newest-first chunks (RPCs cap eth_getLogs ranges), collecting both
+   * directions (from==account, to==account), and stops once `limit` distinct transactions are found.
    */
-  async getTransactionHistory(_input: GetHistoryInput): Promise<BlockchainTransaction[]> {
-    throw new BlockchainProviderError(
-      'getTransactionHistory is not supported on the EVM provider yet — it needs a log indexer (Phase 2).',
-      'UNSUPPORTED',
-      false,
-    );
+  async getTransactionHistory(input: GetHistoryInput): Promise<BlockchainTransaction[]> {
+    const limit = input.limit ?? 20;
+    const tokens = await this.resolveKnownTokens();
+    if (tokens.length === 0) return [];
+
+    const head = await this.client.blockNumber();
+    const floor = head > this.historyWindowBlocks ? head - this.historyWindowBlocks : 0n;
+    const byHash = new Map<string, BlockchainTransaction>();
+
+    // Newest chunk first so the most recent activity is collected before the early-exit.
+    for (let to = head; to >= floor; to = to - this.logChunkBlocks - 1n) {
+      const from = to >= floor + this.logChunkBlocks ? to - this.logChunkBlocks : floor;
+      for (const token of tokens) {
+        const [sent, received] = await Promise.all([
+          this.client.erc20TransferLogs(token.address, { from: input.publicKey }, from, to),
+          this.client.erc20TransferLogs(token.address, { to: input.publicKey }, from, to),
+        ]);
+        for (const log of [...sent, ...received]) {
+          if (!byHash.has(log.transactionHash)) {
+            byHash.set(log.transactionHash, {
+              transactionHash: log.transactionHash,
+              status: 'confirmed',
+              ledger: Number(log.blockNumber),
+            });
+          }
+        }
+      }
+      if (byHash.size >= limit || from === floor) break;
+    }
+
+    return [...byHash.values()].sort((a, b) => (b.ledger ?? 0) - (a.ledger ?? 0)).slice(0, limit);
   }
 
   async estimateFee(input: EstimateFeeInput): Promise<FeeEstimate> {
