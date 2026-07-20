@@ -8,6 +8,7 @@ import {
 } from '@paychain/blockchain';
 import type { PayChainConfig } from '@paychain/config';
 import { StellarProvider, selectSigner } from '@paychain/stellar';
+import { EvmProvider, ViemChainClient } from '@paychain/evm';
 import { CONFIG } from '../config/config.module';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { GLOBAL_TENANT } from '../feature-flags/feature-flags.constants';
@@ -39,6 +40,33 @@ export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
         // Every signature goes through this seam. local-dev signs in-process; a real HSM/KMS signer
         // is required (and config-enforced) before mainnet. Chosen once, shared by both instances.
         const signer = selectSigner(cfg.KEY_MANAGEMENT_PROVIDER);
+
+        // Custodial EVM (Base) track. Selected by BLOCKCHAIN_KIND='evm'; the config gate guarantees
+        // an RPC + matching chainId and keeps Base mainnet fail-closed, so only Base Sepolia can boot
+        // here in Phase 1 — no mainnet write-gate is required yet (that is a Phase-2 Base guard).
+        if (cfg.BLOCKCHAIN_KIND === 'evm') {
+          const makeEvm = (rpcUrl: string) =>
+            new EvmProvider({
+              network: cfg.EVM_CHAIN === 'base' ? 'mainnet' : 'testnet',
+              client: new ViemChainClient({ rpcUrl, chainId: cfg.EVM_CHAIN_ID as number }),
+              knownTokens: cfg.EVM_TOKEN_ADDRESS
+                ? [{ address: cfg.EVM_TOKEN_ADDRESS, assetCode: cfg.EVM_TOKEN_CODE }]
+                : [],
+              confirmations: cfg.EVM_CONFIRMATIONS,
+              gasFunderSecretKey: cfg.EVM_GAS_FUNDER_SECRET_KEY || undefined,
+              gasDripWei: cfg.EVM_GAS_DRIP_WEI ? BigInt(cfg.EVM_GAS_DRIP_WEI) : undefined,
+            });
+          const evmProviders: NamedProvider[] = [
+            { name: 'evm-primary', provider: makeEvm(cfg.EVM_RPC_URL as string) },
+          ];
+          if (cfg.EVM_RPC_SECONDARY_URL) {
+            evmProviders.push({ name: 'evm-secondary', provider: makeEvm(cfg.EVM_RPC_SECONDARY_URL) });
+          }
+          return new FailoverBlockchainProvider(evmProviders, {
+            timeoutMs: 20_000,
+            circuit: { failureThreshold: 5, resetTimeoutMs: 30_000 },
+          });
+        }
 
         const makeStellar = (horizonUrl: string) =>
           new StellarProvider({

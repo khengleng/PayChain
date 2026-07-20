@@ -1,23 +1,18 @@
 {
-  "name": "@paychain/worker",
+  "name": "@paychain/evm",
   "version": "0.1.0",
   "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/main.js",
+    "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "test": "jest --passWithNoTests"
   },
   "dependencies": {
     "@paychain/blockchain": "workspace:*",
-    "@paychain/config": "workspace:*",
-    "@paychain/database": "workspace:*",
-    "@paychain/evm": "workspace:*",
-    "@paychain/security": "workspace:*",
-    "@paychain/stellar": "workspace:*",
-    "bullmq": "^5.8.7",
-    "ioredis": "^5.4.1"
+    "viem": "^2.21.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
