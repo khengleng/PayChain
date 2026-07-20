@@ -51,6 +51,8 @@ export const BLOCKCHAIN_PROVIDER = Symbol('BLOCKCHAIN_PROVIDER');
               client: new ViemChainClient({ rpcUrl, chainId: cfg.EVM_CHAIN_ID as number }),
               knownTokens: mergeKnownTokens(cfg.EVM_TOKEN_ADDRESS || undefined, cfg.EVM_TOKEN_CODE, cfg.EVM_TOKEN_ADDRESSES),
               confirmations: cfg.EVM_CONFIRMATIONS,
+              historyWindowBlocks: cfg.EVM_HISTORY_WINDOW_BLOCKS,
+              logChunkBlocks: cfg.EVM_LOG_CHUNK_BLOCKS,
               gasFunderSecretKey: cfg.EVM_GAS_FUNDER_SECRET_KEY || undefined,
               gasDripWei: cfg.EVM_GAS_DRIP_WEI ? BigInt(cfg.EVM_GAS_DRIP_WEI) : undefined,
             });

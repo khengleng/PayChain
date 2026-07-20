@@ -67,6 +67,15 @@ export interface EvmTxReceipt {
   blockNumber: bigint;
 }
 
+/** A decoded ERC-20 Transfer log — the unit getTransactionHistory reconstructs account activity from. */
+export interface TransferLog {
+  transactionHash: string;
+  blockNumber: bigint;
+  from: string;
+  to: string;
+  value: bigint;
+}
+
 /**
  * The narrow chain port the EvmProvider depends on. The viem-backed implementation
  * (ViemChainClient) is the ONLY place in the codebase that imports viem — analogous to
@@ -90,6 +99,16 @@ export interface EvmChainClient {
   erc20Freeze(token: string, freezerSecret: string, account: string): Promise<string>;
   erc20Unfreeze(token: string, freezerSecret: string, account: string): Promise<string>;
   receipt(hash: string): Promise<EvmTxReceipt | null>;
+  /**
+   * ERC-20 Transfer logs for `token` in [fromBlock, toBlock] matching the (indexed) from/to filter.
+   * `from`+`to` together would AND them; the provider issues two calls (one per direction) and merges.
+   */
+  erc20TransferLogs(
+    token: string,
+    filter: { from?: string; to?: string },
+    fromBlock: bigint,
+    toBlock: bigint,
+  ): Promise<TransferLog[]>;
   nativeBalanceOf(account: string): Promise<bigint>;
   sendNative(fromSecret: string, to: string, valueWei: bigint): Promise<string>;
   gasPrice(): Promise<bigint>;
@@ -142,6 +161,13 @@ export interface EvmProviderConfig {
   knownTokens?: KnownTokenSource;
   /** Block confirmations before getTransaction reports 'confirmed'. */
   confirmations?: number;
+  /**
+   * getTransactionHistory scans this many blocks back from head (bounded so a stateless call cannot
+   * scan from genesis), in chunks of `logChunkBlocks` (RPCs cap eth_getLogs ranges). Newest chunk
+   * first, stopping once `limit` results are collected — recent activity is what orphan recon needs.
+   */
+  historyWindowBlocks?: number;
+  logChunkBlocks?: number;
   /** Optional gas-funder: drips native ETH to each new custodial account so it can pay its own gas. */
   gasFunderSecretKey?: string;
   gasDripWei?: bigint;

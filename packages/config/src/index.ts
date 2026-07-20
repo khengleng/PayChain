@@ -192,6 +192,11 @@ const envSchema = z.object({
   // Block confirmations before getTransaction reports 'confirmed' (EVM has probabilistic finality,
   // unlike Stellar's deterministic close). 2 is comfortable on an OP-stack L2.
   EVM_CONFIRMATIONS: z.coerce.number().int().nonnegative().default(2),
+  // getTransactionHistory (used by orphan reconciliation) scans this many blocks back from head,
+  // in chunks of EVM_LOG_CHUNK_BLOCKS (RPCs cap eth_getLogs ranges — 10k is a safe default). On
+  // Base (~2s blocks) 100k blocks ≈ the last ~2 days, which is the window orphan detection cares about.
+  EVM_HISTORY_WINDOW_BLOCKS: z.coerce.number().int().positive().default(100_000),
+  EVM_LOG_CHUNK_BLOCKS: z.coerce.number().int().positive().default(10_000),
   // Optional gas-funder: a PayChain-controlled account (0x-prefixed private key) that drips a little
   // native ETH to each newly created custodial account so it can later pay gas to move its own tokens
   // (the custodial analog of Stellar sponsored reserves). When unset, accounts are created unfunded

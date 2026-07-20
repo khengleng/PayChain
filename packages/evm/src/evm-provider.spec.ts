@@ -1,5 +1,4 @@
-import { BlockchainProviderError } from '@paychain/blockchain';
-import type { EvmChainClient, EvmTxReceipt } from './client';
+import type { EvmChainClient, EvmTxReceipt, TransferLog } from './client';
 import { EvmProvider } from './evm-provider';
 
 const TOKEN = '0xTokenContract';
@@ -17,6 +16,8 @@ class FakeClient implements EvmChainClient {
   burns: Array<{ token: string; from: string; amount: bigint }> = [];
   freezes: Array<{ token: string; freezer: string; account: string }> = [];
   unfreezes: Array<{ token: string; freezer: string; account: string }> = [];
+  logs: TransferLog[] = []; // all transfer logs across blocks; filtered per query
+  logQueries: Array<{ from?: string; to?: string; fromBlock: bigint; toBlock: bigint }> = [];
   private seq = 0;
 
   async chainId() {
@@ -53,6 +54,21 @@ class FakeClient implements EvmChainClient {
   }
   async receipt(hash: string) {
     return this.receipts.get(hash) ?? null;
+  }
+  async erc20TransferLogs(
+    _token: string,
+    filter: { from?: string; to?: string },
+    fromBlock: bigint,
+    toBlock: bigint,
+  ): Promise<TransferLog[]> {
+    this.logQueries.push({ ...filter, fromBlock, toBlock });
+    return this.logs.filter(
+      (l) =>
+        l.blockNumber >= fromBlock &&
+        l.blockNumber <= toBlock &&
+        (filter.from ? l.from === filter.from : true) &&
+        (filter.to ? l.to === filter.to : true),
+    );
   }
   async nativeBalanceOf() {
     return 0n;
@@ -217,10 +233,45 @@ describe('EvmProvider (custodial Base)', () => {
     ]);
   });
 
-  it('getTransactionHistory is explicitly unsupported (needs an indexer) rather than silently empty', async () => {
-    await expect(makeProvider(new FakeClient()).getTransactionHistory({ publicKey: '0xa' })).rejects.toBeInstanceOf(
-      BlockchainProviderError,
-    );
+  it('getTransactionHistory reconstructs both directions from Transfer logs, deduped and newest-first', async () => {
+    const client = new FakeClient();
+    client.head = 50n;
+    client.logs = [
+      { transactionHash: '0xA', blockNumber: 10n, from: '0xme', to: '0xother', value: 1n }, // sent
+      { transactionHash: '0xB', blockNumber: 20n, from: '0xother', to: '0xme', value: 2n }, // received
+      { transactionHash: '0xB', blockNumber: 20n, from: '0xother', to: '0xme', value: 2n }, // dup hash
+      { transactionHash: '0xC', blockNumber: 5n, from: '0xstranger', to: '0xelse', value: 9n }, // unrelated
+    ];
+    const history = await makeProvider(client).getTransactionHistory({ publicKey: '0xme' });
+    expect(history).toEqual([
+      { transactionHash: '0xB', status: 'confirmed', ledger: 20 },
+      { transactionHash: '0xA', status: 'confirmed', ledger: 10 },
+    ]);
+  });
+
+  it('getTransactionHistory returns empty when no tokens are known (no chain scan)', async () => {
+    const client = new FakeClient();
+    const provider = new EvmProvider({ network: 'testnet', client, knownTokens: [] });
+    expect(await provider.getTransactionHistory({ publicKey: '0xme' })).toEqual([]);
+    expect(client.logQueries).toHaveLength(0);
+  });
+
+  it('getTransactionHistory bounds the scan to the configured window and stops early once limit is met', async () => {
+    const client = new FakeClient();
+    client.head = 1_000_000n;
+    // one relevant log inside the window (near head)
+    client.logs = [{ transactionHash: '0xZ', blockNumber: 995_000n, from: '0xme', to: '0xx', value: 1n }];
+    const provider = new EvmProvider({
+      network: 'testnet',
+      client,
+      knownTokens: [{ address: TOKEN, assetCode: 'PKHPTS' }],
+      historyWindowBlocks: 20_000, // floor = 980_000
+      logChunkBlocks: 10_000,
+    });
+    const history = await provider.getTransactionHistory({ publicKey: '0xme', limit: 5 });
+    expect(history).toEqual([{ transactionHash: '0xZ', status: 'confirmed', ledger: 995_000 }]);
+    // never scans below the window floor
+    expect(client.logQueries.every((q) => q.fromBlock >= 980_000n)).toBe(true);
   });
 
   it('healthCheck reports the block height and chain id', async () => {
