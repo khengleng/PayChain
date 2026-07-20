@@ -3,6 +3,7 @@ import Link from 'next/link';
 import './globals.css';
 import { can, getSession } from '../lib/session';
 import { LogoutButton } from './logout-button';
+import { SessionExpiryGuard } from './session-expiry-guard';
 
 export const metadata: Metadata = {
   title: 'PayChain Super Admin',
@@ -47,6 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {session ? (
           <div className="layout">
+            <SessionExpiryGuard exp={session.exp} />
             <aside className="sidebar">
               <div className="brand">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
