@@ -22,6 +22,7 @@ const SCOPES = {
   'stablecoin.manage': 'Manage stablecoin lifecycle and workflows',
   'stablecoin.read': 'Read stablecoin state and workflow records',
   'stablecoin.approve': 'Approve stablecoin lifecycle gates',
+  'stablecoin.earn': 'Award reserve-backed points via the earn mint (auto-approved below the ceiling)',
 } as const;
 
 function bearer(scopes: Array<keyof typeof SCOPES> = []): Array<Record<string, string[]>> {
@@ -256,14 +257,17 @@ const schemas: Record<string, Schema> = {
       amount: { type: 'string', example: '25' },
     },
   },
+  // Earn awards a caller-computed number of points as a reserve-backed mint. The loyalty platform
+  // (PayKH) evaluates its own earn rules from the purchase and passes the resulting `amount`; PayChain
+  // mints it through the reserve/trustee/compliance-gated saga. So the shape is the mint shape, not a
+  // purchase (spendAmount/currency) — PayChain does not run the merchant's rules engine.
   EarnRequest: {
     type: 'object',
-    required: ['walletId', 'spendAmount', 'currency'],
+    required: ['destinationWalletId', 'amount'],
     properties: {
-      walletId: { type: 'string' },
-      spendAmount: { type: 'string', example: '5.00' },
-      currency: { type: 'string', maxLength: 8, example: 'USD' },
-      merchantId: { type: 'string' },
+      destinationWalletId: { type: 'string', description: 'The customer wallet to receive the points.' },
+      amount: { type: 'string', example: '40000', description: 'Points to mint (caller-computed).' },
+      fundingReference: { type: 'string', description: 'Reserve funding reference backing this mint.' },
     },
   },
   TransactionRecord: {
@@ -635,14 +639,22 @@ const paths: Record<string, Record<string, Operation>> = {
   },
   [`${API_PREFIX}/assets/{assetId}/earn`]: {
     post: withStandardHeaders({
-      tags: ['Assets'],
+      tags: ['Stablecoins'],
       operationId: 'earnAsset',
-      summary: 'Evaluate earn rules and award points',
-      security: bearer(['asset.issue']),
+      summary: 'Award loyalty points as a reserve-backed mint (single call)',
+      description:
+        'Mints a caller-computed number of points to a customer wallet through the reserve/trustee/' +
+        'compliance-gated mint saga. Below STABLECOIN_EARN_AUTO_APPROVE_MAX_AMOUNT it mints without a ' +
+        'human checker; at/above it, the mint falls back to maker-checker (returned in APPROVAL_REQUIRED). ' +
+        'Returns the mint request; on-chain confirmation completes asynchronously.',
+      security: bearer(['stablecoin.earn']),
       parameters: [{ $ref: '#/components/parameters/AssetId' }],
       requestBody: jsonBody('#/components/schemas/EarnRequest'),
       responses: {
-        200: jsonResponse('Earn transaction', '#/components/schemas/TransactionRecord'),
+        200: {
+          description: 'Mint workflow record (status SUBMITTED on success, or APPROVAL_REQUIRED above the ceiling)',
+          content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } },
+        },
       },
     }, { idempotent: true }),
   },
