@@ -40,6 +40,20 @@ export const ERC20_ABI = [
     inputs: [{ name: 'amount', type: 'uint256' }],
     outputs: [],
   },
+  {
+    type: 'function',
+    name: 'freeze',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'unfreeze',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [],
+  },
 ] as const;
 
 /** A newly generated custodial account: PayChain holds both, exactly as with Stellar wallets. */
@@ -72,6 +86,9 @@ export interface EvmChainClient {
   erc20Transfer(token: string, fromSecret: string, to: string, amount: bigint): Promise<string>;
   /** ERC20Burnable burn(amount) from the holder — drops supply. */
   erc20Burn(token: string, fromSecret: string, amount: bigint): Promise<string>;
+  /** freeze(account)/unfreeze(account) — FREEZER_ROLE, signed with the platform freezer key. */
+  erc20Freeze(token: string, freezerSecret: string, account: string): Promise<string>;
+  erc20Unfreeze(token: string, freezerSecret: string, account: string): Promise<string>;
   receipt(hash: string): Promise<EvmTxReceipt | null>;
   nativeBalanceOf(account: string): Promise<bigint>;
   sendNative(fromSecret: string, to: string, valueWei: bigint): Promise<string>;
@@ -87,16 +104,42 @@ export interface KnownToken {
   assetCode: string;
 }
 
+/**
+ * The set of tokens getBalance enumerates. Either a static list (configured platform coins) or a
+ * resolver evaluated per call — the seam for backing it with the EVM Asset rows in the DB so that
+ * dynamically-provisioned merchant coins are enumerated without re-wiring the provider.
+ */
+export type KnownTokenSource = KnownToken[] | (() => Promise<KnownToken[]>);
+
+/**
+ * Combine the primary configured coin with any additional configured coins into a deduped list
+ * (by lowercased address). Shared by the API and worker wiring so getBalance enumerates the same
+ * token set on both.
+ */
+export function mergeKnownTokens(
+  primaryAddress: string | undefined,
+  primaryCode: string,
+  additional: KnownToken[],
+): KnownToken[] {
+  const seen = new Map<string, KnownToken>();
+  const add = (t: KnownToken) => {
+    if (t.address) seen.set(t.address.toLowerCase(), t);
+  };
+  if (primaryAddress) add({ address: primaryAddress, assetCode: primaryCode });
+  additional.forEach(add);
+  return [...seen.values()];
+}
+
 export interface EvmProviderConfig {
   /** 'testnet' = Base Sepolia, 'mainnet' = Base. Reported in ProviderHealth. */
   network: NetworkName;
   client: EvmChainClient;
   /**
-   * Tokens getBalance enumerates for an account. EVM has no on-chain trustline list, so without an
-   * indexer the provider can only report balances for token contracts it is told about (Phase 1:
-   * the single configured platform coin; multi-merchant-coin enumeration is a Phase-2 indexer).
+   * Tokens getBalance enumerates for an account. EVM has no on-chain trustline list, so the provider
+   * reports balances for the token contracts it is told about — a configured list, or a resolver
+   * (e.g. backed by the EVM Asset rows) for dynamically-provisioned coins.
    */
-  knownTokens?: KnownToken[];
+  knownTokens?: KnownTokenSource;
   /** Block confirmations before getTransaction reports 'confirmed'. */
   confirmations?: number;
   /** Optional gas-funder: drips native ETH to each new custodial account so it can pay its own gas. */

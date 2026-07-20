@@ -204,6 +204,24 @@ const envSchema = z.object({
   // indexer. Writes (mint/transfer/burn) are already multi-token — they carry the contract per call.
   EVM_TOKEN_ADDRESS: z.string().optional().or(z.literal('')),
   EVM_TOKEN_CODE: z.string().default('PKHPTS'),
+  // Additional platform coins for getBalance enumeration, as comma-separated `address:CODE` pairs
+  // (e.g. "0xAAA:PKHPTS,0xBBB:MERCHX"). Combined with EVM_TOKEN_ADDRESS. This is the static registry;
+  // the provider also accepts an injected resolver for DB-driven, dynamically-provisioned coins.
+  EVM_TOKEN_ADDRESSES: z
+    .string()
+    .optional()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((pair) => {
+          const [address = '', assetCode = ''] = pair.split(':').map((s) => s.trim());
+          return { address, assetCode };
+        })
+        .filter((t) => t.address && t.assetCode),
+    ),
 }).superRefine((cfg, ctx) => {
   // KEY_MANAGEMENT_PROVIDER advertises kms/hsm/mpc, but only the local-dev provider is built:
   // CryptoService wraps AES-256-GCM over KEY_ENCRYPTION_KEY and every signing path decrypts the

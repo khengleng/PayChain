@@ -22,13 +22,23 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
  */
 contract PayChainToken is ERC20, ERC20Burnable, AccessControl {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant FREEZER_ROLE = keccak256("FREEZER_ROLE");
     uint8 private immutable _decimals;
+
+    /// On-chain freeze list. A frozen account cannot send or receive (defence-in-depth on top of the
+    /// custodial gate, so a leaked account key still cannot move value once frozen).
+    mapping(address => bool) public frozen;
+
+    event AccountFrozen(address indexed account);
+    event AccountUnfrozen(address indexed account);
+
+    error AccountIsFrozen(address account);
 
     /**
      * @param name_    Human name, e.g. "PayKH Points".
      * @param symbol_  Ticker, e.g. "PKHPTS".
      * @param decimals_ On-chain decimals (match your PayChain unit; e.g. 7 for Stellar-parity, or 6/18).
-     * @param admin    Holds DEFAULT_ADMIN_ROLE (can grant/revoke roles) — a PayChain-controlled key.
+     * @param admin    Holds DEFAULT_ADMIN_ROLE + FREEZER_ROLE — a PayChain-controlled key.
      * @param minter   Holds MINTER_ROLE — the account PayChain signs mints with.
      */
     constructor(
@@ -41,6 +51,8 @@ contract PayChainToken is ERC20, ERC20Burnable, AccessControl {
         _decimals = decimals_;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(MINTER_ROLE, minter);
+        // The admin key is also the freezer by default; the role can be delegated separately later.
+        _grantRole(FREEZER_ROLE, admin);
     }
 
     function decimals() public view override returns (uint8) {
@@ -50,5 +62,27 @@ contract PayChainToken is ERC20, ERC20Burnable, AccessControl {
     /// Mint new supply to `to`. Restricted to MINTER_ROLE; reserve-gated off-chain before this call.
     function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) {
         _mint(to, amount);
+    }
+
+    /// Freeze `account` — it can no longer send or receive until unfrozen. Restricted to FREEZER_ROLE.
+    function freeze(address account) external onlyRole(FREEZER_ROLE) {
+        frozen[account] = true;
+        emit AccountFrozen(account);
+    }
+
+    /// Lift a freeze so the account can transact again (e.g. after remediation). FREEZER_ROLE only.
+    function unfreeze(address account) external onlyRole(FREEZER_ROLE) {
+        frozen[account] = false;
+        emit AccountUnfrozen(account);
+    }
+
+    /**
+     * OZ v5 routes every mint/burn/transfer through _update. Blocking here freezes an account for all
+     * three — including receiving a mint — until it is explicitly unfrozen. Unfreeze first to remediate.
+     */
+    function _update(address from, address to, uint256 value) internal override {
+        if (frozen[from]) revert AccountIsFrozen(from);
+        if (frozen[to]) revert AccountIsFrozen(to);
+        super._update(from, to, value);
     }
 }
