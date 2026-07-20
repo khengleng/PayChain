@@ -15,6 +15,8 @@ class FakeClient implements EvmChainClient {
   mints: Array<{ token: string; minter: string; to: string; amount: bigint }> = [];
   transfers: Array<{ token: string; from: string; to: string; amount: bigint }> = [];
   burns: Array<{ token: string; from: string; amount: bigint }> = [];
+  freezes: Array<{ token: string; freezer: string; account: string }> = [];
+  unfreezes: Array<{ token: string; freezer: string; account: string }> = [];
   private seq = 0;
 
   async chainId() {
@@ -40,6 +42,14 @@ class FakeClient implements EvmChainClient {
   async erc20Burn(token: string, from: string, amount: bigint) {
     this.burns.push({ token, from, amount });
     return `0xburn${this.seq++}`;
+  }
+  async erc20Freeze(token: string, freezer: string, account: string) {
+    this.freezes.push({ token, freezer, account });
+    return `0xfreeze${this.seq++}`;
+  }
+  async erc20Unfreeze(token: string, freezer: string, account: string) {
+    this.unfreezes.push({ token, freezer, account });
+    return `0xunfreeze${this.seq++}`;
   }
   async receipt(hash: string) {
     return this.receipts.get(hash) ?? null;
@@ -154,7 +164,7 @@ describe('EvmProvider (custodial Base)', () => {
     expect((await provider.getTransaction({ transactionHash: '0xunknown' })).status).toBe('not_found');
   });
 
-  it('establishTrustline and freeze/unfreeze are no-ops (no on-chain trustline / freeze on plain ERC-20)', async () => {
+  it('establishTrustline is a no-op (ERC-20 needs no trustline before receiving)', async () => {
     const provider = makeProvider(new FakeClient());
     expect(await provider.establishTrustline({
       correlationId: 'c1',
@@ -163,14 +173,48 @@ describe('EvmProvider (custodial Base)', () => {
       assetCode: 'PKHPTS',
       issuerPublicKey: TOKEN,
     })).toEqual({ transactionHash: 'evm:no-trustline-required' });
+  });
+
+  it('freezeWallet / unfreezeWallet call the on-chain freeze with the freezer key', async () => {
+    const client = new FakeClient();
+    const provider = makeProvider(client);
     const frozen = await provider.freezeWallet({
       correlationId: 'c1',
       assetCode: 'PKHPTS',
       issuerPublicKey: TOKEN,
       issuerSecretKey: MINTER,
-      targetPublicKey: '0xa',
+      targetPublicKey: '0xbad',
     });
-    expect(frozen.submitted).toBe(false);
+    expect(frozen).toEqual({ transactionHash: expect.stringMatching(/^0xfreeze/), submitted: true });
+    expect(client.freezes).toEqual([{ token: TOKEN, freezer: MINTER, account: '0xbad' }]);
+
+    await provider.unfreezeWallet({
+      correlationId: 'c2',
+      assetCode: 'PKHPTS',
+      issuerPublicKey: TOKEN,
+      issuerSecretKey: MINTER,
+      targetPublicKey: '0xbad',
+    });
+    expect(client.unfreezes).toEqual([{ token: TOKEN, freezer: MINTER, account: '0xbad' }]);
+  });
+
+  it('getBalance enumerates multiple tokens from a resolver (backs the DB-driven registry)', async () => {
+    const client = new FakeClient();
+    client.balances.set('0xcustomer', 3_0000000n); // both tokens share the fake balance map
+    const provider = new EvmProvider({
+      network: 'testnet',
+      client,
+      // resolver form — what the app backs with the EVM Asset rows
+      knownTokens: async () => [
+        { address: '0xTokenA', assetCode: 'AAA' },
+        { address: '0xTokenB', assetCode: 'BBB' },
+      ],
+    });
+    const balances = await provider.getBalance({ publicKey: '0xcustomer' });
+    expect(balances).toEqual([
+      { assetCode: 'AAA', issuerPublicKey: '0xTokenA', balance: '3' },
+      { assetCode: 'BBB', issuerPublicKey: '0xTokenB', balance: '3' },
+    ]);
   });
 
   it('getTransactionHistory is explicitly unsupported (needs an indexer) rather than silently empty', async () => {

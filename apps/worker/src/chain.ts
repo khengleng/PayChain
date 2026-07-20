@@ -5,7 +5,7 @@ import {
 } from '@paychain/blockchain';
 import type { PayChainConfig } from '@paychain/config';
 import { StellarProvider, selectSigner } from '@paychain/stellar';
-import { EvmProvider, ViemChainClient } from '@paychain/evm';
+import { EvmProvider, ViemChainClient, mergeKnownTokens } from '@paychain/evm';
 
 /**
  * Builds the provider-agnostic blockchain client for the worker (§9), wrapped in failover
@@ -20,7 +20,7 @@ export function createChainProvider(cfg: PayChainConfig): BlockchainProvider {
       new EvmProvider({
         network: cfg.EVM_CHAIN === 'base' ? 'mainnet' : 'testnet',
         client: new ViemChainClient({ rpcUrl, chainId: cfg.EVM_CHAIN_ID as number }),
-        knownTokens: cfg.EVM_TOKEN_ADDRESS ? [{ address: cfg.EVM_TOKEN_ADDRESS, assetCode: cfg.EVM_TOKEN_CODE }] : [],
+        knownTokens: mergeKnownTokens(cfg.EVM_TOKEN_ADDRESS || undefined, cfg.EVM_TOKEN_CODE, cfg.EVM_TOKEN_ADDRESSES),
         confirmations: cfg.EVM_CONFIRMATIONS,
         gasFunderSecretKey: cfg.EVM_GAS_FUNDER_SECRET_KEY || undefined,
         gasDripWei: cfg.EVM_GAS_DRIP_WEI ? BigInt(cfg.EVM_GAS_DRIP_WEI) : undefined,

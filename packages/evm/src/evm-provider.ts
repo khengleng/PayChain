@@ -23,7 +23,7 @@ import {
   type TrustlineResult,
   type UnfreezeWalletInput,
 } from '@paychain/blockchain';
-import type { EvmChainClient, EvmProviderConfig, KnownToken } from './client';
+import type { EvmChainClient, EvmProviderConfig, KnownToken, KnownTokenSource } from './client';
 import { fromBaseUnits, toBaseUnits } from './units';
 
 /** Assumed gas per ERC-20 op for a cheap fee estimate (mint/transfer/burn are ~50–70k on an L2). */
@@ -53,13 +53,17 @@ const GAS_PER_OP = 70_000n;
 export class EvmProvider implements BlockchainProvider {
   private readonly client: EvmChainClient;
   private readonly confirmations: number;
-  private readonly knownTokens: KnownToken[];
+  private readonly knownTokens: KnownTokenSource;
   private readonly decimalsCache = new Map<string, number>();
 
   constructor(private readonly cfg: EvmProviderConfig) {
     this.client = cfg.client;
     this.confirmations = cfg.confirmations ?? 2;
     this.knownTokens = cfg.knownTokens ?? [];
+  }
+
+  private resolveKnownTokens(): Promise<KnownToken[]> {
+    return typeof this.knownTokens === 'function' ? this.knownTokens() : Promise.resolve(this.knownTokens);
   }
 
   private async decimalsOf(token: string): Promise<number> {
@@ -136,27 +140,29 @@ export class EvmProvider implements BlockchainProvider {
   }
 
   /**
-   * A plain ERC-20 has no per-account freeze. In the custodial model the real freeze is that
-   * PayChain declines to sign for a frozen wallet (enforced by wallet status in the business layer),
-   * so the on-chain call is a documented no-op rather than a fake or a hard failure that would break
-   * the emergency freeze path. On-chain enforcement would require a pausable/blacklist token (Phase 2).
+   * On-chain freeze via PayChainToken.freeze (FREEZER_ROLE), signed with the platform freezer key
+   * (issuerSecretKey). Defence-in-depth on top of the custodial gate: even a leaked account key
+   * cannot move value once the account is frozen on chain. The app-side wallet status remains the
+   * first-line control; this makes the freeze enforceable by the ledger too.
    */
-  async freezeWallet(_input: FreezeWalletInput): Promise<BlockchainTransactionResult> {
-    return { transactionHash: 'evm:freeze-enforced-app-side', submitted: false };
+  async freezeWallet(input: FreezeWalletInput): Promise<BlockchainTransactionResult> {
+    const hash = await this.client.erc20Freeze(input.issuerPublicKey, input.issuerSecretKey, input.targetPublicKey);
+    return { transactionHash: hash, submitted: true };
   }
 
-  async unfreezeWallet(_input: UnfreezeWalletInput): Promise<BlockchainTransactionResult> {
-    return { transactionHash: 'evm:unfreeze-enforced-app-side', submitted: false };
+  async unfreezeWallet(input: UnfreezeWalletInput): Promise<BlockchainTransactionResult> {
+    const hash = await this.client.erc20Unfreeze(input.issuerPublicKey, input.issuerSecretKey, input.targetPublicKey);
+    return { transactionHash: hash, submitted: true };
   }
 
   /**
-   * EVM has no on-chain trustline list to derive an account's holdings from, so without an indexer we
-   * can only report balances for token contracts the provider is configured to know about. Phase 1
-   * covers the single configured platform coin; multi-merchant-coin enumeration is a Phase-2 indexer.
+   * EVM has no on-chain trustline list to derive an account's holdings from, so the provider reports
+   * balances for the tokens it is told about (the configured list, or the injected resolver backed by
+   * the EVM Asset rows). Each is a balanceOf call.
    */
   async getBalance(input: GetBalanceInput): Promise<AssetBalance[]> {
     const balances: AssetBalance[] = [];
-    for (const token of this.knownTokens) {
+    for (const token of await this.resolveKnownTokens()) {
       const raw = await this.client.erc20BalanceOf(token.address, input.publicKey);
       balances.push({
         assetCode: token.assetCode,

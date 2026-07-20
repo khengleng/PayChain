@@ -13,6 +13,9 @@ chain-agnostic. This contract only records supply/movement on chain.
 - `mint(to, amount)` — restricted to `MINTER_ROLE`. Reserve-gated **off-chain** before it is ever called.
 - `burn(amount)` — `ERC20Burnable`; the holder (whom PayChain signs for) burns its own balance. Used
   for spend / redemption — supply drops accordingly.
+- `freeze(account)` / `unfreeze(account)` — `FREEZER_ROLE` (granted to the admin key). A frozen account
+  can neither send nor receive (enforced in the OZ v5 `_update` hook) — defence-in-depth on top of the
+  custodial gate, so a leaked account key still cannot move value once frozen.
 - `decimals` — set at deploy; match your PayChain unit (Stellar-parity is 7).
 
 ## Build & deploy (Foundry)
@@ -41,6 +44,8 @@ EVM_RPC_URL=https://sepolia.base.org
 EVM_CHAIN_ID=84532
 EVM_TOKEN_ADDRESS=<deployed PayChainToken address>
 EVM_TOKEN_CODE=PKHPTS
+# optional: additional coins for balance enumeration, as address:CODE pairs
+EVM_TOKEN_ADDRESSES=0xCoinA:MERCHA,0xCoinB:MERCHB
 # optional gas drip so new custodial accounts can move their own tokens:
 EVM_GAS_FUNDER_SECRET_KEY=0x...      # a PayChain-controlled, ETH-funded account
 EVM_GAS_DRIP_WEI=200000000000000     # 0.0002 ETH per account
@@ -48,13 +53,15 @@ EVM_GAS_DRIP_WEI=200000000000000     # 0.0002 ETH per account
 The deployed address is also the Asset row's `issuerPublicKey`, and `TOKEN_MINTER`'s private key is the
 issuer/minter secret PayChain signs mints with.
 
-## Scope & boundaries (Phase 1)
+## Scope & boundaries
 - **Testnet only.** Base mainnet (`EVM_CHAIN=base`) is fail-closed at boot until the minter key is
   HSM/KMS-backed — issuing real value with an in-process key is the same risk the Stellar mainnet gate
   refuses.
-- **Custody = PayChain signs.** Freeze is enforced app-side (PayChain declines to sign for a frozen
-  wallet); a plain ERC-20 has no per-account freeze. On-chain freeze would need a pausable/blacklist
-  token (Phase 2).
-- **Balance enumeration.** `getBalance` reports only the configured `EVM_TOKEN_ADDRESS` — EVM has no
-  on-chain trustline list. Multi-merchant-coin balances and transaction history need a log indexer
-  (Phase 2).
+- **Custody = PayChain signs**, with on-chain freeze as defence-in-depth: freeze is now enforced both
+  app-side (PayChain declines to sign for a frozen wallet) **and** on chain (`freeze`/`unfreeze` via
+  `FREEZER_ROLE`), so a leaked account key still cannot move value.
+- **Balance enumeration.** `getBalance` reports the configured coins (`EVM_TOKEN_ADDRESS` +
+  `EVM_TOKEN_ADDRESSES`), and the provider also accepts an injected resolver so dynamically-provisioned
+  merchant coins can be enumerated from the EVM Asset rows.
+- **Still Phase 2b (next):** `getTransactionHistory` and the streaming reconciliation listener — both
+  need a chunked `eth_getLogs` scanner with a persisted block cursor.

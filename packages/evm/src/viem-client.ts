@@ -105,6 +105,26 @@ export class ViemChainClient implements EvmChainClient {
     } as never);
   }
 
+  async erc20Freeze(token: string, freezerSecret: string, account: string): Promise<string> {
+    return this.wallet(freezerSecret).writeContract({
+      address: asHex(token),
+      abi: ERC20_ABI,
+      functionName: 'freeze',
+      args: [asHex(account)],
+      chain: this.chain,
+    } as never);
+  }
+
+  async erc20Unfreeze(token: string, freezerSecret: string, account: string): Promise<string> {
+    return this.wallet(freezerSecret).writeContract({
+      address: asHex(token),
+      abi: ERC20_ABI,
+      functionName: 'unfreeze',
+      args: [asHex(account)],
+      chain: this.chain,
+    } as never);
+  }
+
   async receipt(hash: string): Promise<EvmTxReceipt | null> {
     try {
       const r = await this.public.getTransactionReceipt({ hash: asHex(hash) });
