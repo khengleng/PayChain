@@ -16,6 +16,10 @@ function statefulPrisma(initial: Record<string, unknown>) {
   return {
     store: () => rec,
     stablecoinMintRequest: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        rec = { id: 'm1', ...data };
+        return { ...rec };
+      },
       findUnique: async () => ({ ...rec }),
       update: async ({ data }: { data: Record<string, unknown> }) => {
         rec = { ...rec, ...data };
@@ -55,6 +59,7 @@ const deps = (
   reserve?: unknown,
   walletPolicy?: unknown,
   flags?: unknown,
+  earnCeiling?: string,
 ) =>
   new MintService(
     prisma as never,
@@ -82,7 +87,58 @@ const deps = (
     // tests, and the sagas have dedicated §27 tests below.
     (walletPolicy ?? { assertAllowed: jest.fn().mockResolvedValue(undefined) }) as never,
     { requestMintAuthorization: jest.fn().mockResolvedValue({ requested: false }) } as never,
+    { STABLECOIN_EARN_AUTO_APPROVE_MAX_AMOUNT: earnCeiling ?? '0' } as never,
   );
+
+describe('MintService.earn (loyalty auto-approve)', () => {
+  const requested = () => ({
+    tenantId: 't1',
+    assetId: 'a1',
+    amount: '40000',
+    status: 'REQUESTED',
+    fundingReference: 'FUND-1',
+    reserveConfirmed: false,
+  });
+  const auth = { tenantId: 't1', clientId: 'paykh' } as never;
+
+  it('below the ceiling: auto-approves (no human) and drives to on-chain SUBMITTED', async () => {
+    const prisma = statefulPrisma(requested());
+    const issueAsset = jest.fn().mockResolvedValue({ transactionHash: '0xhash', submitted: true });
+    // ceiling 100000; earn amount 40000 < ceiling → auto-approve
+    const svc = deps(prisma, { issueAsset }, { confirmFunding: async () => ({ confirmed: true }) },
+      undefined, undefined, undefined, undefined, '100000');
+
+    const res = await svc.earn(auth, 'a1', { destinationWalletId: 'w1', amount: '40000', fundingReference: 'FUND-1' }, 'corr-1');
+
+    expect(res.status).toBe('SUBMITTED');
+    expect(issueAsset).toHaveBeenCalledTimes(1);
+    expect(String(res.approvedBy)).toMatch(/^system:earn:/); // system-approved, not a human checker
+  });
+
+  it('at/above the ceiling: falls back to human maker-checker (stops at APPROVAL_REQUIRED, no mint)', async () => {
+    const prisma = statefulPrisma(requested());
+    const issueAsset = jest.fn();
+    // ceiling 100000; earn amount 100000 is NOT strictly below → not auto-approvable
+    const svc = deps(prisma, { issueAsset }, { confirmFunding: async () => ({ confirmed: true }) },
+      undefined, undefined, undefined, undefined, '100000');
+
+    const res = await svc.earn(auth, 'a1', { destinationWalletId: 'w1', amount: '100000', fundingReference: 'FUND-1' }, 'corr-2');
+
+    expect(res.status).toBe('APPROVAL_REQUIRED');
+    expect(issueAsset).not.toHaveBeenCalled();
+  });
+
+  it('default ceiling 0 disables auto-approval entirely (every earn awaits a human)', async () => {
+    const prisma = statefulPrisma(requested());
+    const issueAsset = jest.fn();
+    const svc = deps(prisma, { issueAsset }, { confirmFunding: async () => ({ confirmed: true }) }); // ceiling defaults to '0'
+
+    const res = await svc.earn(auth, 'a1', { destinationWalletId: 'w1', amount: '40000', fundingReference: 'FUND-1' }, 'corr-3');
+
+    expect(res.status).toBe('APPROVAL_REQUIRED');
+    expect(issueAsset).not.toHaveBeenCalled();
+  });
+});
 
 describe('MintService saga', () => {
   it('never advances toward minting until reserve/funding is confirmed (§22)', async () => {

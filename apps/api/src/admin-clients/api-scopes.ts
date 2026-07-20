@@ -27,6 +27,12 @@ export const API_SCOPES = [
   // separate from stablecoin.manage so a merchant platform (PayKH) can create merchant coins
   // without controlling the lifecycle of every coin under its tenant.
   'stablecoin.provision',
+  // Award loyalty points as a reserve-backed mint via POST /stablecoins/:id/earn — the automated,
+  // single-call issuance path a loyalty platform (PayKH) uses per customer purchase. Below the
+  // configured auto-approve threshold it mints without a human checker; every other control (reserve
+  // sufficiency, trustee authorization, compliance, daily limit) still applies. Value-creating, so
+  // separate from stablecoin.provision (create-only) and out of default presets.
+  'stablecoin.earn',
   // Spend merchant points on goods: burns the customer's points (reducing supply) and frees the
   // backing reserve. Separate from stablecoin.manage so a point-of-sale integration can settle
   // purchases without holding mint/redeem/lifecycle authority.
@@ -82,6 +88,10 @@ export const TRUSTEE_INTEGRATION_SCOPES: ApiScope[] = [
 export const MERCHANT_PLATFORM_SCOPES: ApiScope[] = [
   ...LOYALTY_INTEGRATION_SCOPES,
   'stablecoin.provision',
+  // Award reserve-backed points per purchase (the loop PayKH drives). Value-creating but the core
+  // of the merchant-platform flow, so included here; still gated by the reserve/trustee/compliance
+  // controls and the auto-approve threshold.
+  'stablecoin.earn',
 ];
 
 /**
@@ -94,6 +104,7 @@ export const SENSITIVE_SCOPES: ApiScope[] = [
   'stablecoin.manage',
   'stablecoin.approve',
   'stablecoin.provision',
+  'stablecoin.earn',
   'stablecoin.spend',
   'stablecoin.exchange',
   'reserve.read',

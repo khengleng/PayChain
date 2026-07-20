@@ -48,6 +48,14 @@ const envSchema = z.object({
   // Compensating transactions at/above this amount require maker-checker approval (§19).
   COMPENSATION_APPROVAL_THRESHOLD: z.coerce.number().nonnegative().default(100000),
 
+  // Loyalty 'earn' auto-approval ceiling (POST /stablecoins/:id/earn). An earn whose amount is
+  // strictly below this mints WITHOUT a human checker (system-approved + audited); at or above it,
+  // the mint falls back to human maker-checker. Every other control — reserve sufficiency, trustee
+  // authorization, compliance, daily limit — still applies regardless. A decimal string in the coin's
+  // own units (points). Default '0' disables auto-approval entirely (every earn needs a human), so
+  // the bypass only exists once an operator deliberately sets a ceiling.
+  STABLECOIN_EARN_AUTO_APPROVE_MAX_AMOUNT: z.string().default('0'),
+
   /**
    * How long a reserve figure stays usable for minting (§23: "Do not mint on stale or
    * unreconciled reserve data").

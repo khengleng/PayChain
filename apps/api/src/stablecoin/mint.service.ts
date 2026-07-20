@@ -15,6 +15,8 @@ import { AuditService } from '../audit/audit.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { COMPLIANCE_PROVIDER } from '../compliance/compliance.module';
 import { addAmounts, assertValidAmount, compareAmounts, sumAmounts } from '../common/money';
+import { CONFIG } from '../config/config.module';
+import type { PayChainConfig } from '@paychain/config';
 import type { AuthContext } from '../auth/auth-context';
 import { ReserveService } from './reserve.service';
 import { assertWalletCanTransact } from '../wallets/wallet-status';
@@ -24,6 +26,11 @@ import {
   type ReserveFundingProvider,
 } from './providers/providers.module';
 import { TrusteeApiClient } from './providers/trustee-api-client.service';
+
+/** Terminal saga states — the earn driver stops here (no further advance is possible/needed). */
+function isTerminalMintStatus(status: string): boolean {
+  return status === 'RECONCILED' || status === 'FAILED' || status === 'REJECTED';
+}
 
 /**
  * Mint request saga (§22, §0.5). A persisted, resumable state machine. The 8 preconditions
@@ -44,7 +51,13 @@ export class MintService {
     private readonly reserve: ReserveService,
     private readonly walletPolicy: WalletPolicyService,
     private readonly trusteeApi: TrusteeApiClient,
-  ) {}
+    @Inject(CONFIG) cfg: PayChainConfig,
+  ) {
+    this.earnAutoApproveMax = cfg.STABLECOIN_EARN_AUTO_APPROVE_MAX_AMOUNT;
+  }
+
+  /** Earns strictly below this amount auto-approve (no human checker); '0' disables auto-approval. */
+  private readonly earnAutoApproveMax: string;
 
   async request(
     auth: AuthContext,
@@ -96,6 +109,91 @@ export class MintService {
       throw new ForbiddenException('The requester of a mint cannot approve it');
     }
     return this.set(req.id, { status: 'APPROVED', approvedBy: auth.clientId });
+  }
+
+  /**
+   * Award loyalty points as a reserve-backed mint in a single call (POST /stablecoins/:id/earn) —
+   * the automated issuance path a loyalty platform (PayKH) drives per purchase, instead of the
+   * manual request → human-approve → advance saga.
+   *
+   * Creates a mint request and drives the saga inline through reserve + compliance. Below the
+   * configured auto-approve ceiling it SYSTEM-approves (no human checker) and continues to on-chain
+   * submission; at/above the ceiling it stops at APPROVAL_REQUIRED for human maker-checker. Every
+   * other guard is untouched — reserve sufficiency, trustee authorization, compliance, daily limit
+   * all run exactly as in the manual saga (they live in the shared steps, not here).
+   *
+   * Stops at SUBMITTED: chain confirmation → RECONCILED continues via advance() just like the manual
+   * flow, so the HTTP call never blocks on chain finality. On success the mint's on-chain supply
+   * exists, which is what the trustee verifies.
+   */
+  async earn(
+    auth: AuthContext,
+    assetId: string,
+    input: { destinationWalletId: string; amount: string; fundingReference?: string; idempotencyKey?: string },
+    correlationId: string,
+  ): Promise<StablecoinMintRequest> {
+    let req = await this.request(auth, assetId, input, correlationId);
+    // Bounded driver: REQUESTED → reserve → compliance → (auto-)approve → mint is a handful of
+    // transitions. The cap is a backstop against a state that legitimately never terminates (e.g.
+    // funding never confirms), so the request returns rather than spinning.
+    for (let step = 0; step < 10; step += 1) {
+      if (isTerminalMintStatus(req.status) || req.status === 'SUBMITTED' || req.status === 'CONFIRMED') {
+        break;
+      }
+      if (req.status === 'APPROVAL_REQUIRED') {
+        if (this.isEarnAutoApprovable(req.amount)) {
+          req = await this.systemApprove(auth, req, correlationId);
+          continue;
+        }
+        break; // at/above the ceiling — hand off to human maker-checker
+      }
+      try {
+        req = await this.advance(auth.tenantId, req.id);
+      } catch {
+        // A guard declined to advance right now (trustee authorization not yet delivered, funding
+        // unconfirmed, …). Never fail the earn on this — return where it rests; it resumes on the
+        // next advance() (manual, or once the async trustee authorization lands).
+        break;
+      }
+    }
+    return req;
+  }
+
+  /** Strictly below the configured ceiling; ceiling '0' (default) disables auto-approval entirely. */
+  private isEarnAutoApprovable(amount: string): boolean {
+    return compareAmounts(this.earnAutoApproveMax, '0') > 0 && compareAmounts(amount, this.earnAutoApproveMax) < 0;
+  }
+
+  /**
+   * System (non-human) approval for an auto-approvable earn. Re-derives the ceiling check
+   * server-side — never trusts the caller — and records a distinct, attributable audit action.
+   * Deliberately bypasses the requester≠approver rule: below the ceiling, the policy IS that no
+   * human checker is required. At/above it, this refuses and the mint stays for maker-checker.
+   */
+  private async systemApprove(
+    auth: AuthContext,
+    req: StablecoinMintRequest,
+    correlationId: string,
+  ): Promise<StablecoinMintRequest> {
+    if (req.status !== 'APPROVAL_REQUIRED') {
+      throw new BadRequestException(`Mint is not awaiting approval (status=${req.status})`);
+    }
+    if (!this.isEarnAutoApprovable(req.amount)) {
+      throw new BadRequestException(
+        'Earn amount is at or above the auto-approve ceiling — human approval required',
+      );
+    }
+    const actor = `system:earn:${auth.clientId}`;
+    await this.audit.record({
+      tenantId: req.tenantId,
+      actor,
+      action: 'stablecoin.mint.auto_approved',
+      resourceType: 'stablecoin_mint_request',
+      resourceId: req.id,
+      correlationId,
+      metadata: { amount: req.amount, ceiling: this.earnAutoApproveMax },
+    });
+    return this.set(req.id, { status: 'APPROVED', approvedBy: actor });
   }
 
   /**
