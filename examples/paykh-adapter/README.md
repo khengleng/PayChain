@@ -6,6 +6,9 @@ PayChain build.
 
 - `adapter.ts` — loyalty operations (wallet, purchase/referral/scratch rewards, redeem, transfer,
   balance) with deterministic idempotency keys.
+- `payment-success.ts` — payment-settled orchestration, pending-vs-confirmed reward state, webhook
+  confirmation, and a reconciliation sweep that polls transaction status and replays timed-out
+  earns under their original idempotency key.
 - `webhook-handler.ts` — verify (HMAC + timestamp) and dispatch PayChain webhooks.
 - `stablecoin-preview.ts` — the future stablecoin surface, **disabled** until readiness gates pass.
 - `dual-run.ts` — shadow/dual-run ledger comparison for migration.

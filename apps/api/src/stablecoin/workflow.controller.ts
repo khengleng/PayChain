@@ -70,12 +70,17 @@ export class StablecoinWorkflowController {
   }
 
   /**
-   * Award loyalty points as a reserve-backed mint in one call — the PayKH earn loop. Hosted at the
-   * path the published API contract already advertises (POST /assets/{assetId}/earn), keyed on the
+   * Award loyalty points as a reserve-backed mint in one call — the PayKH earn loop. Keyed on the
    * asset id exactly as mint-requests are. Same reserve / trustee / compliance / daily-limit guards
    * as the manual saga; below the configured ceiling it mints without a human checker (MintService.earn).
+   *
+   * Hosted under /stablecoins, NOT /assets/{assetId}/earn: that path belongs to the loyalty rules
+   * engine (LoyaltyController), whose module is registered first and would shadow this handler
+   * entirely. The two are different products — rules-engine earn computes points from spend and
+   * records a Transaction; this mints a caller-computed amount through the reserve saga and returns
+   * a StablecoinMintRequest. See the route-ownership spec in loyalty/earn-route.spec.ts.
    */
-  @Post('assets/:assetId/earn')
+  @Post('stablecoins/:assetId/earn')
   @RequireScopes('stablecoin.earn')
   earn(
     @CurrentAuth() auth: AuthContext,

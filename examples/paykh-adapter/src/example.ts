@@ -7,6 +7,10 @@
  *   pnpm --filter @paychain/example-paykh-adapter example
  */
 import { PayKhPayChainAdapter } from './adapter';
+import {
+  InMemoryPaymentRewardStateStore,
+  PayKhPaymentRewardOrchestrator,
+} from './payment-success';
 
 async function main(): Promise<void> {
   const adapter = new PayKhPayChainAdapter({
@@ -16,28 +20,25 @@ async function main(): Promise<void> {
     loyaltyAssetId: process.env.LOYALTY_ASSET_ID ?? '',
     loyaltyAssetCode: process.env.LOYALTY_ASSET_CODE ?? 'PTS',
   });
+  const rewards = new PayKhPaymentRewardOrchestrator(adapter, new InMemoryPaymentRewardStateStore());
 
   const customerId = `demo-${process.env.CUSTOMER_SUFFIX ?? 'alice'}`;
-  const wallet = await adapter.ensureCustomerWallet(customerId);
-   
-  console.log('wallet:', wallet);
-
-  const reward = await adapter.awardPurchaseReward({
-    eventId: `purchase-${customerId}-1`,
-    walletId: wallet.id,
+  const reward = await rewards.handlePaymentSuccess({
+    paymentId: `purchase-${customerId}-1`,
+    customerId,
     spendAmount: '5',
     currency: 'USD',
   });
-   
-  console.log('reward:', reward);
+  console.log('reward request:', reward.record);
 
-  const balance = await adapter.getPointsBalance(wallet.id);
-   
+  const sweep = await rewards.reconcilePendingRewards();
+  console.log('reconciliation sweep:', sweep);
+
+  const balance = await adapter.getPointsBalance(reward.record.walletId);
   console.log('balance:', balance);
 }
 
 void main().catch((err) => {
-   
   console.error(err);
   process.exit(1);
 });

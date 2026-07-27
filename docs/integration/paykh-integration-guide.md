@@ -49,6 +49,33 @@ Idempotency key `paykh:wallet:{customerId}` guarantees one wallet per customer e
 **Every** money-moving call carries a deterministic idempotency key derived from PayKH's own
 event id, so at-least-once queues and network retries never double-award (§18).
 
+For a real payment-completion path, PayKH should wrap the low-level earn call in a
+payment-settled orchestrator:
+
+```ts
+const result = await rewards.handlePaymentSuccess({
+  paymentId: payment.id,
+  customerId: payment.customerId,
+  spendAmount: payment.amountUsd,
+  currency: 'USD',
+  merchantId: payment.storeId,
+});
+```
+
+The orchestrator writes its record **before** calling earn, so a request that times out leaves a
+recoverable `REWARD_REQUESTED` row rather than a payment PayKH has lost sight of. It then folds in
+whatever PayChain returned: `CONFIRMED` only if the earn response already carried a confirmed
+transaction, otherwise `PENDING_CONFIRMATION` until a webhook or a status poll settles it. Do not
+treat *submission* as settlement — but do trust a status that says `CONFIRMED`.
+
+> **Two different earn endpoints.** `awardPurchaseReward` calls `POST /assets/{assetId}/earn`, the
+> loyalty rules engine: PayKH passes the **purchase** (`spendAmount`/`currency`) and PayChain
+> computes the points, issues them and records a Transaction. That is the path this guide describes.
+> `POST /stablecoins/{assetId}/earn` is a different product — a reserve-backed mint of a
+> **caller-computed** `amount` through the trustee/compliance saga. It mints on-chain directly, so
+> it returns a mint request rather than a Transaction and emits no `asset.issued` webhook; track it
+> by polling the mint request, not with the flow below.
+
 ## 4. Transaction status
 
 ```ts
@@ -58,19 +85,56 @@ const tx = await adapter.getTransactionStatus(transactionId); // { id, status, b
 Submission is not confirmation (§40): a transaction may be `PENDING_CONFIRMATION` briefly. Read
 the confirmed state, or subscribe to webhooks.
 
+PayChain's statuses map onto three outcomes PayKH must handle differently — the orchestrator's
+`classifyTransactionStatus` is the single place this mapping lives:
+
+| PayChain status | Reward outcome |
+|---|---|
+| `CONFIRMED` | `CONFIRMED` — settled |
+| `RECEIVED`, `VALIDATING`, `QUEUED`, `SIGNING`, `SUBMITTED`, `PENDING_CONFIRMATION`, `APPROVED` | `PENDING_CONFIRMATION` — keep polling |
+| `APPROVAL_REQUIRED` | `PENDING_CONFIRMATION`, but it rests here until a human acts — alert on age |
+| `REJECTED`, `FAILED`, `EXPIRED`, `REVERSED_BY_COMPENSATION` | `FAILED` — terminal; reverse the points on PayKH's side |
+| `RECONCILIATION_REQUIRED` | `NEEDS_RECONCILIATION` — PayChain's ledger and the chain disagree; escalate |
+
+Note `REVERSED_BY_COMPENSATION`: an award undone after the fact is terminal, not pending. Treating
+it as in-flight is how a clawed-back reward stays live in the loyalty balance.
+
 ## 5. Webhook handling
 
 Register a PayKH endpoint in the developer portal, then verify + dispatch:
 
 ```ts
 const result = await handleWebhook(webhookSecret, rawBody, req.headers, {
-  'asset.issued': async (p) => markRewardConfirmed(p.transactionId),
+  'asset.issued': async (p, meta) => {
+    await rewards.buildWebhookDispatch()['asset.issued']?.(p, meta);
+  },
   'asset.redeemed': async (p) => markRedemptionConfirmed(p.transactionId),
 });
 ```
 
 Verification checks the HMAC signature + timestamp (replay protection). Treat delivery as
 at-least-once; dedupe handlers on `deliveryId` / `transactionId`.
+
+The `asset.issued` payload is `{transactionId, type, status, assetId, amount, blockchainHash}` — it
+carries no business reference or idempotency key, so `transactionId` is the only join back to a
+PayKH payment. Two consequences worth designing for:
+
+- **Store the transaction id** as soon as earn returns it; it is the only correlation you get.
+- **The event is not a confirmation.** PayChain emits `asset.issued` when it records the
+  transaction, with `status` either `CONFIRMED` or `PENDING_CONFIRMATION`. Classify the carried
+  `status`; do not infer settlement from the event name.
+
+If webhook delivery is delayed or missed — or an earn call never returned a transaction id —
+reconcile by sweeping:
+
+```ts
+const sweep = await rewards.reconcilePendingRewards();
+if (sweep.failed > 0 || sweep.needsReconciliation > 0) escalate(sweep);
+```
+
+The sweep polls transaction status for records that have a transaction id, and for those that do
+not it **replays the earn under its original `paykh:earn:{paymentId}` key** — PayChain dedupes on
+that key and returns the original award, so recovering a timed-out call cannot double-award.
 
 ## 6. Failure handling
 
