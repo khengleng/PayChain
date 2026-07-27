@@ -18,6 +18,11 @@ export interface WebhookEvent {
   payload: Record<string, unknown>;
 }
 
+export interface WebhookMeta {
+  eventType: string;
+  deliveryId?: string;
+}
+
 export class WebhookVerificationError extends Error {}
 
 export function verifyAndParseWebhook(
@@ -40,7 +45,9 @@ export function verifyAndParseWebhook(
   };
 }
 
-export type WebhookDispatch = Partial<Record<string, (payload: Record<string, unknown>) => Promise<void> | void>>;
+export type WebhookDispatch = Partial<
+  Record<string, (payload: Record<string, unknown>, meta: WebhookMeta) => Promise<void> | void>
+>;
 
 /**
  * Verifies then routes an event to a handler. Unknown events are ignored (forward-compatible).
@@ -54,6 +61,6 @@ export async function handleWebhook(
 ): Promise<{ handled: boolean; eventType: string }> {
   const event = verifyAndParseWebhook(secret, rawBody, headers);
   const handler = dispatch[event.eventType];
-  if (handler) await handler(event.payload);
+  if (handler) await handler(event.payload, { eventType: event.eventType, deliveryId: event.deliveryId });
   return { handled: Boolean(handler), eventType: event.eventType };
 }

@@ -257,11 +257,39 @@ const schemas: Record<string, Schema> = {
       amount: { type: 'string', example: '25' },
     },
   },
-  // Earn awards a caller-computed number of points as a reserve-backed mint. The loyalty platform
-  // (PayKH) evaluates its own earn rules from the purchase and passes the resulting `amount`; PayChain
-  // mints it through the reserve/trustee/compliance-gated saga. So the shape is the mint shape, not a
-  // purchase (spendAmount/currency) — PayChain does not run the merchant's rules engine.
+  // PayChain exposes TWO distinct earn products. They are not interchangeable, and each has its
+  // own path, scope, request shape and result — see the two path entries below.
+  //
+  // 1. Rules-engine earn (POST /assets/{assetId}/earn). The caller passes the PURCHASE
+  //    (spendAmount/currency) and PayChain's rules engine computes the points, issues them, and
+  //    records a Transaction.
   EarnRequest: {
+    type: 'object',
+    required: ['walletId', 'spendAmount', 'currency'],
+    properties: {
+      walletId: { type: 'string', description: 'The customer wallet to receive the points.' },
+      spendAmount: { type: 'string', example: '5', description: 'Decimal string of spend that drives the rules engine.' },
+      currency: { type: 'string', maxLength: 8, example: 'USD' },
+      merchantId: { type: 'string', description: 'Optional merchant context for merchant-specific rules.' },
+    },
+  },
+  EarnResult: {
+    type: 'object',
+    required: ['points', 'appliedRules', 'transaction'],
+    properties: {
+      points: { type: 'string', example: '100', description: 'Points awarded ("0" when no rule matched).' },
+      appliedRules: { type: 'array', items: { type: 'string' }, example: ['base'] },
+      transaction: {
+        allOf: [{ $ref: '#/components/schemas/TransactionRecord' }],
+        nullable: true,
+        description: 'The issuing transaction, or null when the rules awarded 0 points.',
+      },
+    },
+  },
+  // 2. Reserve-backed earn mint (POST /stablecoins/{assetId}/earn). The loyalty platform evaluates
+  //    its OWN earn rules and passes the resulting `amount`; PayChain mints it through the
+  //    reserve/trustee/compliance-gated saga and returns a mint request — not a Transaction.
+  StablecoinEarnRequest: {
     type: 'object',
     required: ['destinationWalletId', 'amount'],
     properties: {
@@ -639,17 +667,36 @@ const paths: Record<string, Record<string, Operation>> = {
   },
   [`${API_PREFIX}/assets/{assetId}/earn`]: {
     post: withStandardHeaders({
-      tags: ['Stablecoins'],
+      tags: ['Assets'],
       operationId: 'earnAsset',
+      summary: 'Award loyalty points from a purchase (rules engine)',
+      description:
+        "Evaluates PayChain's loyalty rules engine against the purchase (spendAmount/currency, with " +
+        'optional merchantId), then issues the resulting points to the wallet and records a Transaction. ' +
+        'When no rule matches, returns points "0" and a null transaction. For reserve-backed minting of a ' +
+        'caller-computed amount, use POST /stablecoins/{assetId}/earn instead.',
+      security: bearer(['asset.issue']),
+      parameters: [{ $ref: '#/components/parameters/AssetId' }],
+      requestBody: jsonBody('#/components/schemas/EarnRequest'),
+      responses: {
+        200: jsonResponse('Points awarded and the issuing transaction', '#/components/schemas/EarnResult'),
+      },
+    }, { idempotent: true }),
+  },
+  [`${API_PREFIX}/stablecoins/{assetId}/earn`]: {
+    post: withStandardHeaders({
+      tags: ['Stablecoin Workflows'],
+      operationId: 'earnStablecoin',
       summary: 'Award loyalty points as a reserve-backed mint (single call)',
       description:
         'Mints a caller-computed number of points to a customer wallet through the reserve/trustee/' +
         'compliance-gated mint saga. Below STABLECOIN_EARN_AUTO_APPROVE_MAX_AMOUNT it mints without a ' +
         'human checker; at/above it, the mint falls back to maker-checker (returned in APPROVAL_REQUIRED). ' +
-        'Returns the mint request; on-chain confirmation completes asynchronously.',
+        'Returns the mint request; on-chain confirmation completes asynchronously. This path mints directly ' +
+        'on-chain, so it records no Transaction and emits no asset.issued webhook — poll the mint request.',
       security: bearer(['stablecoin.earn']),
       parameters: [{ $ref: '#/components/parameters/AssetId' }],
-      requestBody: jsonBody('#/components/schemas/EarnRequest'),
+      requestBody: jsonBody('#/components/schemas/StablecoinEarnRequest'),
       responses: {
         200: {
           description: 'Mint workflow record (status SUBMITTED on success, or APPROVAL_REQUIRED above the ceiling)',

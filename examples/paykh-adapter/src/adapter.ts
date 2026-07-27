@@ -36,17 +36,18 @@ export interface PayKhAdapterConfig {
   features?: { stablecoin?: boolean };
 }
 
-interface WalletResult {
+export interface WalletResult {
   id: string;
   stellarAccountId: string;
   status: string;
 }
-interface TxResult {
+export interface TxResult {
   id: string;
+  /** A PayChain TransactionStatus — see PayChainTransactionStatus in payment-success.ts. */
   status: string;
   blockchainHash: string | null;
 }
-interface EarnResult {
+export interface EarnResult {
   points: string;
   appliedRules: string[];
   transaction: TxResult | null;
